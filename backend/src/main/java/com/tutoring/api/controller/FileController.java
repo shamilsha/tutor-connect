@@ -12,49 +12,39 @@ import java.net.MalformedURLException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/files")
 @CrossOrigin(origins = "http://localhost:3000")
 public class FileController {
-    private final Path fileStorageLocation = Paths.get("uploads");
-
-    public FileController() {
-        try {
-            Files.createDirectories(fileStorageLocation);
-        } catch (IOException e) {
-            throw new RuntimeException("Could not create upload directory!", e);
-        }
-    }
+    private final Path uploadDir = Paths.get("uploads");
 
     @PostMapping("/upload")
     public ResponseEntity<String> uploadFile(@RequestParam("file") MultipartFile file) {
         try {
-            // Save file
-            Path targetLocation = fileStorageLocation.resolve(file.getOriginalFilename());
-            Files.copy(file.getInputStream(), targetLocation);
-            
-            return ResponseEntity.ok(file.getOriginalFilename());
+            if (!Files.exists(uploadDir)) {
+                Files.createDirectories(uploadDir);
+            }
+            String filename = UUID.randomUUID() + "-" + file.getOriginalFilename();
+            Path filePath = uploadDir.resolve(filename);
+            Files.copy(file.getInputStream(), filePath);
+            return ResponseEntity.ok(filename);
         } catch (IOException e) {
-            return ResponseEntity.badRequest().body("Could not upload file");
+            return ResponseEntity.badRequest().body(e.getMessage());
         }
     }
 
-    @GetMapping("/pdf/{filename}")
-    public ResponseEntity<Resource> getPdfFile(@PathVariable String filename) {
+    @GetMapping("/{filename}")
+    public ResponseEntity<Resource> getFile(@PathVariable String filename) {
         try {
-            Path filePath = fileStorageLocation.resolve(filename);
-            Resource resource = new UrlResource(filePath.toUri());
-            
-            if (resource.exists()) {
-                return ResponseEntity.ok()
-                    .contentType(MediaType.APPLICATION_PDF)
-                    .body(resource);
-            } else {
-                return ResponseEntity.notFound().build();
-            }
-        } catch (MalformedURLException e) {
-            return ResponseEntity.badRequest().build();
+            Path file = uploadDir.resolve(filename);
+            Resource resource = new UrlResource(file.toUri());
+            return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .body(resource);
+        } catch (IOException e) {
+            return ResponseEntity.notFound().build();
         }
     }
 } 

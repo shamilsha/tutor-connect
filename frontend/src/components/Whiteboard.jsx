@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Document, Page } from 'react-pdf/dist/esm/entry.webpack';
 import '../styles/pdf.css';
 import { pdfjs } from 'react-pdf';
+import axios from 'axios';
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
@@ -58,9 +59,10 @@ const Whiteboard = ({ userId, username }) => {
 
   // WebSocket connection effect
   useEffect(() => {
+    console.log('Setting up WebSocket connection...');
+    
     const handleRemoteUpdate = (update) => {
       if (update.userId === userId) return;
-      console.log('Received remote update:', update);
 
       switch (update.action) {
         case 'draw':
@@ -86,35 +88,36 @@ const Whiteboard = ({ userId, username }) => {
           }
           break;
 
-        case 'state':
-          setLines(update.state.lines || []);
-          setShapes(update.state.shapes || []);
-          if (update.state.historyStep !== undefined && update.state.history) {
-            setHistory(update.state.history);
-            setHistoryStep(update.state.historyStep);
-            if (selectedShape) {
-              const updatedSelectedShape = update.state.shapes.find(s => s.id === selectedShape.id);
-              setSelectedShape(updatedSelectedShape || null);
-            }
+        case 'background':
+          if (update.background.type === 'pdf') {
+            setBackgroundFile(update.background.url);
+            setBackgroundType('pdf');
+            
+            // Add to history for remote user
+            const newHistory = [...history.slice(0, historyStep + 1), {
+              lines: lines,
+              shapes: shapes,
+              background: {
+                file: update.background.url,
+                type: 'pdf'
+              }
+            }];
+            setHistory(newHistory);
+            setHistoryStep(newHistory.length - 1);
           }
           break;
 
-        case 'background':
-          fetch(update.background.url)
-            .then(response => response.blob())
-            .then(blob => {
-              const newUrl = URL.createObjectURL(blob);
-              setBackgroundFile(newUrl);
-              setBackgroundType(update.background.type);
-            })
-            .catch(error => {
-              console.error('Error loading shared background:', error);
-            });
-          break;
-
-        case 'pageChange':
-          setCurrentPage(update.page.number);
-          setPdfPages(update.page.total);
+        case 'state':
+          setLines(update.state.lines || []);
+          setShapes(update.state.shapes || []);
+          if (update.state.background) {
+            setBackgroundFile(update.state.background.file);
+            setBackgroundType(update.state.background.type);
+          }
+          if (update.state.historyStep !== undefined && update.state.history) {
+            setHistory(update.state.history);
+            setHistoryStep(update.state.historyStep);
+          }
           break;
 
         default:
@@ -122,8 +125,6 @@ const Whiteboard = ({ userId, username }) => {
           break;
       }
     };
-
-    console.log('Connecting to WebSocket...', { userId, username });
 
     const client = new Client({
       webSocketFactory: () => new SockJS('http://localhost:8081/ws'),
@@ -138,18 +139,21 @@ const Whiteboard = ({ userId, username }) => {
         setStompClient(client);
 
         client.subscribe('/topic/whiteboard', (message) => {
+          console.log('Received message on /topic/whiteboard:', message.body);  // Add log
           try {
             const update = JSON.parse(message.body);
             if (update.userId !== userId) {
+              console.log('Processing remote update:', update);
               handleRemoteUpdate(update);
+            } else {
+              console.log('Ignoring own message');
             }
           } catch (error) {
-            console.error('Error processing whiteboard message:', error);
+            console.error('Error processing message:', error);
           }
         });
 
         client.subscribe('/topic/cursors', (message) => {
-          console.log('Received cursor update:', message.body);
           const cursorUpdate = JSON.parse(message.body);
           if (cursorUpdate.userId !== userId) {
             updateRemoteCursor(cursorUpdate);
@@ -537,76 +541,104 @@ const Whiteboard = ({ userId, username }) => {
   };
 
   const handleDragEnd = (e) => {
-    if (!selectedShape) return;
-    
-    const updatedShapes = shapes.map(shape => {
-      if (shape.id === selectedShape.id) {
-        return {
-          ...shape,
-          x: e.target.x(),
-          y: e.target.y()
-        };
-      }
-      return shape;
-    });
-    setShapes(updatedShapes);
-    
-    // Send the updated shape position to other users
-    const updatedShape = updatedShapes.find(s => s.id === selectedShape.id);
-    if (updatedShape && stompClient?.connected) {
+    const shape = e.target;
+    const updatedShape = {
+      ...shapes.find(s => s.id === shape.id()),
+      x: shape.x(),
+      y: shape.y()
+    };
+
+    // Update shapes
+    setShapes(prev => prev.map(s => 
+      s.id === shape.id() ? updatedShape : s
+    ));
+
+    // Add to history
+    const newHistory = [...history.slice(0, historyStep + 1), {
+      lines,
+      shapes: shapes.map(s => s.id === shape.id() ? updatedShape : s),
+      background: backgroundFile ? {
+        file: backgroundFile,
+        type: backgroundType
+      } : null
+    }];
+    setHistory(newHistory);
+    setHistoryStep(newHistory.length - 1);
+
+    // Send update to other users
+    if (stompClient?.connected) {
       stompClient.publish({
         destination: '/topic/whiteboard',
         body: JSON.stringify({
           userId,
           username,
-          action: 'update',
-          shape: updatedShape
+          action: 'state',
+          state: {
+            lines,
+            shapes: shapes.map(s => s.id === shape.id() ? updatedShape : s),
+            background: backgroundFile ? {
+              file: backgroundFile,
+              type: backgroundType
+            } : null,
+            history: newHistory,
+            historyStep: newHistory.length - 1
+          }
         })
       });
     }
-    
-    addToHistory([...lines], updatedShapes);
   };
 
-  // Update handleTransformEnd to ensure proper history update
   const handleTransformEnd = (e) => {
     const node = e.target;
-    const id = node.id();
-    
-    const updatedShapes = shapes.map(shape => {
-      if (shape.id === id) {
-        // Create a new shape object with updated transform properties
-        const updatedShape = {
-          ...shape,
-          x: node.x(),
-          y: node.y(),
-          rotation: node.rotation(),
-          scaleX: node.scaleX(),
-          scaleY: node.scaleY()
-        };
-        return updatedShape;
-      }
-      return shape;
-    });
+    const scaleX = node.scaleX();
+    const scaleY = node.scaleY();
+    const rotation = node.rotation();
 
-    setShapes(updatedShapes);
-    
-    // Send the updated shape transformation to other users
-    const updatedShape = updatedShapes.find(s => s.id === id);
-    if (updatedShape && stompClient?.connected) {
+    const updatedShape = {
+      ...shapes.find(s => s.id === node.id()),
+      rotation,
+      scaleX,
+      scaleY
+    };
+
+    // Update shapes
+    setShapes(prev => prev.map(s => 
+      s.id === node.id() ? updatedShape : s
+    ));
+
+    // Add to history
+    const newHistory = [...history.slice(0, historyStep + 1), {
+      lines,
+      shapes: shapes.map(s => s.id === node.id() ? updatedShape : s),
+      background: backgroundFile ? {
+        file: backgroundFile,
+        type: backgroundType
+      } : null
+    }];
+    setHistory(newHistory);
+    setHistoryStep(newHistory.length - 1);
+
+    // Send update to other users
+    if (stompClient?.connected) {
       stompClient.publish({
         destination: '/topic/whiteboard',
         body: JSON.stringify({
           userId,
           username,
-          action: 'update',
-          shape: updatedShape
+          action: 'state',
+          state: {
+            lines,
+            shapes: shapes.map(s => s.id === node.id() ? updatedShape : s),
+            background: backgroundFile ? {
+              file: backgroundFile,
+              type: backgroundType
+            } : null,
+            history: newHistory,
+            historyStep: newHistory.length - 1
+          }
         })
       });
     }
-    
-    // Add to history after transformation
-    addToHistory([...lines], updatedShapes);
   };
 
   // Update handleShapeColorChange to only affect selected shape
@@ -680,64 +712,70 @@ const Whiteboard = ({ userId, username }) => {
     }
   };
 
+  // Update handleUndo to sync with other users
   const handleUndo = () => {
     if (historyStep > 0) {
       const newStep = historyStep - 1;
       const prevState = history[newStep];
-      
-      if (prevState) {
-        setLines(prevState.lines);
-        setShapes(prevState.shapes);
-        setHistoryStep(newStep);
+      setLines(prevState.lines);
+      setShapes(prevState.shapes);
+      if (prevState.background) {
+        setBackgroundFile(prevState.background.file);
+        setBackgroundType(prevState.background.type);
+      }
+      setHistoryStep(newStep);
 
-        // Send undo state to other users
-        if (stompClient?.connected) {
-          stompClient.publish({
-            destination: '/topic/whiteboard',
-            body: JSON.stringify({
-              userId,
-              username,
-              action: 'state',
-              state: {
-                lines: prevState.lines,
-                shapes: prevState.shapes,
-                historyStep: newStep,
-                history: history
-              }
-            })
-          });
-        }
+      // Send undo action to other users
+      if (stompClient?.connected) {
+        stompClient.publish({
+          destination: '/topic/whiteboard',
+          body: JSON.stringify({
+            userId,
+            username,
+            action: 'state',
+            state: {
+              lines: prevState.lines,
+              shapes: prevState.shapes,
+              background: prevState.background,
+              history: history,
+              historyStep: newStep
+            }
+          })
+        });
       }
     }
   };
 
+  // Update handleRedo to sync with other users
   const handleRedo = () => {
     if (historyStep < history.length - 1) {
       const newStep = historyStep + 1;
       const nextState = history[newStep];
-      
-      if (nextState) {
-        setLines(nextState.lines);
-        setShapes(nextState.shapes);
-        setHistoryStep(newStep);
+      setLines(nextState.lines);
+      setShapes(nextState.shapes);
+      if (nextState.background) {
+        setBackgroundFile(nextState.background.file);
+        setBackgroundType(nextState.background.type);
+      }
+      setHistoryStep(newStep);
 
-        // Send redo state to other users
-        if (stompClient?.connected) {
-          stompClient.publish({
-            destination: '/topic/whiteboard',
-            body: JSON.stringify({
-              userId,
-              username,
-              action: 'state',
-              state: {
-                lines: nextState.lines,
-                shapes: nextState.shapes,
-                historyStep: newStep,
-                history: history
-              }
-            })
-          });
-        }
+      // Send redo action to other users
+      if (stompClient?.connected) {
+        stompClient.publish({
+          destination: '/topic/whiteboard',
+          body: JSON.stringify({
+            userId,
+            username,
+            action: 'state',
+            state: {
+              lines: nextState.lines,
+              shapes: nextState.shapes,
+              background: nextState.background,
+              history: history,
+              historyStep: newStep
+            }
+          })
+        });
       }
     }
   };
@@ -784,35 +822,35 @@ const Whiteboard = ({ userId, username }) => {
   };
 
   // Update handleFileUpload to work locally
-  const handleFileUpload = (event) => {
+  const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
 
-    const fileType = file.type;
-    const fileUrl = URL.createObjectURL(file);
-
-    if (fileType.startsWith('image/')) {
-      const img = new Image();
-      img.onload = () => {
-        if (containerRef.current) {
-          const container = containerRef.current;
-          const containerWidth = container.clientWidth;
-          const containerHeight = container.clientHeight;
-          
-          const scaleX = containerWidth / img.width;
-          const scaleY = containerHeight / img.height;
-          const newScale = Math.min(scaleX, scaleY);
-          
-          setScale(newScale);
-          setContainerSize({
-            width: containerWidth,
-            height: containerHeight
-          });
-        }
+    if (file.type === 'application/pdf') {
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const response = await axios.post('http://localhost:8081/api/files/upload', formData);
+        const filename = response.data;
+        const fileUrl = `http://localhost:8081/api/files/${filename}`;
+        
+        // Update state and history
         setBackgroundFile(fileUrl);
-        setBackgroundType('image');
+        setBackgroundType('pdf');
+        setScale(1);
+        
+        // Add to history
+        const newHistory = [...history.slice(0, historyStep + 1), {
+          lines: lines,
+          shapes: shapes,
+          background: {
+            file: fileUrl,
+            type: 'pdf'
+          }
+        }];
+        setHistory(newHistory);
+        setHistoryStep(newHistory.length - 1);
 
-        // Share the file URL with other users
         if (stompClient?.connected) {
           stompClient.publish({
             destination: '/topic/whiteboard',
@@ -821,40 +859,14 @@ const Whiteboard = ({ userId, username }) => {
               username,
               action: 'background',
               background: {
-                type: 'image',
+                type: 'pdf',
                 url: fileUrl
               }
             })
           });
         }
-      };
-      img.src = fileUrl;
-    } else if (fileType === 'application/pdf') {
-      if (containerRef.current) {
-        const container = containerRef.current;
-        setContainerSize({
-          width: container.clientWidth,
-          height: container.clientHeight
-        });
-      }
-      setBackgroundFile(fileUrl);
-      setBackgroundType('pdf');
-      setScale(1); // Reset scale for PDF
-
-      // Share the file URL with other users
-      if (stompClient?.connected) {
-        stompClient.publish({
-          destination: '/topic/whiteboard',
-          body: JSON.stringify({
-            userId,
-            username,
-            action: 'background',
-            background: {
-              type: 'pdf',
-              url: fileUrl
-            }
-          })
-        });
+      } catch (error) {
+        console.error('Error uploading file:', error);
       }
     }
   };
