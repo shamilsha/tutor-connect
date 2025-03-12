@@ -26,11 +26,28 @@ public class FileController {
             if (!Files.exists(uploadDir)) {
                 Files.createDirectories(uploadDir);
             }
+            
+            // Add logging
+            System.out.println("Uploading file: " + file.getOriginalFilename());
+            System.out.println("File type: " + file.getContentType());
+            System.out.println("File size: " + file.getSize());
+            
             String filename = UUID.randomUUID() + "-" + file.getOriginalFilename();
             Path filePath = uploadDir.resolve(filename);
+            
+            // Check if file already exists
+            if (Files.exists(filePath)) {
+                Files.delete(filePath);
+            }
+            
             Files.copy(file.getInputStream(), filePath);
+            System.out.println("File saved to: " + filePath);
+            
             return ResponseEntity.ok(filename);
         } catch (IOException e) {
+            // Log the error
+            System.err.println("Error uploading file: " + e.getMessage());
+            e.printStackTrace();
             return ResponseEntity.badRequest().body(e.getMessage());
         }
     }
@@ -40,8 +57,17 @@ public class FileController {
         try {
             Path file = uploadDir.resolve(filename);
             Resource resource = new UrlResource(file.toUri());
+            
+            // Determine content type based on file extension
+            String contentType = "application/pdf";
+            if (filename.toLowerCase().endsWith(".jpg") || filename.toLowerCase().endsWith(".jpeg")) {
+                contentType = "image/jpeg";
+            } else if (filename.toLowerCase().endsWith(".png")) {
+                contentType = "image/png";
+            }
+            
             return ResponseEntity.ok()
-                .contentType(MediaType.APPLICATION_PDF)
+                .contentType(MediaType.parseMediaType(contentType))  // Set correct content type
                 .body(resource);
         } catch (IOException e) {
             return ResponseEntity.notFound().build();

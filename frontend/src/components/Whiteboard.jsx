@@ -93,17 +93,38 @@ const Whiteboard = ({ userId, username }) => {
             setBackgroundFile(update.background.url);
             setBackgroundType('pdf');
             
-            // Add to history for remote user
-            const newHistory = [...history.slice(0, historyStep + 1), {
-              lines: lines,
-              shapes: shapes,
+            // Clear everything and reset history
+            setShapes([]);
+            setLines([]);
+            const newPdfHistory = [{
+              lines: [],
+              shapes: [],
               background: {
                 file: update.background.url,
                 type: 'pdf'
               }
             }];
-            setHistory(newHistory);
-            setHistoryStep(newHistory.length - 1);
+            setHistory(newPdfHistory);
+            setHistoryStep(0);
+          } else if (update.background.type === 'image') {
+            // Handle image updates
+            setShapes([]);
+            setLines([]);
+            setBackgroundFile(update.background.url);
+            setBackgroundType('image');
+            setScale(1);
+            
+            // Clear everything and reset history
+            const newImageHistory = [{
+              lines: [],
+              shapes: [],
+              background: {
+                file: update.background.url,
+                type: 'image'
+              }
+            }];
+            setHistory(newImageHistory);
+            setHistoryStep(0);
           }
           break;
 
@@ -821,7 +842,54 @@ const Whiteboard = ({ userId, username }) => {
     ));
   };
 
-  // Update handleFileUpload to work locally
+  // Add new function for handling images
+  const handleImageUpload = async (file) => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await axios.post('http://localhost:8081/api/files/upload', formData);
+      const filename = response.data;
+      const fileUrl = `http://localhost:8081/api/files/${filename}`;
+      
+      // Clear everything
+      setShapes([]);
+      setLines([]);
+      setBackgroundFile(fileUrl);
+      setBackgroundType('image');
+      setScale(1);
+      
+      // Reset history
+      const newHistory = [{
+        lines: [],
+        shapes: [],
+        background: {
+          file: fileUrl,
+          type: 'image'
+        }
+      }];
+      setHistory(newHistory);
+      setHistoryStep(0);
+
+      if (stompClient?.connected) {
+        stompClient.publish({
+          destination: '/topic/whiteboard',
+          body: JSON.stringify({
+            userId,
+            username,
+            action: 'background',
+            background: {
+              type: 'image',
+              url: fileUrl  // Send server URL
+            }
+          })
+        });
+      }
+    } catch (error) {
+      console.error('Error uploading image:', error);
+    }
+  };
+
+  // Keep original handleFileUpload for PDF
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -834,22 +902,25 @@ const Whiteboard = ({ userId, username }) => {
         const filename = response.data;
         const fileUrl = `http://localhost:8081/api/files/${filename}`;
         
-        // Update state and history
+        // Clear everything
+        setShapes([]);
+        setLines([]);
         setBackgroundFile(fileUrl);
         setBackgroundType('pdf');
         setScale(1);
+        setCurrentPage(1);
         
-        // Add to history
-        const newHistory = [...history.slice(0, historyStep + 1), {
-          lines: lines,
-          shapes: shapes,
+        // Reset history
+        const newHistory = [{
+          lines: [],
+          shapes: [],
           background: {
             file: fileUrl,
             type: 'pdf'
           }
         }];
         setHistory(newHistory);
-        setHistoryStep(newHistory.length - 1);
+        setHistoryStep(0);
 
         if (stompClient?.connected) {
           stompClient.publish({
@@ -868,6 +939,8 @@ const Whiteboard = ({ userId, username }) => {
       } catch (error) {
         console.error('Error uploading file:', error);
       }
+    } else if (file.type.startsWith('image/')) {
+      handleImageUpload(file);
     }
   };
 
