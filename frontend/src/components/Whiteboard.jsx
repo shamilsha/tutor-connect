@@ -41,6 +41,7 @@ const Whiteboard = ({ userId, username }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [scale, setScale] = useState(1);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+  const [pageShapes, setPageShapes] = useState({});  // { pageNumber: { shapes: [], lines: [] } }
 
   // Keep only used refs
   const startPointRef = useRef(null);
@@ -138,6 +139,21 @@ const Whiteboard = ({ userId, username }) => {
           if (update.state.historyStep !== undefined && update.state.history) {
             setHistory(update.state.history);
             setHistoryStep(update.state.historyStep);
+          }
+          break;
+
+        case 'pageChange':
+          if (update.page.type === 'pdf') {
+            // Save current page shapes
+            setPageShapes(prev => ({
+              ...prev,
+              [currentPage]: { shapes, lines }
+            }));
+
+            // Update page and load shapes
+            setCurrentPage(update.page.number);
+            setShapes(update.page.shapes.shapes || []);
+            setLines(update.page.shapes.lines || []);
           }
           break;
 
@@ -944,24 +960,37 @@ const Whiteboard = ({ userId, username }) => {
     }
   };
 
-  // Add page change handler
+  // Modify handlePageChange to handle page-specific shapes only in PDF mode
   const handlePageChange = (newPage) => {
-    setCurrentPage(newPage);
+    if (backgroundType === 'pdf') {
+      // Save current page shapes
+      setPageShapes(prev => ({
+        ...prev,
+        [currentPage]: { shapes, lines }
+      }));
 
-    // Send page change to other users
-    if (stompClient?.connected) {
-      stompClient.publish({
-        destination: '/topic/whiteboard',
-        body: JSON.stringify({
-          userId,
-          username,
-          action: 'pageChange',
-          page: {
-            number: newPage,
-            total: pdfPages
-          }
-        })
-      });
+      // Load new page shapes
+      const newPageShapes = pageShapes[newPage] || { shapes: [], lines: [] };
+      setShapes(newPageShapes.shapes);
+      setLines(newPageShapes.lines);
+      setCurrentPage(newPage);
+
+      // Send page change to other users
+      if (stompClient?.connected) {
+        stompClient.publish({
+          destination: '/topic/whiteboard',
+          body: JSON.stringify({
+            userId,
+            username,
+            action: 'pageChange',
+            page: {
+              number: newPage,
+              shapes: newPageShapes,
+              type: 'pdf'  // Add type to identify PDF page changes
+            }
+          })
+        });
+      }
     }
   };
 
