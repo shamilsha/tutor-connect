@@ -631,12 +631,62 @@ const Whiteboard = ({ userId, username }) => {
     const scaleY = node.scaleY();
     const rotation = node.rotation();
 
+    const originalShape = shapes.find(s => s.id === node.id());
+    
+    // Get absolute position and dimensions based on shape type
     const updatedShape = {
-      ...shapes.find(s => s.id === node.id()),
-      rotation,
-      scaleX,
-      scaleY
+      ...originalShape,
+      x: node.x(),
+      y: node.y(),
+      rotation: rotation,
+      scaleX: scaleX,
+      scaleY: scaleY
     };
+
+    // Add shape-specific properties
+    if (originalShape.type === 'circle') {
+      updatedShape.radius = node.radius() * Math.abs(scaleX);
+    } else if (originalShape.type === 'rectangle' || originalShape.type === 'ellipse') {
+      updatedShape.width = node.width() * Math.abs(scaleX);
+      updatedShape.height = node.height() * Math.abs(scaleY);
+    } else if (originalShape.type === 'triangle') {
+      // For triangles, handle each type differently
+      switch (originalShape.triangleType) {
+        case 'right':
+          updatedShape.points = [
+            0, 0,                    // First vertex at origin
+            node.width() * Math.abs(scaleX), 0,  // Second vertex (base)
+            node.width() * Math.abs(scaleX),     // Third vertex (height)
+            node.height() * Math.abs(scaleY)
+          ];
+          break;
+          
+        case 'isosceles':
+          const halfWidth = node.width() * Math.abs(scaleX) / 2;
+          updatedShape.points = [
+            0, 0,              // Top vertex
+            halfWidth, node.height() * Math.abs(scaleY),    // Right vertex
+            -halfWidth, node.height() * Math.abs(scaleY)    // Left vertex
+          ];
+          break;
+          
+        case 'equilateral':
+          const side = node.width() * Math.abs(scaleX);
+          const height = side * Math.sqrt(3) / 2;
+          updatedShape.points = [
+            0, -height/2,           // Top vertex
+            side/2, height/2,       // Bottom right
+            -side/2, height/2       // Bottom left
+          ];
+          break;
+      }
+    } else if (originalShape.type === 'line') {
+      updatedShape.points = node.points().map((point, i) => {
+        return i % 2 === 0 
+          ? point * Math.abs(scaleX)  // x coordinates
+          : point * Math.abs(scaleY); // y coordinates
+      });
+    }
 
     // Update shapes
     setShapes(prev => prev.map(s => 
