@@ -1,0 +1,102 @@
+.connection-panel {
+    background: white;
+    padding: 15px 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    margin: 20px 20px 0 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+}
+
+.connection-panel-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.connection-panel-left h3 {
+    margin: 0;
+    font-size: 1.1em;
+    color: #333;
+}
+
+.connection-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-grow: 1;
+    justify-content: center;
+}
+
+.connection-controls input {
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    width: 200px;
+}
+
+.connection-controls input:disabled {
+    background: #f5f5f5;
+    cursor: not-allowed;
+}
+
+.connection-controls button {
+    padding: 8px 20px;
+    background: #0084ff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.connection-controls button:hover {
+    background: #0073e6;
+}
+
+.connection-controls button:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+.connection-controls .disconnect-button {
+    background: #dc3545;
+}
+
+.connection-controls .disconnect-button:hover {
+    background: #c82333;
+}
+
+.user-info {
+    font-size: 0.9em;
+    color: #666;
+}
+
+.error-message {
+    position: absolute;
+    top: 70px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #ffebee;
+    color: #c62828;
+    padding: 8px 16px;
+    border-radius: 4px;
+    border: 1px solid #ef9a9a;
+    font-size: 0.9em;
+}
+
+.connection-controls select {
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    width: 200px;
+    background-color: white;
+}
+
+.connection-controls select:disabled {
+    background: #f5f5f5;
+    cursor: not-allowed;
+} 
