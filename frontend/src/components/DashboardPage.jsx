@@ -4,6 +4,7 @@ import { FaChevronLeft, FaChevronRight } from 'react-icons/fa';
 import { WebRTCProvider } from '../services/WebRTCProvider';
 import ChatPanel from './ChatPanel';
 import ConnectionPanel from './ConnectionPanel';
+import VideoChat from './VideoChat';
 
 const DashboardPage = () => {
   const navigate = useNavigate();
@@ -55,14 +56,22 @@ const DashboardPage = () => {
     rtcProvider.onConnectionStateChange = (peerId, state) => {
         console.log('[DashboardPage] Connection state changed:', { peerId, state });
         if (state === 'connected') {
-            setPeers(prev => [...prev, peerId]);
+            setPeers(prev => {
+                if (!prev.includes(peerId)) {
+                    return [...prev, peerId];
+                }
+                return prev;
+            });
             setConnectionStatus('connected');
             setError(null);
         } else if (state === 'disconnected' || state === 'error') {
-            setPeers(prev => prev.filter(p => p !== peerId));
-            setConnectionStatus(prev => 
-                prev === 'connected' && peers.length <= 1 ? 'initial' : prev
-            );
+            setPeers(prev => {
+                const newPeers = prev.filter(p => p !== peerId);
+                if (newPeers.length === 0) {
+                    setConnectionStatus('initial');
+                }
+                return newPeers;
+            });
         }
     };
 
@@ -75,8 +84,10 @@ const DashboardPage = () => {
     setProvider(rtcProvider);
 
     return () => {
-        console.log('[DashboardPage] Cleaning up WebRTC provider');
-        peers.forEach(peerId => rtcProvider.disconnect(peerId));
+        console.log('[DashboardPage] Component unmounting, cleaning up connections');
+        if (rtcProvider) {
+            rtcProvider.closeAllConnections();
+        }
     };
   }, [user.id]);
 
@@ -102,20 +113,6 @@ const DashboardPage = () => {
     navigate('/');
   };
 
-  useEffect(() => {
-    return () => {
-      if (provider) {
-        console.log('[DashboardPage] Component unmounting, cleaning up connections');
-        peers.forEach(peerId => {
-          provider.disconnect(peerId);
-        });
-        if (provider.signalingSocket) {
-          provider.signalingSocket.close();
-        }
-      }
-    };
-  }, [provider, peers]);
-
   const toggleLeftPanel = () => {
     setIsLeftPanelOpen(!isLeftPanelOpen);
   };
@@ -137,7 +134,7 @@ const DashboardPage = () => {
   };
 
   const handleDisconnect = () => {
-    if (peers.length > 0) {
+    if (provider && peers.length > 0) {
       peers.forEach(peerId => {
         provider.disconnect(peerId);
       });
@@ -201,6 +198,10 @@ const DashboardPage = () => {
           targetPeerId={targetPeerId}
           setTargetPeerId={setTargetPeerId}
           provider={provider}
+        />
+        <VideoChat 
+          provider={provider}
+          peers={peers}
         />
         <ChatPanel 
           user={user}
