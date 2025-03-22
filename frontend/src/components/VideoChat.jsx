@@ -6,130 +6,128 @@ const VideoChat = ({ provider, peers }) => {
     const [isAudioEnabled, setIsAudioEnabled] = useState(false);
     const [isVideoEnabled, setIsVideoEnabled] = useState(false);
     const [stream, setStream] = useState(null);
-    const [remoteStream, setRemoteStream] = useState(new MediaStream());
-    const localVideoRef = useRef(null);
-    const remoteVideoRef = useRef(null);
+    const [remoteStream, setRemoteStream] = useState(null);
+    const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
+    const mainVideoRef = useRef(null);
+    const pipVideoRef = useRef(null);
 
+    // Debug logging
     useEffect(() => {
-        if (provider) {
-            provider.onTrack = (peerId, stream) => {
-                console.log('[VideoChat] Received remote stream from:', peerId, 
-                    'video tracks:', stream.getVideoTracks().length,
-                    'audio tracks:', stream.getAudioTracks().length);
-                
-                // Get or create remote stream
-                let currentRemoteStream = remoteVideoRef.current?.srcObject;
-                if (!currentRemoteStream) {
-                    currentRemoteStream = new MediaStream();
-                    setRemoteStream(currentRemoteStream);
-                    remoteVideoRef.current.srcObject = currentRemoteStream;
-                }
+        console.log('[VideoChat] State changed:', {
+            hasLocalStream: !!stream,
+            hasRemoteStream: !!remoteStream,
+            hasRemoteVideo,
+            isVideoEnabled
+        });
+    }, [stream, remoteStream, hasRemoteVideo, isVideoEnabled]);
 
-                // Add new tracks to existing stream
-                stream.getTracks().forEach(track => {
-                    const existingTrack = currentRemoteStream.getTracks().find(t => t.kind === track.kind);
-                    if (existingTrack) {
-                        currentRemoteStream.removeTrack(existingTrack);
-                    }
-                    currentRemoteStream.addTrack(track);
-                    console.log(`[VideoChat] Added ${track.kind} track to remote stream`);
-                });
-
-                // Ensure the video plays
-                remoteVideoRef.current?.play().catch(error => {
-                    console.error('[VideoChat] Error playing remote video:', error);
-                });
-            };
+    // Handle initial local stream
+    useEffect(() => {
+        if (stream && mainVideoRef.current && !hasRemoteVideo) {
+            console.log('[VideoChat] Setting initial local stream to main video');
+            mainVideoRef.current.srcObject = stream;
         }
+    }, [stream]);
 
-        return () => {
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-            }
-            if (remoteStream) {
-                remoteStream.getTracks().forEach(track => track.stop());
-            }
-            if (provider) {
-                provider.onTrack = null;
-            }
-        };
-    }, [provider]);
-
-    const startMedia = async (audio, video) => {
+    const startMedia = async (audio = false, video = true) => {
         try {
-            // Stop existing tracks
+            console.log('[VideoChat] Starting media stream:', { audio, video });
+            
+            // If we already have a stream, just modify it
             if (stream) {
-                stream.getTracks().forEach(track => {
-                    track.stop();
+                const audioTracks = stream.getAudioTracks();
+                if (audio && audioTracks.length === 0) {
+                    const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    audioStream.getAudioTracks().forEach(track => stream.addTrack(track));
+                } else if (!audio && audioTracks.length > 0) {
+                    audioTracks.forEach(track => track.stop());
+                    audioTracks.forEach(track => stream.removeTrack(track));
+                }
+                
+                const videoTracks = stream.getVideoTracks();
+                if (video && videoTracks.length === 0) {
+                    const videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    videoStream.getVideoTracks().forEach(track => stream.addTrack(track));
+                } else if (!video && videoTracks.length > 0) {
+                    videoTracks.forEach(track => track.stop());
+                    videoTracks.forEach(track => stream.removeTrack(track));
+                }
+            } else {
+                // Create new stream
+                const mediaStream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: audio,
+                    video: video 
                 });
+                setStream(mediaStream);
             }
 
-            // Get new stream
-            const newStream = await navigator.mediaDevices.getUserMedia({
-                audio: audio,
-                video: video
-            });
-
-            // Set stream to video element first
-            setStream(newStream);
-            if (localVideoRef.current) {
-                localVideoRef.current.srcObject = newStream;
-            }
-
-            // Enable tracks based on settings
-            newStream.getAudioTracks().forEach(track => {
-                track.enabled = audio;
-            });
-            newStream.getVideoTracks().forEach(track => {
-                track.enabled = video;
-            });
-
-            // Add tracks to peer connections if connected
-            if (provider && peers.length > 0) {
-                console.log('[VideoChat] Adding media stream to provider');
-                await provider.addMediaStream(newStream);
-            }
-
-            setIsAudioEnabled(audio);
             setIsVideoEnabled(video);
+            setIsAudioEnabled(audio);
+
+            // Update provider with current stream
+            if (provider && stream) {
+                await provider.addMediaStream(stream);
+            }
+
+            // Update video displays
+            updateVideoDisplays();
+
         } catch (error) {
-            console.error('Error accessing media devices:', error);
+            console.error('[VideoChat] Error managing media stream:', error);
+        }
+    };
+
+    const updateVideoDisplays = () => {
+        if (hasRemoteVideo && remoteStream) {
+            // Show remote video in main display
+            if (mainVideoRef.current) {
+                mainVideoRef.current.srcObject = remoteStream;
+            }
+            // Show local video in PiP if video is enabled
+            if (pipVideoRef.current && stream && isVideoEnabled) {
+                pipVideoRef.current.srcObject = stream;
+            }
+        } else if (isVideoEnabled && stream) {
+            // Show local video in main display if no remote video
+            if (mainVideoRef.current) {
+                mainVideoRef.current.srcObject = stream;
+            }
         }
     };
 
     const toggleAudio = async () => {
-        if (stream) {
-            const audioTracks = stream.getAudioTracks();
-            if (audioTracks.length > 0) {
-                const newState = !audioTracks[0].enabled;
-                audioTracks.forEach(track => {
-                    track.enabled = newState;
-                });
-                setIsAudioEnabled(newState);
-            } else {
-                await startMedia(true, isVideoEnabled);
-            }
-        } else {
-            await startMedia(true, false);
-        }
+        await startMedia(!isAudioEnabled, isVideoEnabled);
     };
 
     const toggleVideo = async () => {
-        if (stream) {
-            const videoTracks = stream.getVideoTracks();
-            if (videoTracks.length > 0) {
-                const newState = !videoTracks[0].enabled;
-                videoTracks.forEach(track => {
-                    track.enabled = newState;
-                });
-                setIsVideoEnabled(newState);
-            } else {
-                await startMedia(isAudioEnabled, true);
-            }
-        } else {
-            await startMedia(false, true);
-        }
+        await startMedia(isAudioEnabled, !isVideoEnabled);
     };
+
+    // Handle remote stream
+    useEffect(() => {
+        if (!provider) return;
+
+        provider.onTrack = (peerId, incomingStream) => {
+            console.log('[VideoChat] Received remote track from peer:', peerId);
+            
+            const newRemoteStream = new MediaStream();
+            incomingStream.getTracks().forEach(track => {
+                newRemoteStream.addTrack(track);
+                console.log(`[VideoChat] Added ${track.kind} track to remote stream`);
+            });
+
+            setRemoteStream(newRemoteStream);
+            setHasRemoteVideo(true);
+
+            // Update video displays
+            updateVideoDisplays();
+        };
+    }, [provider, stream, isVideoEnabled]);
+
+    // Update displays when streams or enabled states change
+    useEffect(() => {
+        updateVideoDisplays();
+    }, [stream, remoteStream, hasRemoteVideo, isVideoEnabled]);
 
     // Start media when peer connects
     useEffect(() => {
@@ -142,24 +140,31 @@ const VideoChat = ({ provider, peers }) => {
     return (
         <div className="video-chat">
             <div className="video-container">
-                <div className="video-wrapper local">
+                <div className="main-video-wrapper">
                     <video
-                        ref={localVideoRef}
+                        ref={mainVideoRef}
                         autoPlay
                         playsInline
-                        muted
-                        className={!isVideoEnabled ? 'hidden' : ''}
+                        muted={!hasRemoteVideo} // Only mute when showing local video
+                        className={!isVideoEnabled && !hasRemoteVideo ? 'hidden' : ''}
                     />
-                    {!isVideoEnabled && <div className="video-placeholder">Camera Off</div>}
-                </div>
-                <div className="video-wrapper remote">
-                    <video
-                        ref={remoteVideoRef}
-                        autoPlay
-                        playsInline
-                        className={!remoteStream ? 'hidden' : ''}
-                    />
-                    {!remoteStream && <div className="video-placeholder">No Remote Video</div>}
+                    {(!isVideoEnabled && !hasRemoteVideo) && 
+                        <div className="video-placeholder">Camera Off</div>
+                    }
+                    {hasRemoteVideo && (
+                        <div className="pip-video-wrapper">
+                            <video
+                                ref={pipVideoRef}
+                                autoPlay
+                                playsInline
+                                muted
+                                className={!isVideoEnabled ? 'hidden' : ''}
+                            />
+                            {!isVideoEnabled && 
+                                <div className="video-placeholder small">Camera Off</div>
+                            }
+                        </div>
+                    )}
                 </div>
             </div>
             <MediaControlPanel
