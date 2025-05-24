@@ -1,5 +1,5 @@
 const WebSocket = require('ws');
-const wss = new WebSocket.Server({ port: 8080 });
+const wss = new WebSocket.Server({ port: 8081 });
 
 const clients = new Map();
 
@@ -154,4 +154,4 @@ wss.on('close', () => {
     clearInterval(interval);
 });
 
-console.log('Signaling server running on port 8080'); 
+console.log('Signaling server running on port 8081'); 

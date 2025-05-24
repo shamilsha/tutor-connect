@@ -1,0 +1,33 @@
+(1) Install java (SE runtime environment, check if install using "java -version")
+(2) Install git
+(3) Install mvn.
+     (a) Download binary zip file from https://maven.apache.org/download.cgi
+     (b) Create a folder "Maven" under C:\Program Files\" folder.
+     (c) Edit Path system variable to add C:\Program Files\Maven\apache-maven-3.9.9\bin folder
+          click on This PC > Properties > Advanced system settings > Environment Variables > System variables > Find Path and Edit
+     (d) verify it works using "mvn -version". You might need to start new   window.
+(4) Install node.js (need this for npm)
+    (a) Download from https://nodejs.org/ (use LTS long term support version)
+    (b) Install the msi package ( make sure to check 'intall necessary tools ...', it looks like also install python too)
+    (c) check "node --version" and "npm --version"
+    (d) If get some kind of about ExecutionPolicy error do the following
+        (I) open powershell as administrator and run "Set-ExecutionPolicy RemoteSigned". Restart cursor if already opened.
+
+(5) Install Cursor and run
+(6) clone project from github
+     git clone git@github.com:shamilsha/tutor-connect.git
+(7) start the application in this order.
+    (a) Start backend
+        go to C:\myTutor\backend\tutor-connect and run  "mvn spring-boot:run"
+        This will install necessary packages if not already installed based on package.json file and start the backend application.
+      
+     http://localhost:8080/h2-console with these credentials:
+     JDBC URL: jdbc:h2:mem:tutordb
+     Username: sa
+     Password: (leave empty)
+
+    (b) Start signalling server
+        go to C:\myTutor\signaling-server and run "npm install" followed by "npm start"
+
+    (b) Start frontend
+        go to C:\myTutor\frontend and run "npm install" followed by "npm start"

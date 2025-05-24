@@ -1,0 +1,24 @@
+Database schema file:
+    backend/data/tutoringdb.mv.db
+backend/tutor-connect/src/main/resources/application.properties
+   It has database configuration properties. Currently application uses jdbc H2 database
+frontend/package-lock.json:
+   Information regarding  all packages used by frontend,
+frontend/src/components/LoginForm.jsx:
+   Login form, it call handlesubmit when click login buttong and  it send form data to backed end port 8080 and receive respose.
+   It saved user info into localStorage in client side and navigate to dashboard component.   
+frontend/src/components/SignupForm.js:
+   Like login form, it uses a form and send the data to backend api in port 8080. Once got the response and then it navigate to component /login.
+signaling-server/server.js:
+  It create a WebSocket which listen to port 8081, It also creates a Map of client list. when any client connected it call
+  wss.on('connect', (ws)=>{}) method, where it set wss.on('message', ()=>{}) method, so that when any message arrive it will trigger.
+  It handle different kind of message, such as 'register', 'logout' 'offer', 'answer', 'ice-candidate'. For register it send back
+  registered message to the client and also broadcase to all other clients. For offer, answer and ice-candiate, it relay the data
+  to the target candidate with comes with the intended  target client. For logout message, it delete the client from the client Map
+  and broadcast to all other clients/peers. For ws.on('close', ()=>{})it delete the clinet from the map and broadcast updated peerlist.
+  Every 30 seconds it sends a  heartbeat to all clients. If listening socket is closed, it stop sending heartbeat.
+  
+
+
+
+

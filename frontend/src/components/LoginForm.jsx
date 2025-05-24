@@ -22,7 +22,7 @@ const LoginForm = () => {
     setError('');
     
     try {
-      const response = await axios.post('http://localhost:8081/api/auth/login', formData);
+      const response = await axios.post('http://localhost:8080/api/users/login', formData);
       console.log('Login response:', response.data);
       
       if (response.data && response.data.id) {

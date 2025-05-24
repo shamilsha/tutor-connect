@@ -11,7 +11,7 @@ const SignupForm = () => {
     country: '',
     state: '',
     city: '',
-    role: 'STUDENT'
+    background: ''
   });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -30,12 +30,14 @@ const SignupForm = () => {
     setSuccess('');
     
     try {
-      const response = await axios.post('http://localhost:8081/api/auth/signup', formData);
+      const response = await axios.post('http://localhost:8080/api/users/signup', formData);
+      console.log('Signup response:', response);
       setSuccess('Signup successful! Redirecting to login...');
       setTimeout(() => navigate('/login'), 2000);
     } catch (err) {
-      setError(err.response?.data || 'Signup failed. Please try again.');
       console.error('Signup error:', err);
+      const errorMessage = err.response?.data || 'Signup failed. Please try again.';
+      setError(errorMessage);
     }
   };
 
