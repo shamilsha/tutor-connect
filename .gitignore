@@ -3,6 +3,7 @@ target/
 backend/target/
 frontend/target/
 frontend/node_modules/
+signaling-server/node_modules/
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
