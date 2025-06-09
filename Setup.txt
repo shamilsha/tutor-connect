@@ -31,3 +31,17 @@
 
     (b) Start frontend
         go to C:\myTutor\frontend and run "npm install" followed by "npm start"
+
+(8) How to access Database:
+    Used H2 database, database can be in memory temporary and file based permanent.
+    go to this link, http://localhost:8080/h2-console
+    use the following information,
+       JDBC URL: jdbc:h2:file:./data/tutordb
+       Username: sa
+       Password: (leave empty)
+       Click "Connect"
+(9) Ports:
+    8080 : backend run on this port.
+    8081 : signaling server listen on this port.
+    3000 : frontend webserver runs on this port.
+    

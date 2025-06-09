@@ -1,93 +1,143 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
+import { FaVideo, FaVideoSlash, FaMicrophone, FaMicrophoneSlash } from 'react-icons/fa';
 import ConnectionStatusLight from './ConnectionStatusLight';
 import '../styles/ConnectionPanel.css';
-import { SignalingService } from '../services/SignalingService';
 
-const ConnectionPanel = ({ 
-    userId,
-    connectionStatus,
+const ConnectionPanel = ({
+    selectedPeer,
+    onPeerSelect,
+    isConnected,
+    isConnecting,
     onConnect,
     onDisconnect,
-    error,
-    targetPeerId,
-    setTargetPeerId,
-    provider
+    peerList = [],
+    loginStatus = 'connected', // 'connected' or 'failed'
+    isAudioEnabled = true,
+    isVideoEnabled = false,
+    onToggleAudio,
+    onToggleVideo
 }) => {
-    const [availablePeers, setAvailablePeers] = useState([]);
-    const signalingServiceRef = useRef(null);
+    const [isPeerListEnabled, setIsPeerListEnabled] = useState(true);
 
     useEffect(() => {
-        console.log('[ConnectionPanel] Initializing SignalingService');
-        
-        // Create SignalingService instance
-        signalingServiceRef.current = new SignalingService(userId);
-        
-        // Set up peer list update handler
-        signalingServiceRef.current.onPeerListUpdate = (peers) => {
-            console.log('[ConnectionPanel] Received peer list update:', peers);
-            setAvailablePeers(peers);
-        };
+        // Disable peer selection when connected
+        setIsPeerListEnabled(!isConnected && !isConnecting);
+    }, [isConnected, isConnecting]);
 
-        // Share SignalingService with WebRTCProvider
-        if (provider) {
-            provider.setSignalingService(signalingServiceRef.current);
+    // Auto-select first peer if there's only one and none selected
+    useEffect(() => {
+        if (peerList.length === 1 && !selectedPeer && !isConnected && !isConnecting) {
+            onPeerSelect(peerList[0].id);
         }
+    }, [peerList, selectedPeer, isConnected, isConnecting, onPeerSelect]);
 
-        // Cleanup on unmount
-        return () => {
-            console.log('[ConnectionPanel] Cleaning up SignalingService');
-            if (signalingServiceRef.current) {
-                signalingServiceRef.current.disconnect();
-                signalingServiceRef.current = null;
-            }
+    const handleConnectionClick = () => {
+        if (isConnected) {
+            onDisconnect();
+        } else if (!isConnecting && selectedPeer) {
+            onConnect();
+        }
+    };
+
+    // Determine button state and text
+    const getButtonState = () => {
+        if (isConnecting) {
+            return {
+                text: 'Connecting...',
+                disabled: true
+            };
+        }
+        
+        if (isConnected) {
+            return {
+                text: 'Disconnect',
+                disabled: false
+            };
+        }
+        
+        if (peerList.length === 0) {
+            return {
+                text: 'No Peers Available',
+                disabled: true
+            };
+        }
+        
+        if (!selectedPeer) {
+            return {
+                text: 'Select a Peer',
+                disabled: true
+            };
+        }
+        
+        return {
+            text: 'Connect',
+            disabled: false
         };
-    }, [userId, provider]);
+    };
 
-    console.log('[ConnectionPanel] Rendering with peers:', availablePeers);
-    const isPeerAvailable = availablePeers.length > 0;
+    const buttonState = getButtonState();
 
     return (
         <div className="connection-panel">
-            <div className="connection-panel-left">
-                <ConnectionStatusLight status={connectionStatus} />
-                <h3>Connection Status</h3>
+            {/* Login Status Indicator */}
+            <div className="status-section">
+                <ConnectionStatusLight status={loginStatus} />
+                <span className="status-text">
+                    {loginStatus === 'connected' ? 'Logged In' : 'Login Failed'}
+                </span>
             </div>
-            <div className="connection-controls">
-                <select
-                    value={targetPeerId}
-                    onChange={(e) => setTargetPeerId(e.target.value)}
-                    disabled={connectionStatus === 'connected'}
-                >
-                    <option value="">Select a peer ({availablePeers.length} available)</option>
-                    {availablePeers.map(peerId => (
-                        <option key={peerId} value={peerId}>
-                            Peer {peerId}
-                        </option>
-                    ))}
-                </select>
-                {connectionStatus !== 'connected' ? (
-                    <button 
-                        onClick={onConnect}
-                        disabled={connectionStatus === 'connecting' || !isPeerAvailable || !targetPeerId}
-                    >
-                        {!isPeerAvailable ? 'No Peers Available' : 
-                         connectionStatus === 'connecting' ? 'Connecting...' : 'Connect'}
-                    </button>
+
+            {/* Peer Selection Section */}
+            <div className="peer-selection-section">
+                {peerList.length === 0 ? (
+                    <div className="no-peers-message">
+                        No peers available. Waiting for others to join...
+                    </div>
                 ) : (
-                    <button 
-                        onClick={onDisconnect}
-                        className="disconnect-button"
+                    <select
+                        value={selectedPeer}
+                        onChange={(e) => onPeerSelect(e.target.value)}
+                        disabled={!isPeerListEnabled}
+                        className="peer-select"
                     >
-                        Disconnect
-                    </button>
+                        <option value="">Select a peer</option>
+                        {peerList.map((peer) => (
+                            <option key={peer.id} value={peer.id}>
+                                {peer.name || peer.id}
+                            </option>
+                        ))}
+                    </select>
                 )}
             </div>
-            <div className="user-info">Your ID: {userId}</div>
-            {error && (
-                <div className="error-message">
-                    {error}
-                </div>
-            )}
+
+            {/* Connect/Disconnect Button */}
+            <div className="connection-button-section">
+                <button
+                    className={`connection-button ${isConnected ? 'connected' : ''}`}
+                    onClick={handleConnectionClick}
+                    disabled={buttonState.disabled}
+                >
+                    {buttonState.text}
+                </button>
+            </div>
+
+            {/* Media Controls */}
+            <div className="media-controls-section">
+                <button
+                    className={`media-button ${isAudioEnabled ? 'active' : ''}`}
+                    onClick={onToggleAudio}
+                    title={isAudioEnabled ? 'Mute Audio' : 'Unmute Audio'}
+                >
+                    {isAudioEnabled ? <FaMicrophone /> : <FaMicrophoneSlash />}
+                </button>
+                <button
+                    className={`media-button ${isVideoEnabled ? 'active' : ''}`}
+                    onClick={onToggleVideo}
+                    title={isVideoEnabled ? 'Stop Video' : 'Start Video'}
+                >
+                    {isVideoEnabled ? <FaVideo /> : <FaVideoSlash />}
+                </button>
+            </div>
         </div>
     );
 };

@@ -17,7 +17,81 @@ signaling-server/server.js:
   to the target candidate with comes with the intended  target client. For logout message, it delete the client from the client Map
   and broadcast to all other clients/peers. For ws.on('close', ()=>{})it delete the clinet from the map and broadcast updated peerlist.
   Every 30 seconds it sends a  heartbeat to all clients. If listening socket is closed, it stop sending heartbeat.
-  
+
+ Q: How register client works.
+ A: SignupForm:
+       when clicked, handleSubmit is called 
+       It send a port message to port 8080 where backend service is listening.
+    UserController:
+       Signup request reached to signup api of UserController.java, it send the OK response back to signup form.
+    SignupForm:
+       It received the OK response from UserController and navigate to /login component, in App.js router is defined for /login to LoginForm component
+Q: How login works:
+    LoginForm:
+      User fills the information, click login, which will call handleSubmit where it will send the data to backend api listening to port 8080.
+    UserController:
+      login request reached to login api within UserController and response Ok back to LoginForm.
+    LoginForm:
+      login form received the OK response from backend, and navigate to /dashboard component, 
+    DashboardPage:
+      In the contructor load the user info from local storage and it creates a WebRTCProvider instance by passing the user Id.
+      When DashboardPage loads it creates three component, ConnectionPanel, VideoChat, ChatPanel,
+    ConnectionPanel:
+      In the constructor it creates a SignalingService instance, set  this instance  into WebRTCProvider by calling setSignalingService, where it sets the onMessage callback of signaling service with handleSignalingMessage methods of WebRTCProvider.
+    SignalingService:
+      In the constructor, it call connect, where it connect to  WebSocket which is listening on port 8081 as signaling-server,
+      Once connection establish, it send the 'register' message to signaling-server,
+    signaling-server:
+      Received the 'register' message, add the client Id to the client map and send 'registered' message  back to signallingService.
+    SignalingService:
+      Received the 'registered' message,  call onMessage callback (it will actually call webrtc provider's handleSignalingMessage)  if setup.
+    WebRTCProvider:
+      handleSignalingMessage, it does not do anything for 'registered' message.
+
+Q: How Connect works?
+A: When connect button clicked, it calls callback function onConnect(handleConnect in Dashboard)), which is passed to ConnectionPanel from Dashboard,
+   Within handleConnect, it asynchronously call connect method of webrtc, 
+   WebRTCProvider::connect:
+     get the target peer Id
+     create RTCPeerConnection passing configuration where iceServers is defined. then in setupPeerConnectionHandlers several callbacks sets, such as
+       ontrack (called when remote track is received)
+       onicecandidate (called when new ice candidate received and passed this candidate to other peer using signaling-service
+       oniceconnectionstatechange
+       onsignalingstatechange
+       ondatachannel  --> called when received data channel from remote peer,
+       onconnectionstatechange
+     create dataChannel using peer connection, peerConnection.createDataChannel and call setupDataChannel to setup several callbacks such as
+       onopen -->  called when dataChannel established.
+       onclose
+       onerror
+       onmessage
+     if localStream available, add all available tracks within localStream to peerConnection so that [it will send to other peer]
+     create offer, set setLocalDescription passing the offer and later used signaling service to send the offer to other peer,
+     other peer receives the offer and handleOffer,
+     handleOffer:
+       if peerConnection not yet created, create peerConnection and setupPeerConnectionHandlers like above
+       setRemoteDescription within peerConnection by passing offer, if localStream exist, add tracks to peerConnection,
+       createAnswer and set setLocalDescription by passing answer and send the answer to other peer using signaling service which will received first by signaling-server which will pass to the targetter peer.
+     handleAnswer:
+       if means, offer is created by this peer and other peer receives the offer and created the answer and this peer receives the answer.
+       if we are in right state, setRemoteDescription, local description already set before sending the offer,  
+       if it has pending ice-candidate, add all those ice candidates to the peerConnection.
+     handleIceCandidate:
+       if remoteDescription is set (means offer and answer exchanged already), then addIceCandidate with peerConnection,
+       if not, add addIceCandidate to pendingCandidates list, which will be added to peerConnection when remoteDescription is set,
+
+     dataChannel.onopen is called when datachannel established, we can assume connected, video channel mayb or may not be set yet
+     dataChannel.onopen:
+       call onConnectionStateChange and set as connected,calls onConnectionStateChange callback method of webRTCProvider which is defined in DashboardPage,
+       where it update the connection status as connected, this connectionstatus is passed as property inside ConnectionPanel, so
+       when connectionstatus prop changed, it will automatically re-render the connectionPanel UI where the connectionstatus button color will be updated.
+       
+
+      
+
+
+       
+   
 
 
 

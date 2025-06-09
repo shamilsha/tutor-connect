@@ -1,0 +1,57 @@
+Understanding useEffect: 
+    useEffect(() => {
+        // This runs ONCE during mount
+        console.log('[LoginForm] 🔄 Component mounted');  // MOUNT: YES, UNMOUNT: NO
+        // the following return statement will run during unmount
+        return () => {
+            // This cleanup runs ONCE when component unmounts
+        }
+    }, []); // Empty dependency array = run only on mount
+
+    useEffect(() => {
+        // Runs after EVERY render
+    }); // No dependency at all, it means it will run after every render
+
+    useEffect(() => {
+        // Runs on mount AND whenever userId or data changes
+    }, [userId, data]);
+
+Understanding useState:
+    useState is a React Hook that lets you add state to functional components,
+    Basic syntax, 
+    const [value, setValue] = useState(initialValue);
+        value: current state value
+        setValue: function to update the state
+        initialValue: starting value for the state
+        //Lazy initial state
+    const [value, setValue] = useState(() => {
+        // This function runs only once during initial render
+        return computeExpensiveValue();
+    });
+    setting value trigger re-render
+    // 1. Simple value
+    const [count, setCount] = useState(0);
+
+    // 2. Object state
+    const [user, setUser] = useState({
+        name: 'John',
+        age: 25
+    });
+
+    // 3. Lazy initialization (your case)
+    const [data, setData] = useState(() => {
+        // Heavy computation or localStorage access
+        return expensiveOperation();
+    });
+
+    // 4. Updating state
+    setCount(count + 1);  // Direct value
+
+    setCount(prevCount => prevCount + 1);  // Using callback
+
+    setUser(prevUser => ({  // Updating object
+        ...prevUser,
+        age: prevUser.age + 1
+    }));
+    Call at Component Top Level only
+ 

@@ -1,75 +1,112 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import { useCommunication } from '../context/CommunicationContext';
+import '../styles/LoginForm.css';
 
-const LoginForm = () => {
-  const navigate = useNavigate();
-  const [formData, setFormData] = useState({
-    email: '',
-    password: ''
-  });
-  const [error, setError] = useState('');
+export default function LoginForm() {
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [error, setError] = useState(null);
+    const [isLoading, setIsLoading] = useState(false);
+    const navigate = useNavigate();
+    const { signalingService } = useCommunication();
 
-  const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
-  };
+    useEffect(() => {
+        // this useEffect is used to log the component when it is mounted
+        console.log('[LoginForm] 🔄 Component mounted');
+        // this return function is used to clean up the component when it is unmounted
+        return () => {
+            console.log('[LoginForm] 🧹 Cleaning up component');
+        };
+    }, []); // empty dependency array means this useEffect will only run once when the component is mounted
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    
-    try {
-      const response = await axios.post('http://localhost:8080/api/users/login', formData);
-      console.log('Login response:', response.data);
-      
-      if (response.data && response.data.id) {
-        // Store user info in localStorage
-        localStorage.setItem('user', JSON.stringify({
-          id: response.data.id,
-          email: response.data.email
-        }));
-        navigate('/dashboard');
-      } else {
-        setError('Invalid response from server');
-      }
-    } catch (err) {
-      console.error('Login error:', err);
-      setError(err.response?.data || 'Login failed. Please check your credentials.');
-    }
-  };
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setError(null);
+        setIsLoading(true);
 
-  return (
-    <div className="login-form">
-      <h2>Login</h2>
-      {error && <div className="error-message">{error}</div>}
-      <form onSubmit={handleSubmit}>
-        <div className="form-group">
-          <label>Email</label>
-          <input
-            type="email"
-            name="email"
-            value={formData.email}
-            onChange={handleChange}
-            required
-          />
+        try {
+            // Set up registration handler before attempting to connect
+            await new Promise((resolve, reject) => {
+                let registrationTimeout;
+                
+                // Set up one-time registration handler
+                const handleRegistration = (isConnected) => {
+                    if (isConnected) {
+                        console.log('[LoginForm] ✅ Registration confirmed');
+                        clearTimeout(registrationTimeout);
+                        signalingService.onConnectionStatusChange = null; // Remove handler
+                        resolve();
+                    }
+                };
+
+                // Set up connection status handler
+                signalingService.onConnectionStatusChange = handleRegistration;
+
+                // Set timeout for registration
+                registrationTimeout = setTimeout(() => {
+                    signalingService.onConnectionStatusChange = null;
+                    reject(new Error('Registration timeout'));
+                }, 5000);
+
+                // Attempt to login and connect
+                signalingService.connect({
+                    email,
+                    password
+                }).catch(reject);
+            });
+
+            console.log('[LoginForm] 🚀 Navigating to dashboard');
+            navigate('/dashboard');
+
+        } catch (error) {
+            console.error('[LoginForm] ❌ Login error:', error);
+            setError(error.message || 'Failed to login. Please try again.');
+            signalingService.onConnectionStatusChange = null; // Cleanup handler
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    return (
+        <div className="login-container">
+            <div className="login-card">
+                <h2>Welcome to MyTutor</h2>
+                <form onSubmit={handleSubmit} className="login-form">
+                    <div className="form-group">
+                        <label htmlFor="email">Email</label>
+                        <input
+                            type="email"
+                            id="email"
+                            name="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            disabled={isLoading}
+                            required
+                        />
+                    </div>
+                    <div className="form-group">
+                        <label htmlFor="password">Password</label>
+                        <input
+                            type="password"
+                            id="password"
+                            name="password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            disabled={isLoading}
+                            required
+                        />
+                    </div>
+                    {error && <div className="error-message">{error}</div>}
+                    <button 
+                        type="submit" 
+                        className="login-button"
+                        disabled={isLoading}
+                    >
+                        {isLoading ? 'Logging in...' : 'Login'}
+                    </button>
+                </form>
+            </div>
         </div>
-        <div className="form-group">
-          <label>Password</label>
-          <input
-            type="password"
-            name="password"
-            value={formData.password}
-            onChange={handleChange}
-            required
-          />
-        </div>
-        <button type="submit">Login</button>
-      </form>
-    </div>
-  );
-};
-
-export default LoginForm; 
+    );
+} 

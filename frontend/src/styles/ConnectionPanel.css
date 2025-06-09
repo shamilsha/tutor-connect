@@ -1,13 +1,118 @@
 .connection-panel {
-    background: white;
-    padding: 15px 20px;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    background-color: #f8f9fa;
     border-radius: 8px;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    margin: 20px 20px 0 20px;
+}
+
+/* Login Status Section */
+.status-section {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    gap: 20px;
+    gap: 0.5rem;
+}
+
+.status-text {
+    font-size: 0.9rem;
+    color: #495057;
+}
+
+/* Peer Selection Section */
+.peer-selection-section {
+    flex: 1;
+    min-width: 200px;
+}
+
+.peer-select {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    font-size: 1rem;
+    background-color: white;
+}
+
+.peer-select:disabled {
+    background-color: #e9ecef;
+    cursor: not-allowed;
+}
+
+.no-peers-message {
+    padding: 0.5rem;
+    text-align: center;
+    color: #6c757d;
+    background-color: #e9ecef;
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+
+/* Connection Button Section */
+.connection-button-section {
+    min-width: 120px;
+}
+
+.connection-button {
+    width: 100%;
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 4px;
+    font-size: 1rem;
+    cursor: pointer;
+    background-color: #007bff;
+    color: white;
+    transition: background-color 0.3s;
+    white-space: nowrap;
+}
+
+.connection-button:hover:not(:disabled) {
+    background-color: #0056b3;
+}
+
+.connection-button:disabled {
+    background-color: #6c757d;
+    cursor: not-allowed;
+}
+
+.connection-button.connected {
+    background-color: #dc3545;
+}
+
+.connection-button.connected:hover {
+    background-color: #c82333;
+}
+
+/* Media Controls Section */
+.media-controls-section {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.media-button {
+    padding: 0.5rem;
+    border: none;
+    border-radius: 4px;
+    background-color: #6c757d;
+    color: white;
+    cursor: pointer;
+    transition: background-color 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.media-button:hover {
+    background-color: #5a6268;
+}
+
+.media-button.active {
+    background-color: #28a745;
+}
+
+.media-button.active:hover {
+    background-color: #218838;
 }
 
 .connection-panel-left {

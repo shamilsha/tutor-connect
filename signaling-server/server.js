@@ -40,14 +40,17 @@ wss.on('connection', (ws) => {
             const data = JSON.parse(message);
             if (data.userId) data.userId = data.userId.toString();
             if (data.from) data.from = data.from.toString();
-            if (data.target) data.target = data.target.toString();
+            if (data.to) data.to = data.to.toString();
 
-            // Don't log ICE candidates to reduce noise
+            // Log all messages for debugging (temporarily)
+            console.log('\n[Message Received - Full]', JSON.stringify(data, null, 2));
+            
+            // Don't log ICE candidates to reduce noise in normal operation
             if (data.type !== 'ice-candidate') {
                 console.log('\n[Message Received]', {
                     type: data.type,
                     from: data.from,
-                    to: data.target,
+                    to: data.to,
                     timestamp: new Date().toISOString()
                 });
             }
@@ -82,25 +85,40 @@ wss.on('connection', (ws) => {
                     }, 100);
                     break;
 
+                case 'stream-status':
+                    // Forward stream status to target peer
+                    const statusTargetClient = clients.get(data.to);
+                    if (statusTargetClient && statusTargetClient.readyState === WebSocket.OPEN) {
+                        console.log(`[Stream Status] Forwarding status from ${data.from} to ${data.to}`);
+                        statusTargetClient.send(JSON.stringify({
+                            type: 'stream-status',
+                            from: data.from,
+                            hasVideo: data.hasVideo,
+                            hasAudio: data.hasAudio
+                        }));
+                    }
+                    break;
+
                 case 'offer':
                 case 'answer':
                 case 'ice-candidate':
-                    const targetClient = clients.get(data.target);
+                    const targetClient = clients.get(data.to);
                     if (targetClient && targetClient.readyState === WebSocket.OPEN) {
                         // Only log non-ICE messages to reduce noise
                         if (data.type !== 'ice-candidate') {
-                            console.log(`[Forwarding] ${data.type} from ${data.from} to ${data.target}`);
+                            console.log(`[Forwarding] ${data.type} from ${data.from} to ${data.to}`);
                         }
                         targetClient.send(JSON.stringify({
                             type: data.type,
                             from: data.from,
+                            to: data.to,
                             data: data.data
                         }));
                     } else {
-                        console.log(`[Error] Target client ${data.target} not found or not connected`);
+                        console.log(`[Error] Target client ${data.to} not found or not connected`);
                         ws.send(JSON.stringify({
                             type: 'error',
-                            message: `Peer ${data.target} is not online`
+                            message: `Peer ${data.to} is not online`
                         }));
                     }
                     break;
