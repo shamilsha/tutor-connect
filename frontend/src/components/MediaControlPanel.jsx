@@ -1,29 +1,17 @@
 import React from 'react';
-import { FaMicrophone, FaMicrophoneSlash, FaVideo, FaVideoSlash } from 'react-icons/fa';
 import '../styles/MediaControlPanel.css';
 
-const MediaControlPanel = ({ 
-    isAudioEnabled, 
-    isVideoEnabled, 
-    onToggleAudio, 
-    onToggleVideo 
-}) => {
+const MediaControlPanel = ({ isConnected, showVideo, onToggleVideo }) => {
     return (
-        <div className="media-control-panel">
-            <button 
-                className={`control-button ${!isAudioEnabled ? 'disabled' : ''}`}
-                onClick={onToggleAudio}
-                title={isAudioEnabled ? 'Mute Audio' : 'Unmute Audio'}
-            >
-                {isAudioEnabled ? <FaMicrophone /> : <FaMicrophoneSlash />}
-            </button>
-            <button 
-                className={`control-button ${!isVideoEnabled ? 'disabled' : ''}`}
-                onClick={onToggleVideo}
-                title={isVideoEnabled ? 'Stop Video' : 'Start Video'}
-            >
-                {isVideoEnabled ? <FaVideo /> : <FaVideoSlash />}
-            </button>
+        <div className="media-controls">
+            {isConnected && (
+                <button
+                    className={`media-toggle-button ${showVideo ? 'active' : ''}`}
+                    onClick={onToggleVideo}
+                >
+                    {showVideo ? 'Hide Video' : 'Show Video'}
+                </button>
+            )}
         </div>
     );
 };

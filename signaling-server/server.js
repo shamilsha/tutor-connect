@@ -1,6 +1,8 @@
 const WebSocket = require('ws');
 const wss = new WebSocket.Server({ port: 8081 });
 
+console.log('Signaling server running on port 8081');
+
 const clients = new Map();
 
 function broadcastPeerList() {
@@ -55,6 +57,9 @@ wss.on('connection', (ws) => {
                 });
             }
             
+            // Debug: Log what we're about to process
+            console.log(`[DEBUG] Processing message type: '${data.type}'`);
+            
             switch(data.type) {
                 case 'register':
                     clientId = data.userId.toString();
@@ -102,7 +107,18 @@ wss.on('connection', (ws) => {
                 case 'offer':
                 case 'answer':
                 case 'ice-candidate':
+                case 'initiate':
+                case 'initiate-ack':
+                case 'disconnect':
+                case 'media-state':
                     const targetClient = clients.get(data.to);
+                    console.log(`[DEBUG] Looking for target client ${data.to}`);
+                    console.log(`[DEBUG] Available clients:`, Array.from(clients.keys()));
+                    console.log(`[DEBUG] Target client found:`, !!targetClient);
+                    if (targetClient) {
+                        console.log(`[DEBUG] Target client WebSocket state:`, targetClient.readyState);
+                    }
+                    
                     if (targetClient && targetClient.readyState === WebSocket.OPEN) {
                         // Only log non-ICE messages to reduce noise
                         if (data.type !== 'ice-candidate') {
@@ -112,7 +128,8 @@ wss.on('connection', (ws) => {
                             type: data.type,
                             from: data.from,
                             to: data.to,
-                            data: data.data
+                            data: data.data,
+                            candidate: data.candidate
                         }));
                     } else {
                         console.log(`[Error] Target client ${data.to} not found or not connected`);
@@ -170,6 +187,4 @@ const interval = setInterval(() => {
 
 wss.on('close', () => {
     clearInterval(interval);
-});
-
-console.log('Signaling server running on port 8081'); 
+}); 

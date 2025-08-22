@@ -1,16 +1,63 @@
+/* Global overrides to ensure PiP window is never clipped */
+.video-chat,
+.video-container,
+.main-video-wrapper,
+.dashboard-container,
+.dashboard-content {
+    overflow: visible !important;
+}
+
+/* Ensure PiP window is always visible */
+.pip-video-wrapper {
+    position: absolute !important;
+    top: 20px !important;
+    left: 20px !important;
+    width: 200px !important;
+    height: 150px !important;
+    border-radius: 8px !important;
+    overflow: visible !important;
+    background: #2a2a2a !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+    transition: all 0.3s ease !important;
+    cursor: move !important;
+    z-index: 1000 !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    transform: none !important;
+    clip: auto !important;
+    clip-path: none !important;
+}
+
+.pip-video-wrapper:hover {
+    transform: scale(1.05) !important;
+}
+
+.pip-video-wrapper video {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+    transform: scaleX(-1) !important; /* Mirror local video */
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
 .video-chat {
     display: flex;
     flex-direction: column;
     background: #1a1a1a;
     border-radius: 8px;
     margin: 20px;
-    overflow: hidden;
+    overflow: visible; /* Changed from hidden to visible to allow PiP window to show */
 }
 
 .video-container {
     position: relative;
     width: 100%;
     padding-top: 56.25%; /* 16:9 Aspect Ratio */
+    overflow: visible; /* Ensure PiP window is not clipped */
 }
 
 .main-video-wrapper {
@@ -21,38 +68,13 @@
     height: 100%;
     background: #2a2a2a;
     border-radius: 8px;
-    overflow: hidden;
+    overflow: visible; /* Changed from hidden to visible to allow PiP window to show */
 }
 
 .main-video-wrapper video {
     width: 100%;
     height: 100%;
     object-fit: cover;
-}
-
-.pip-video-wrapper {
-    position: absolute;
-    top: 20px;
-    left: 20px;
-    width: 25%;
-    aspect-ratio: 16/9;
-    border-radius: 8px;
-    overflow: hidden;
-    background: #2a2a2a;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-    transition: all 0.3s ease;
-    cursor: move;
-}
-
-.pip-video-wrapper:hover {
-    transform: scale(1.05);
-}
-
-.pip-video-wrapper video {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    transform: scaleX(-1); /* Mirror local video */
 }
 
 .video-placeholder {
@@ -70,4 +92,25 @@
 
 video.hidden {
     display: none;
+}
+
+.play-button {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    border: 2px solid white;
+    border-radius: 8px;
+    padding: 12px 24px;
+    font-size: 16px;
+    cursor: pointer;
+    z-index: 10;
+    transition: all 0.3s ease;
+}
+
+.play-button:hover {
+    background: rgba(0, 0, 0, 0.9);
+    transform: translate(-50%, -50%) scale(1.05);
 } 

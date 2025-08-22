@@ -12,7 +12,7 @@ const ConnectionPanel = ({
     onDisconnect,
     peerList = [],
     loginStatus = 'connected', // 'connected' or 'failed'
-    isAudioEnabled = true,
+    isAudioEnabled = false,
     isVideoEnabled = false,
     onToggleAudio,
     onToggleVideo

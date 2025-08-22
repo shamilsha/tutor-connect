@@ -7,7 +7,7 @@ const LandingPage = () => {
         <div className="landing-page">
             <div className="landing-content">
                 <div className="landing-header">
-                    <h1>Welcome to MyTutor</h1>
+                    <h1>Welcome to MyTutor - TEST</h1>
                     <p>
                         Connect with expert tutors in real-time through high-quality video calls,
                         interactive whiteboards, and seamless collaboration tools.

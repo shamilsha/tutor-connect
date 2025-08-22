@@ -3,6 +3,7 @@ export class SignalingService {
         this.userId = null;
         this.wsProvider = null;
         this.onPeerListUpdate = null;
+        this.onIncomingConnection = null; // Callback for incoming connection attempts
         this.messageHandlers = new Map();
         this.isConnected = false;
         this.registeredPeers = new Set();
@@ -49,8 +50,14 @@ export class SignalingService {
             console.log(`[SignalingService] 📨 Forwarding ${message.type} message to ${handlerCount} handler${handlerCount !== 1 ? 's' : ''}`);
         }
 
-        // Create a unique message ID
-        const messageId = `${message.type}-${message.from}-${message.to}-${Date.now()}`;
+        // For signaling messages, we want to ensure all handlers receive them
+        const isSignalingMessage = ['offer', 'answer', 'ice-candidate', 'initiate', 'initiate-ack', 'disconnect', 'media-state'].includes(message.type);
+        
+        // Create a unique message ID - for signaling messages, don't include timestamp to allow all handlers to process
+        const messageId = isSignalingMessage 
+            ? `${message.type}-${message.from}-${message.to}`
+            : `${message.type}-${message.from}-${message.to}-${Date.now()}`;
+            
         let processedHandlers = this.processedMessages.get(messageId);
         
         if (!processedHandlers) {
@@ -58,12 +65,15 @@ export class SignalingService {
             this.processedMessages.set(messageId, processedHandlers);
         }
 
+        let forwardedCount = 0;
         for (const [handlerId, handler] of handlers) {
             try {
-                // Check if this handler has already processed this message
-                if (!processedHandlers.has(handlerId)) {
+                // For signaling messages, always forward to all handlers
+                // For other messages, check if this handler has already processed this message
+                if (isSignalingMessage || !processedHandlers.has(handlerId)) {
                     handler(message);
                     processedHandlers.add(handlerId);
+                    forwardedCount++;
                 } else {
                     console.log(`[SignalingService] Handler ${handlerId} already processed message ${messageId}`);
                 }
@@ -72,12 +82,22 @@ export class SignalingService {
             }
         }
 
+        if (message.type !== 'heartbeat') {
+            console.log(`[SignalingService] ✅ Forwarded ${message.type} message to ${forwardedCount} handler(s)`);
+        }
+
         // Cleanup old processed messages (older than 5 seconds)
-        const now = Date.now();
-        for (const [msgId] of this.processedMessages) {
-            const msgTime = parseInt(msgId.split('-')[3]); // timestamp is the last part
-            if (now - msgTime > 5000) {
-                this.processedMessages.delete(msgId);
+        // Only clean up non-signaling messages as they include timestamps
+        if (!isSignalingMessage) {
+            const now = Date.now();
+            for (const [msgId] of this.processedMessages) {
+                const parts = msgId.split('-');
+                if (parts.length === 4) { // Only clean up messages with timestamps
+                    const msgTime = parseInt(parts[3]);
+                    if (now - msgTime > 5000) {
+                        this.processedMessages.delete(msgId);
+                    }
+                }
             }
         }
     }
@@ -106,7 +126,17 @@ export class SignalingService {
                 case 'offer':
                 case 'answer':
                 case 'ice-candidate':
-                    console.log(`[SignalingService] 📨 Received ${message.type} from peer ${message.from}`);
+                case 'initiate':
+                case 'initiate-ack':
+                case 'disconnect':
+                case 'media-state':
+                    console.log(`[SignalingService] 📨 Received ${message.type} from peer ${message.from} to ${message.to} (self: ${this.userId})`);
+                    
+                    // Notify about incoming connection attempts
+                    if (['initiate', 'offer'].includes(message.type) && this.onIncomingConnection) {
+                        this.onIncomingConnection(message);
+                    }
+                    
                     this.forwardMessage(message);
                     break;
                     
@@ -255,8 +285,9 @@ export class SignalingService {
         }
         
         try {
+            console.log(`[SignalingService] 📤 Sending ${message.type} from ${message.from} to ${message.to}`);
             this.wsProvider.publish('signaling', message);
-            console.log(`[SignalingService] Sending ${message.type} to peer ${message.to}`);
+            console.log(`[SignalingService] ✅ Sent ${message.type} to peer ${message.to}`);
         } catch (error) {
             console.error('[SignalingService] Failed to send message:', error);
         }
@@ -305,4 +336,4 @@ export class SignalingService {
     }
 }
 
-export default SignalingService; 
+export default SignalingService;

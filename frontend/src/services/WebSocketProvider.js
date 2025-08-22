@@ -3,59 +3,147 @@ import SockJS from 'sockjs-client';
 import { ICommunicationProvider } from './ICommunicationProvider';
 
 export class WebSocketProvider extends ICommunicationProvider {
-    constructor(userId, setLines, setShapes, setBackgroundFile, setBackgroundType, setHistory, setHistoryStep, setSelectedShape, setCurrentPage, setPageShapes, setPageHistory) {
+    static instance = null;
+    
+    static getInstance(userId) {
+        if (!WebSocketProvider.instance) {
+            WebSocketProvider.instance = new WebSocketProvider(userId);
+        }
+        return WebSocketProvider.instance;
+    }
+
+    constructor(userId) {
         super();
-        this.userId = userId;
-        // Store current state
-        this.lines = [];
-        this.shapes = [];
-        this.currentPage = 1;
+        if (WebSocketProvider.instance) {
+            return WebSocketProvider.instance;
+        }
         
-        // Store setters
-        this.setLines = (lines) => {
-            this.lines = lines;
-            setLines(lines);
-        };
-        this.setShapes = (shapes) => {
-            this.shapes = shapes;
-            setShapes(shapes);
-        };
-        this.setBackgroundFile = setBackgroundFile;
-        this.setBackgroundType = setBackgroundType;
-        this.setHistory = setHistory;
-        this.setHistoryStep = setHistoryStep;
-        this.setSelectedShape = setSelectedShape;
-        this.setCurrentPage = (page) => {
-            this.currentPage = page;
-            setCurrentPage(page);
-        };
-        this.setPageShapes = setPageShapes;
-        this.setPageHistory = setPageHistory;
+        this.userId = userId;
+        this.socket = null;
+        this.subscribers = new Map();
+        this.isConnected = false;
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 5;
-        this.reconnectDelay = 2000; // Start with 2 seconds
-
+        this.reconnectDelay = 2000;
+        
         // Event handlers
         this.connectHandler = null;
         this.disconnectHandler = null;
         this.errorHandler = null;
         this.reconnectHandler = null;
+    }
 
-        this.stompClient = new Client({
-            webSocketFactory: () => new SockJS('http://localhost:8081/ws', null, {
-                // Increase maximum message size (default is 128KB)
-                maxMessageSize: 5 * 1024 * 1024  // 5MB
-            }),
-            debug: (str) => {
-                console.group('WebSocket Debug');
-                console.log('%c' + str, 'color: blue; font-weight: bold;');
-                console.trace();
-                console.groupEnd();
-            },
-            reconnectDelay: 5000,
-            heartbeatIncoming: 4000,
-            heartbeatOutgoing: 4000
+    connect() {
+        if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+            console.log('[WebSocketProvider] Already connected');
+            return Promise.resolve(true);
+        }
+
+        return new Promise((resolve, reject) => {
+            try {
+                // Clean up any existing socket
+                if (this.socket) {
+                    this.socket.close();
+                    this.socket = null;
+                }
+
+                const wsUrl = 'ws://localhost:8081';
+                console.log(`[WebSocketProvider] Connecting to ${wsUrl}`);
+                this.socket = new WebSocket(wsUrl);
+
+                this.socket.onopen = () => {
+                    console.log('[WebSocketProvider] WebSocket connected');
+                    this.isConnected = true;
+                    this.reconnectAttempts = 0;
+                    this.connectHandler?.();
+                    resolve(true);
+                };
+
+                this.socket.onclose = () => {
+                    console.log('[WebSocketProvider] WebSocket closed');
+                    this.isConnected = false;
+                    this.disconnectHandler?.();
+                    this.attemptReconnect();
+                };
+
+                this.socket.onerror = (error) => {
+                    console.error('[WebSocketProvider] WebSocket error:', error);
+                    this.errorHandler?.(error);
+                };
+
+                this.socket.onmessage = (event) => {
+                    try {
+                        const message = JSON.parse(event.data);
+                        // Dispatch message to all relevant subscribers
+                        this.subscribers.forEach((callbacks, topic) => {
+                            if (this.messageMatchesTopic(message, topic)) {
+                                callbacks.forEach(callback => callback(message));
+                            }
+                        });
+                    } catch (error) {
+                        console.error('[WebSocketProvider] Message processing error:', error);
+                    }
+                };
+            } catch (error) {
+                console.error('[WebSocketProvider] Error creating connection:', error);
+                this.errorHandler?.(error);
+                reject(error);
+            }
         });
+    }
+
+    messageMatchesTopic(message, topic) {
+        // Simple topic matching
+        // For now, just check if message type matches the topic
+        // This can be enhanced with more sophisticated routing if needed
+        return topic === '*' || message.type === topic;
+    }
+
+    subscribe(topic, callback) {
+        if (!this.subscribers.has(topic)) {
+            this.subscribers.set(topic, new Set());
+        }
+        this.subscribers.get(topic).add(callback);
+        
+        return {
+            unsubscribe: () => this.unsubscribe(topic, callback)
+        };
+    }
+
+    unsubscribe(topic, callback) {
+        const topicSubscribers = this.subscribers.get(topic);
+        if (topicSubscribers) {
+            topicSubscribers.delete(callback);
+            if (topicSubscribers.size === 0) {
+                this.subscribers.delete(topic);
+            }
+        }
+    }
+
+    publish(topic, message) {
+        if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+            console.error('[WebSocketProvider] Cannot publish: WebSocket not connected');
+            return;
+        }
+
+        try {
+            this.socket.send(JSON.stringify(message));
+        } catch (error) {
+            console.error('[WebSocketProvider] Error publishing message:', error);
+            throw error;
+        }
+    }
+
+    disconnect() {
+        // Clean up all subscriptions
+        this.subscribers.clear();
+
+        if (this.socket) {
+            this.socket.close();
+            this.socket = null;
+            this.isConnected = false;
+            console.log('[WebSocketProvider] Connection closed');
+        }
     }
 
     handleRemoteUpdate = (update) => {
@@ -269,63 +357,6 @@ export class WebSocketProvider extends ICommunicationProvider {
         this.reconnectHandler = handler;
     }
 
-    connect() {
-        try {
-            const ws = new SockJS('http://localhost:8081/ws');
-            this.stompClient = new Client({
-                webSocketFactory: () => ws,
-                debug: function(str) {
-                    console.log('STOMP:', str);
-                },
-                reconnectDelay: 5000,
-                heartbeatIncoming: 4000,
-                heartbeatOutgoing: 4000
-            });
-
-            this.stompClient.onConnect = () => {
-                console.log('STOMP client connected');
-                this.reconnectAttempts = 0;
-                this.connectHandler?.();
-                
-                this.stompClient.subscribe('/topic/whiteboard', message => {
-                    try {
-                        const update = JSON.parse(message.body);
-                        this.handleRemoteUpdate(update);
-                    } catch (error) {
-                        console.error('Message processing error:', error);
-                    }
-                });
-            };
-
-            this.stompClient.onStompError = (frame) => {
-                console.error('STOMP protocol error:', frame);
-                this.errorHandler?.({
-                    message: frame.body,
-                    type: 'STOMP_ERROR',
-                    frame
-                });
-            };
-
-            this.stompClient.onWebSocketError = (error) => {
-                console.error('WebSocket error:', error);
-                this.errorHandler?.(error);
-                this.attemptReconnect();
-            };
-
-            this.stompClient.onWebSocketClose = (closeEvent) => {
-                console.error('WebSocket closed:', closeEvent);
-                this.disconnectHandler?.(closeEvent);
-                this.attemptReconnect();
-            };
-
-            this.stompClient.activate();
-        } catch (error) {
-            console.error('Error creating WebSocket connection:', error);
-            this.errorHandler?.(error);
-            this.attemptReconnect();
-        }
-    }
-
     attemptReconnect() {
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts++;
@@ -334,13 +365,15 @@ export class WebSocketProvider extends ICommunicationProvider {
             // Exponential backoff
             const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 30000);
             
-            console.log(`Attempting reconnection ${this.reconnectAttempts} of ${this.maxReconnectAttempts} in ${delay}ms`);
+            console.log(`[WebSocketProvider] Attempting reconnection ${this.reconnectAttempts} of ${this.maxReconnectAttempts} in ${delay}ms`);
             
             setTimeout(() => {
-                this.connect();
+                this.connect().catch(error => {
+                    console.error('[WebSocketProvider] Reconnection failed:', error);
+                });
             }, delay);
         } else {
-            console.error('Max reconnection attempts reached');
+            console.error('[WebSocketProvider] Max reconnection attempts reached');
             this.errorHandler?.({
                 message: 'Max reconnection attempts reached',
                 type: 'MAX_RECONNECT'
@@ -348,15 +381,8 @@ export class WebSocketProvider extends ICommunicationProvider {
         }
     }
 
-    disconnect() {
-        if (this.stompClient) {
-            this.stompClient.deactivate();
-            console.log('WebSocket connection closed');
-        }
-    }
-
     sendUpdate(message) {
-        if (!this.stompClient?.connected) {
+        if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
             console.error('Cannot send update: WebSocket not connected');
             return;
         }
@@ -458,10 +484,7 @@ export class WebSocketProvider extends ICommunicationProvider {
                                 totalChunks: Math.ceil(minimalState.state.shapes.length / chunkSize),
                                 shapes: shapesChunk
                             };
-                            this.stompClient.publish({
-                                destination: '/topic/whiteboard',
-                                body: JSON.stringify(chunkMessage)
-                            });
+                            this.socket.send(JSON.stringify(chunkMessage));
                         }
                     }
 
@@ -478,10 +501,7 @@ export class WebSocketProvider extends ICommunicationProvider {
                                 totalChunks: Math.ceil(minimalState.state.lines.length / chunkSize),
                                 lines: linesChunk
                             };
-                            this.stompClient.publish({
-                                destination: '/topic/whiteboard',
-                                body: JSON.stringify(chunkMessage)
-                            });
+                            this.socket.send(JSON.stringify(chunkMessage));
                         }
                     }
 
@@ -495,27 +515,18 @@ export class WebSocketProvider extends ICommunicationProvider {
                             background: minimalState.state.background
                         }
                     };
-                    this.stompClient.publish({
-                        destination: '/topic/whiteboard',
-                        body: JSON.stringify(finalState)
-                    });
+                    this.socket.send(JSON.stringify(finalState));
                     return;
                 }
 
                 // If not too large, send as single message
-                this.stompClient.publish({
-                    destination: '/topic/whiteboard',
-                    body: messageStr
-                });
+                this.socket.send(messageStr);
                 return;
             }
 
             // For non-state updates, send as is
             const messageStr = JSON.stringify(message);
-            this.stompClient.publish({
-                destination: '/topic/whiteboard',
-                body: messageStr
-            });
+            this.socket.send(messageStr);
 
         } catch (error) {
             console.error('Error sending update:', error);

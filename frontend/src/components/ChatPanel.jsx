@@ -1,32 +1,24 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { WebRTCProvider } from '../services/WebRTCProvider';
-import ConnectionStatusLight from './ConnectionStatusLight';
 import '../styles/ChatPanel.css';
 
-const ChatPanel = ({ user, provider, peers }) => {
+const ChatPanel = ({ user, provider, peers, onSendMessage, receivedMessages = [] }) => {
     const [messages, setMessages] = useState([]);
     const [inputMessage, setInputMessage] = useState('');
     const messagesEndRef = useRef(null);
 
+    // Update messages when receivedMessages prop changes
     useEffect(() => {
-        if (!provider) return;
-        
-        provider.onMessageReceived = (message) => {
-            console.log('Received message:', message);
-            try {
-                const parsedContent = JSON.parse(message.content);
-                setMessages(prev => [...prev, {
-                    id: Date.now(),
-                    sender: parsedContent.sender,
-                    content: parsedContent.content,
-                    timestamp: new Date(parsedContent.timestamp),
-                    type: 'received'
-                }]);
-            } catch (error) {
-                console.error('Error parsing message:', error);
-            }
-        };
-    }, [provider]);
+        if (receivedMessages.length > 0) {
+            const lastMessage = receivedMessages[receivedMessages.length - 1];
+            setMessages(prev => [...prev, {
+                id: Date.now(),
+                sender: lastMessage.sender || 'Peer',
+                content: lastMessage.content,
+                timestamp: new Date(lastMessage.timestamp || Date.now()),
+                type: 'received'
+            }]);
+        }
+    }, [receivedMessages]);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -35,22 +27,27 @@ const ChatPanel = ({ user, provider, peers }) => {
     useEffect(scrollToBottom, [messages]);
 
     const sendMessage = async () => {
-        if (!inputMessage.trim()) return;
+        if (!inputMessage.trim() || !onSendMessage) return;
 
         const newMessage = {
             content: inputMessage,
-            sender: user.username,
-            timestamp: new Date(),
+            sender: user?.email || 'You',
+            timestamp: new Date().toISOString(),
             type: 'sent'
         };
 
+        // Add to local messages immediately
         setMessages(prev => [...prev, { ...newMessage, id: Date.now() }]);
         setInputMessage('');
 
-        // Send to all connected peers
-        peers.forEach(peer => {
-            provider.sendMessage(peer, newMessage);
-        });
+        // Send to peer via WebRTC
+        try {
+            await onSendMessage(newMessage);
+        } catch (error) {
+            console.error('Failed to send message:', error);
+            // Remove the message if sending failed
+            setMessages(prev => prev.slice(0, -1));
+        }
     };
 
     return (

@@ -10,6 +10,8 @@ import { Document, Page } from 'react-pdf/dist/esm/entry.webpack';
 import '../styles/pdf.css';
 import { pdfjs } from 'react-pdf';
 import axios from 'axios';
+import WebSocketProvider from '../contexts/WebSocketProvider';
+import SignalingService from '../services/SignalingService';
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
@@ -32,7 +34,6 @@ const Whiteboard = ({ userId, username }) => {
   const [strokeColor, setStrokeColor] = useState('#000000');
   const [fillColor, setFillColor] = useState('#000000');
   const [triangleType, setTriangleType] = useState('equilateral');
-  const [stompClient, setStompClient] = useState(null);
   const [userColor, setUserColor] = useState(strokeColor);
   const [cursors, setCursors] = useState(new Map());
   const [backgroundFile, setBackgroundFile] = useState(null);
@@ -60,161 +61,38 @@ const Whiteboard = ({ userId, username }) => {
 
   // WebSocket connection effect
   useEffect(() => {
-    console.log('Setting up WebSocket connection...');
+    const wsProvider = WebSocketProvider.getInstance(userId);
     
-    const handleRemoteUpdate = (update) => {
-      if (update.userId === userId) return;
-
-      switch (update.action) {
-        case 'draw':
-          if (update.shape.tool === 'pen') {
-            setLines(prev => [...prev, update.shape]);
-          } else {
-            setShapes(prev => [...prev, update.shape]);
-          }
-          break;
-
-        case 'update':
-          if (update.shape.tool === 'pen') {
-            setLines(prev => prev.map(line => 
-              line.id === update.shape.id ? update.shape : line
-            ));
-          } else {
-            setShapes(prev => prev.map(shape => 
-              shape.id === update.shape.id ? update.shape : shape
-            ));
-            if (selectedShape?.id === update.shape.id) {
-              setSelectedShape(update.shape);
-            }
-          }
-          break;
-
-        case 'background':
-          if (update.background.type === 'pdf') {
-            setBackgroundFile(update.background.url);
-            setBackgroundType('pdf');
-            
-            // Clear everything and reset history
-            setShapes([]);
-            setLines([]);
-            const newPdfHistory = [{
-              lines: [],
-              shapes: [],
-              background: {
-                file: update.background.url,
-                type: 'pdf'
-              }
-            }];
-            setHistory(newPdfHistory);
-            setHistoryStep(0);
-          } else if (update.background.type === 'image') {
-            // Handle image updates
-            setShapes([]);
-            setLines([]);
-            setBackgroundFile(update.background.url);
-            setBackgroundType('image');
-            setScale(1);
-            
-            // Clear everything and reset history
-            const newImageHistory = [{
-              lines: [],
-              shapes: [],
-              background: {
-                file: update.background.url,
-                type: 'image'
-              }
-            }];
-            setHistory(newImageHistory);
-            setHistoryStep(0);
-          }
-          break;
-
-        case 'state':
-          setLines(update.state.lines || []);
-          setShapes(update.state.shapes || []);
-          if (update.state.background) {
-            setBackgroundFile(update.state.background.file);
-            setBackgroundType(update.state.background.type);
-          }
-          if (update.state.historyStep !== undefined && update.state.history) {
-            setHistory(update.state.history);
-            setHistoryStep(update.state.historyStep);
-          }
-          break;
-
-        case 'pageChange':
-          if (update.page.type === 'pdf') {
-            // Save current page shapes
-            setPageShapes(prev => ({
-              ...prev,
-              [currentPage]: { shapes, lines }
-            }));
-
-            // Update page and load shapes
-            setCurrentPage(update.page.number);
-            setShapes(update.page.shapes.shapes || []);
-            setLines(update.page.shapes.lines || []);
-          }
-          break;
-
-        default:
-          console.warn('Unknown action type:', update.action);
-          break;
-      }
-    };
-
-    const client = new Client({
-      webSocketFactory: () => new SockJS('http://localhost:8081/ws'),
-      debug: function (str) {
-        console.log('STOMP: ' + str);
-      },
-      reconnectDelay: 5000,
-      heartbeatIncoming: 4000,
-      heartbeatOutgoing: 4000,
-      onConnect: () => {
-        console.log('WebSocket connected successfully');
-        setStompClient(client);
-
-        client.subscribe('/topic/whiteboard', (message) => {
-          console.log('Received message on /topic/whiteboard:', message.body);  // Add log
-          try {
-            const update = JSON.parse(message.body);
-            if (update.userId !== userId) {
-              console.log('Processing remote update:', update);
-              handleRemoteUpdate(update);
-            } else {
-              console.log('Ignoring own message');
-            }
-          } catch (error) {
-            console.error('Error processing message:', error);
-          }
+    // Connect if not already connected
+    if (!wsProvider.isConnected) {
+        wsProvider.connect().catch(error => {
+            console.error('Failed to connect to WebSocket:', error);
         });
+    }
 
-        client.subscribe('/topic/cursors', (message) => {
-          const cursorUpdate = JSON.parse(message.body);
-          if (cursorUpdate.userId !== userId) {
-            updateRemoteCursor(cursorUpdate);
-          }
-        });
-      },
-      onDisconnect: () => {
-        console.log('WebSocket disconnected');
-      },
-      onStompError: (frame) => {
-        console.error('STOMP error:', frame);
-      }
+    // Subscribe to whiteboard updates
+    const whiteboardSubscription = wsProvider.subscribe('/topic/whiteboard', (update) => {
+        if (update.userId !== userId) {
+            console.log('Processing remote update:', update);
+            handleRemoteUpdate(update);
+        } else {
+            console.log('Ignoring own message');
+        }
     });
 
-    client.activate();
-    console.log('WebSocket client activated');
+    // Subscribe to cursor updates
+    const cursorSubscription = wsProvider.subscribe('/topic/cursors', (cursorUpdate) => {
+        if (cursorUpdate.userId !== userId) {
+            updateRemoteCursor(cursorUpdate);
+        }
+    });
 
+    // Cleanup subscriptions on unmount
     return () => {
-      if (client.connected) {
-        console.log('Disconnecting WebSocket');
-        client.deactivate();
-      }
+        wsProvider.unsubscribe(whiteboardSubscription);
+        wsProvider.unsubscribe(cursorSubscription);
     };
-  }, [userId, username, selectedShape]);
+  }, [userId]);
 
   // Container resize effect
   useEffect(() => {
@@ -241,7 +119,7 @@ const Whiteboard = ({ userId, username }) => {
 
   // Send updates to other users
   const sendUpdate = (action, shape) => {
-    if (!stompClient?.connected) {
+    if (!wsProvider?.connected) {
       console.error('Cannot send update: WebSocket not connected');
       return;
     }
@@ -259,7 +137,7 @@ const Whiteboard = ({ userId, username }) => {
         color: userColor
       };
       console.log('Sending update:', JSON.stringify(message, null, 2));
-      stompClient.publish({
+      wsProvider.publish({
         destination: '/app/whiteboard',
         body: JSON.stringify(message)
       });
@@ -274,8 +152,8 @@ const Whiteboard = ({ userId, username }) => {
     const point = stage.getPointerPosition();
 
     // Send cursor position
-    if (stompClient?.connected) {
-      stompClient.publish({
+    if (wsProvider?.connected) {
+      wsProvider.publish({
         destination: '/topic/cursors',
         body: JSON.stringify({
           userId,
@@ -296,8 +174,8 @@ const Whiteboard = ({ userId, username }) => {
       };
       setLines(prev => [...prev.slice(0, -1), newLastLine]);
       // Send line update
-      if (stompClient?.connected) {
-        stompClient.publish({
+      if (wsProvider?.connected) {
+        wsProvider.publish({
           destination: '/topic/whiteboard',
           body: JSON.stringify({
             userId,
@@ -402,8 +280,8 @@ const Whiteboard = ({ userId, username }) => {
       setShapes(updatedShapes);
       const updatedShape = updatedShapes.find(s => s.id === selectedShape.id);
       if (updatedShape) {
-        if (stompClient?.connected) {
-          stompClient.publish({
+        if (wsProvider?.connected) {
+          wsProvider.publish({
             destination: '/topic/whiteboard',
             body: JSON.stringify({
               userId,
@@ -481,8 +359,8 @@ const Whiteboard = ({ userId, username }) => {
       console.log('Creating new line:', newLine);
       setLines(prev => [...prev, newLine]);
       // Send the new line to other users
-      if (stompClient?.connected) {
-        stompClient.publish({
+      if (wsProvider?.connected) {
+        wsProvider.publish({
           destination: '/topic/whiteboard',
           body: JSON.stringify({
             userId,
@@ -519,8 +397,8 @@ const Whiteboard = ({ userId, username }) => {
       setShapes(prev => [...prev, newShape]);
       setSelectedShape(newShape);
       // Send the new shape
-      if (stompClient?.connected) {
-        stompClient.publish({
+      if (wsProvider?.connected) {
+        wsProvider.publish({
           destination: '/topic/whiteboard',
           body: JSON.stringify({
             userId,
@@ -603,8 +481,8 @@ const Whiteboard = ({ userId, username }) => {
     setHistoryStep(newHistory.length - 1);
 
     // Send update to other users
-    if (stompClient?.connected) {
-      stompClient.publish({
+    if (wsProvider?.connected) {
+      wsProvider.publish({
         destination: '/topic/whiteboard',
         body: JSON.stringify({
           userId,
@@ -706,8 +584,8 @@ const Whiteboard = ({ userId, username }) => {
     setHistoryStep(newHistory.length - 1);
 
     // Send update to other users
-    if (stompClient?.connected) {
-      stompClient.publish({
+    if (wsProvider?.connected) {
+      wsProvider.publish({
         destination: '/topic/whiteboard',
         body: JSON.stringify({
           userId,
@@ -781,8 +659,8 @@ const Whiteboard = ({ userId, username }) => {
     setHistoryStep(newHistory.length - 1);
 
     // Send state to other users
-    if (stompClient?.connected) {
-      stompClient.publish({
+    if (wsProvider?.connected) {
+      wsProvider.publish({
         destination: '/topic/whiteboard',
         body: JSON.stringify({
           userId,
@@ -813,8 +691,8 @@ const Whiteboard = ({ userId, username }) => {
       setHistoryStep(newStep);
 
       // Send undo action to other users
-      if (stompClient?.connected) {
-        stompClient.publish({
+      if (wsProvider?.connected) {
+        wsProvider.publish({
           destination: '/topic/whiteboard',
           body: JSON.stringify({
             userId,
@@ -847,8 +725,8 @@ const Whiteboard = ({ userId, username }) => {
       setHistoryStep(newStep);
 
       // Send redo action to other users
-      if (stompClient?.connected) {
-        stompClient.publish({
+      if (wsProvider?.connected) {
+        wsProvider.publish({
           destination: '/topic/whiteboard',
           body: JSON.stringify({
             userId,
@@ -936,8 +814,8 @@ const Whiteboard = ({ userId, username }) => {
       setHistory(newHistory);
       setHistoryStep(0);
 
-      if (stompClient?.connected) {
-        stompClient.publish({
+      if (wsProvider?.connected) {
+        wsProvider.publish({
           destination: '/topic/whiteboard',
           body: JSON.stringify({
             userId,
@@ -988,8 +866,8 @@ const Whiteboard = ({ userId, username }) => {
         setHistory(newHistory);
         setHistoryStep(0);
 
-        if (stompClient?.connected) {
-          stompClient.publish({
+        if (wsProvider?.connected) {
+          wsProvider.publish({
             destination: '/topic/whiteboard',
             body: JSON.stringify({
               userId,
@@ -1026,8 +904,8 @@ const Whiteboard = ({ userId, username }) => {
       setCurrentPage(newPage);
 
       // Send page change to other users
-      if (stompClient?.connected) {
-        stompClient.publish({
+      if (wsProvider?.connected) {
+        wsProvider.publish({
           destination: '/topic/whiteboard',
           body: JSON.stringify({
             userId,
@@ -1043,6 +921,21 @@ const Whiteboard = ({ userId, username }) => {
       }
     }
   };
+
+  useEffect(() => {
+    if (!signalingService || !user) return;
+
+    console.log('[Whiteboard] Adding signaling message handler for whiteboard synchronization');
+    const handlerId = signalingService.addMessageHandler((message) => {
+      // ... existing handler code ...
+    });
+    console.log(`[Whiteboard] Signaling handler added with ID: ${handlerId}`);
+
+    return () => {
+      console.log(`[Whiteboard] Removing signaling handler with ID: ${handlerId}`);
+      signalingService.removeMessageHandler(handlerId);
+    };
+  }, [signalingService, user]);
 
   return (
     <div className="whiteboard-container">

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
+import '../styles/forms.css';
 
 const SignupForm = () => {
   const navigate = useNavigate();
@@ -116,9 +117,27 @@ const SignupForm = () => {
             accept="image/*,application/pdf"
             style={{ display: 'none' }}
           />
+          <button 
+            type="button" 
+            onClick={() => fileInputRef.current?.click()}
+            style={{
+              padding: '0.5rem 1rem',
+              backgroundColor: '#007bff',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              marginTop: '0.5rem'
+            }}
+          >
+            Choose File
+          </button>
         </div>
         <button type="submit">Sign Up</button>
       </form>
+      <div style={{ textAlign: 'center', marginTop: '1rem' }}>
+        <p>Already have an account? <Link to="/login" style={{ color: '#007bff', textDecoration: 'none' }}>Login here</Link></p>
+      </div>
     </div>
   );
 };
