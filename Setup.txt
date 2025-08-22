@@ -44,4 +44,17 @@
     8080 : backend run on this port.
     8081 : signaling server listen on this port.
     3000 : frontend webserver runs on this port.
+    Q: how to check  if anything listening on a port
+    A: netstat -ano | findstr :3000
+(10) Setup certificate to work with https
+cd frontend
+
+# Create a Certificate Authority
+npx mkcert create-ca
+
+# Create certificates for your domains
+     cd to frontend
+     npx mkcert create-ca
+     npx mkcert create-cert --domains localhost,127.0.0.1,192.168.18.15
+    
     
