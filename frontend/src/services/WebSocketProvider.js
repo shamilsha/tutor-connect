@@ -33,13 +33,13 @@ export class WebSocketProvider extends ICommunicationProvider {
         this.reconnectHandler = null;
     }
 
-    connect() {
+    async connect() {
         if (this.socket && this.socket.readyState === WebSocket.OPEN) {
             console.log('[WebSocketProvider] Already connected');
             return Promise.resolve(true);
         }
 
-        return new Promise((resolve, reject) => {
+        return new Promise(async (resolve, reject) => {
             try {
                 // Clean up any existing socket
                 if (this.socket) {
@@ -47,7 +47,8 @@ export class WebSocketProvider extends ICommunicationProvider {
                     this.socket = null;
                 }
 
-                const wsUrl = 'ws://localhost:8081';
+                const { SERVER_CONFIG } = await import('./config');
+                const wsUrl = SERVER_CONFIG.signaling.getUrl();
                 console.log(`[WebSocketProvider] Connecting to ${wsUrl}`);
                 this.socket = new WebSocket(wsUrl);
 

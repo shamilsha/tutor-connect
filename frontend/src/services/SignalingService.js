@@ -152,7 +152,8 @@ export class SignalingService {
         console.log('[SignalingService] Attempting to login');
         try {
             // First authenticate with the backend
-            const response = await fetch('http://localhost:8080/api/users/login', {
+            const { SERVER_CONFIG } = await import('./config');
+            const response = await fetch(`${SERVER_CONFIG.backend.getUrl()}/api/users/login`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -221,7 +222,7 @@ export class SignalingService {
 
             // Connect and register
             this.wsProvider.connect()
-                .then(() => {
+                .then(async () => {
                     console.log('[SignalingService] Connected to WebSocket server');
                     this.wsProvider.publish('register', {
                         type: 'register',

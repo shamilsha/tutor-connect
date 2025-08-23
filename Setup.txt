@@ -56,5 +56,13 @@ npx mkcert create-ca
      cd to frontend
      npx mkcert create-ca
      npx mkcert create-cert --domains localhost,127.0.0.1,192.168.18.15
+
+Q: how to test audio/video in home network
+A: Access to audio/video require https  protocol but there is some workaround to bypass in local network
+   chrome://flags/#unsafely-treat-insecure-origin-as-secure
+   run the above command and enter the ip address such as http://192.168.18.15:3000 then restart browser.
+   now chrome will treat it as secure ip, localhost always considered secure.
+   but before that COR should be allowed
+
     
     
