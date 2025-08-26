@@ -1,0 +1,32 @@
+# Azure Static Web Apps deployment configuration
+# This file should be placed in the frontend directory
+
+# Build configuration
+build:
+  appLocation: "/"  # Location of your React app source code
+  apiLocation: ""   # No API in this app
+  outputLocation: "build"  # React build output directory
+
+# Routes configuration
+routes:
+  - route: "/*"
+    serve: "/index.html"  # SPA routing support
+
+# Navigation fallback for SPA
+navigationFallback:
+  rewrite: "/index.html"
+
+# Global headers
+globalHeaders:
+  - name: "X-Frame-Options"
+    value: "DENY"
+  - name: "X-Content-Type-Options"
+    value: "nosniff"
+
+# Environment variables for production
+environmentVariables:
+  - name: "REACT_APP_BACKEND_URL"
+    value: "https://tutor-cancen-backend-bxepcjdqeca7f6bk.canadacentral-01.azurewebsites.net"
+  - name: "REACT_APP_SIGNALING_URL"
+    value: "wss://tutor-cancen-signalling-e7bcaybxd0dygeec.canadacentral-01.azurewebsites.net"
+
