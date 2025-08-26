@@ -16,6 +16,12 @@ public class UserController {
     @Autowired
     private UserRepository userRepository;
 
+    @GetMapping("/health")
+    public ResponseEntity<String> health() {
+        logger.info("Health check requested");
+        return ResponseEntity.ok("Backend is running!");
+    }
+
     @PostMapping("/signup")
     public ResponseEntity<?> signup(@RequestBody User user) {
         try {

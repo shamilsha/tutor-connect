@@ -1,7 +1,38 @@
 const WebSocket = require('ws');
-const wss = new WebSocket.Server({ port: 8081 });
+const express = require('express');
+const cors = require('cors');
 
-console.log('Signaling server running on port 8081');
+// Azure configuration
+const PORT = process.env.PORT || 8081;
+const app = express();
+
+// CORS configuration for Azure
+app.use(cors({
+    origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : [
+        'https://tutor-global-frontend.azurestaticapps.net',
+        'https://localhost:3000',
+        'http://localhost:3000'
+    ],
+    credentials: true
+}));
+
+// Health check endpoint for Azure
+app.get('/health', (req, res) => {
+    res.status(200).json({ 
+        status: 'healthy', 
+        timestamp: new Date().toISOString(),
+        connections: wss.clients.size
+    });
+});
+
+// Create HTTP server
+const server = app.listen(PORT, () => {
+    console.log(`Signaling server running on port ${PORT}`);
+    console.log(`Health check available at http://localhost:${PORT}/health`);
+});
+
+// Create WebSocket server
+const wss = new WebSocket.Server({ server });
 
 const clients = new Map();
 
@@ -187,4 +218,13 @@ const interval = setInterval(() => {
 
 wss.on('close', () => {
     clearInterval(interval);
+});
+
+// Graceful shutdown for Azure
+process.on('SIGTERM', () => {
+    console.log('SIGTERM received, shutting down gracefully');
+    server.close(() => {
+        console.log('Server closed');
+        process.exit(0);
+    });
 }); 

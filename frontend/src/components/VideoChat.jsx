@@ -621,12 +621,14 @@ const VideoChat = ({
     // UI decides which stream goes where based on available streams
     // Main window: Show remote video if available, otherwise local video
     const mainStream = remoteStream || localStream;
-    // PiP window: Show local video only when remote video is in main window
-    const pipStream = remoteStream && localStream ? localStream : null;
+    // PiP window: Show local video only when remote video is in main window AND remote has enabled video
+    const hasRemoteVideoEnabled = hasEnabledRemoteVideo();
+    const pipStream = (remoteStream && localStream && hasRemoteVideoEnabled) ? localStream : null;
 
     console.log('[VideoChat] 🎯 STREAM ASSIGNMENT DEBUG:', {
         hasLocalVideo,
         hasRemoteVideo,
+        hasRemoteVideoEnabled,
         localStreamExists: !!localStream,
         remoteStreamExists: !!remoteStream,
         localStreamId: localStream?.id,
@@ -635,7 +637,7 @@ const VideoChat = ({
         mainStreamId: mainStream?.id,
         pipStreamType: pipStream ? 'LOCAL' : 'NONE',
         pipStreamId: pipStream?.id,
-        pipCondition: remoteStream && localStream ? 'SHOW' : 'HIDE',
+        pipCondition: (remoteStream && localStream && hasRemoteVideoEnabled) ? 'SHOW' : 'HIDE',
         mainStreamVideoTracks: mainStream?.getVideoTracks().length || 0,
         pipStreamVideoTracks: pipStream?.getVideoTracks().length || 0,
         mainStreamAudioTracks: mainStream?.getAudioTracks().length || 0,
@@ -645,11 +647,12 @@ const VideoChat = ({
     console.log('[VideoChat] 🎯 STREAM ASSIGNMENT LOGIC:', {
         remoteStreamExists: !!remoteStream,
         localStreamExists: !!localStream,
+        hasRemoteVideoEnabled,
         mainStreamLogic: 'remoteStream || localStream',
         mainStreamResult: mainStream ? (remoteStream ? 'remote' : 'local') : 'none',
-        pipStreamLogic: 'remoteStream && localStream ? localStream : null',
+        pipStreamLogic: '(remoteStream && localStream && hasRemoteVideoEnabled) ? localStream : null',
         pipStreamResult: pipStream ? 'local' : 'none',
-        pipCondition: remoteStream && localStream ? 'SHOW' : 'HIDE'
+        pipCondition: (remoteStream && localStream && hasRemoteVideoEnabled) ? 'SHOW' : 'HIDE'
     });
 
     console.log('[VideoChat] 🎬 RENDERING VIDEOCHAT COMPONENT:', {
@@ -674,8 +677,8 @@ const VideoChat = ({
             localStreamTracks: localStream?.getTracks().length || 0
         });
         
-        // Debug PiP window CSS if it should render
-        if (remoteStream && localStream) {
+                 // Debug PiP window CSS if it should render
+         if (remoteStream && localStream && hasRemoteVideoEnabled) {
             console.log('[VideoChat] 🎨 PiP WINDOW CSS PROPERTIES (if rendered):', {
                 position: 'absolute',
                 top: '20px',
@@ -692,18 +695,19 @@ const VideoChat = ({
                 opacity: '1'
             });
             console.log('[VideoChat] ✅ PiP WINDOW SHOULD BE VISIBLE - All conditions met');
-        } else {
-            console.log('[VideoChat] ❌ PiP WINDOW WILL NOT RENDER - Conditions not met:', {
-                hasRemoteVideo,
-                localStreamExists: !!localStream,
-                hasLocalVideoTracks: localStream && localStream.getVideoTracks().length > 0,
-                isVideoEnabled,
-                localStreamId: localStream?.id,
-                localStreamTracks: localStream?.getTracks().length || 0,
-                localVideoTracks: localStream?.getVideoTracks().length || 0,
-                condition: remoteStream && localStream
-            });
-        }
+                 } else {
+             console.log('[VideoChat] ❌ PiP WINDOW WILL NOT RENDER - Conditions not met:', {
+                 hasRemoteVideo,
+                 hasRemoteVideoEnabled,
+                 localStreamExists: !!localStream,
+                 hasLocalVideoTracks: localStream && localStream.getVideoTracks().length > 0,
+                 isVideoEnabled,
+                 localStreamId: localStream?.id,
+                 localStreamTracks: localStream?.getTracks().length || 0,
+                 localVideoTracks: localStream?.getVideoTracks().length || 0,
+                 condition: remoteStream && localStream && hasRemoteVideoEnabled
+             });
+         }
     } else {
         console.log('[VideoChat] ❌ NOT RENDERING VIDEODISPLAY - Conditions not met:', {
             shouldShowVideo,
@@ -719,71 +723,61 @@ const VideoChat = ({
     const handleToggleAudio = async () => {
         if (!provider) return;
         
-        console.log('[VideoChat] 🔊 handleToggleAudio called:', {
+        const newAudioState = !isAudioEnabled;
+        console.log(`[VideoChat] 🎤 handleToggleAudio called:`, {
             currentIsAudioEnabled: isAudioEnabled,
-            newAudioState: !isAudioEnabled,
+            newAudioState,
             provider: !!provider,
-            hasLocalStream: !!localStream,
-            localAudioTracks: localStream?.getAudioTracks().length || 0
+            hasLocalStream: !!localStream
         });
         
         try {
-            // Check if we need to initialize or reinitialize local media
-            const currentLocalStream = localStream;
-            const needsAudioTrack = !currentLocalStream || currentLocalStream.getAudioTracks().length === 0;
-            
-            if (needsAudioTrack) {
-                console.log('[VideoChat] 🔄 No audio track found, adding audio to existing stream...');
-                
-                // Instead of reinitializing the entire stream, try to add audio tracks
-                // This avoids SDP mismatches during renegotiation
-                try {
-                    // Get audio-only stream
-                    const audioStream = await navigator.mediaDevices.getUserMedia({ 
-                        audio: true, 
-                        video: false 
-                    });
-                    
-                    // Add audio tracks to existing stream
-                    const audioTracks = audioStream.getAudioTracks();
-                    audioTracks.forEach(track => {
-                        track.enabled = false; // Start disabled
-                        currentLocalStream.addTrack(track);
-                        console.log(`[VideoChat] ✅ Added audio track ${track.id} to existing stream`);
-                    });
-                    
-                    // Stop the temporary audio stream (tracks are now in localStream)
-                    audioStream.getTracks().forEach(track => track.stop());
-                    
-                    console.log('[VideoChat] ✅ Audio tracks added to existing stream');
-                } catch (audioError) {
-                    console.error('[VideoChat] Failed to add audio tracks:', audioError);
-                    // Fallback to full reinitialization if adding tracks fails
-                    console.log('[VideoChat] 🔄 Fallback: Reinitializing entire stream...');
-                    const currentVideoState = hasLocalVideo;
-                    await provider.initializeLocalMedia({ 
-                        audio: true, 
-                        video: true
-                    });
-                    if (currentVideoState) {
-                        await provider.toggleMedia({ video: true });
-                    }
-                }
+            // If no local stream exists and user wants to enable audio, create one
+            if (!localStream && newAudioState) {
+                console.log('[VideoChat] 🎤 No local stream found - creating new stream with audio enabled');
+                await provider.initializeLocalMedia({ audio: true, video: false });
+                console.log('[VideoChat] ✅ Local stream created with audio enabled');
+                return;
             }
             
-            const newAudioState = !isAudioEnabled;
-            console.log('[VideoChat] 🔄 Calling provider.toggleMedia with audio:', newAudioState);
-            await provider.toggleMedia({ audio: newAudioState });
-            console.log(`[VideoChat] ✅ Audio toggled to: ${newAudioState}`);
-            
-            // Check state after toggle
-            console.log('[VideoChat] 🔍 Audio state after toggle:', {
-                isAudioEnabled: isAudioEnabled,
-                localAudioTracks: localStream?.getAudioTracks().length || 0,
-                localAudioTracksEnabled: localStream?.getAudioTracks().map(t => t.enabled) || []
-            });
+            // If local stream exists, check if we need to add the missing track
+            if (localStream) {
+                const hasAudioTrack = localStream.getAudioTracks().length > 0;
+                
+                // If we want to enable audio but don't have an audio track, we need to add it
+                if (newAudioState && !hasAudioTrack) {
+                    console.log('[VideoChat] 🎤 No audio track in existing stream - adding audio track');
+                    // Create a new stream with both existing video and new audio
+                    // Check if video tracks exist AND are enabled (not just if they exist)
+                    const videoTracks = localStream.getVideoTracks();
+                    const hasEnabledVideoTrack = videoTracks.length > 0 && videoTracks.some(track => track.enabled);
+                    console.log('[VideoChat] 🎤 Video track check:', {
+                        videoTracksExist: videoTracks.length > 0,
+                        videoTracksEnabled: hasEnabledVideoTrack,
+                        videoTrackStates: videoTracks.map(t => ({ id: t.id, enabled: t.enabled }))
+                    });
+                    await provider.initializeLocalMedia({ 
+                        audio: true, 
+                        video: hasEnabledVideoTrack 
+                    });
+                } else {
+                    // Toggle existing audio track
+                    await provider.toggleMedia({ audio: newAudioState });
+                }
+                console.log(`[VideoChat] ✅ Audio toggled to: ${newAudioState}`);
+            } else {
+                console.log('[VideoChat] 🔒 No local stream and not enabling audio - nothing to do');
+            }
         } catch (err) {
             console.error('[VideoChat] Audio toggle error:', err);
+            // Show user-friendly error message
+            if (err.name === 'NotAllowedError') {
+                alert('Microphone access denied. Please allow microphone permissions and try again.');
+            } else if (err.name === 'NotReadableError') {
+                alert('Microphone is in use by another application. Please close other apps using the microphone and try again.');
+            } else {
+                alert('Failed to access microphone. Please check your microphone permissions and try again.');
+            }
         }
     };
 
@@ -799,16 +793,52 @@ const VideoChat = ({
         });
         
         try {
-            // Initialize local media if no stream exists
-            if (!localStream) {
-                console.log('[VideoChat] 🔄 No local stream found, initializing local media...');
+            // If no local stream exists and user wants to enable video, create one
+            if (!localStream && newVideoState) {
+                console.log('[VideoChat] 🎥 No local stream found - creating new stream with video enabled');
                 await provider.initializeLocalMedia({ audio: false, video: true });
+                console.log('[VideoChat] ✅ Local stream created with video enabled');
+                return;
             }
             
-            await provider.toggleMedia({ video: newVideoState });
-            console.log(`[VideoChat] ✅ Video toggled to: ${newVideoState}`);
+            // If local stream exists, check if we need to add the missing track
+            if (localStream) {
+                const hasVideoTrack = localStream.getVideoTracks().length > 0;
+                
+                // If we want to enable video but don't have a video track, we need to add it
+                if (newVideoState && !hasVideoTrack) {
+                    console.log('[VideoChat] 🎥 No video track in existing stream - adding video track');
+                    // Create a new stream with both existing audio and new video
+                    // Check if audio tracks exist AND are enabled (not just if they exist)
+                    const audioTracks = localStream.getAudioTracks();
+                    const hasEnabledAudioTrack = audioTracks.length > 0 && audioTracks.some(track => track.enabled);
+                    console.log('[VideoChat] 🎥 Audio track check:', {
+                        audioTracksExist: audioTracks.length > 0,
+                        audioTracksEnabled: hasEnabledAudioTrack,
+                        audioTrackStates: audioTracks.map(t => ({ id: t.id, enabled: t.enabled }))
+                    });
+                    await provider.initializeLocalMedia({ 
+                        audio: hasEnabledAudioTrack, 
+                        video: true 
+                    });
+                } else {
+                    // Toggle existing video track
+                    await provider.toggleMedia({ video: newVideoState });
+                }
+                console.log(`[VideoChat] ✅ Video toggled to: ${newVideoState}`);
+            } else {
+                console.log('[VideoChat] 🔒 No local stream and not enabling video - nothing to do');
+            }
         } catch (err) {
             console.error('[VideoChat] Video toggle error:', err);
+            // Show user-friendly error message
+            if (err.name === 'NotAllowedError') {
+                alert('Camera access denied. Please allow camera permissions and try again.');
+            } else if (err.name === 'NotReadableError') {
+                alert('Camera is in use by another application. Please close other apps using the camera and try again.');
+            } else {
+                alert('Failed to access camera. Please check your camera permissions and try again.');
+            }
         }
     };
 
@@ -830,52 +860,57 @@ const VideoChat = ({
             
             {shouldShowVideo && (
                 <>
-                    {console.log('[VideoChat] 🖥️ RENDERING VIDEODISPLAY WITH:', {
-                        mainStream: remoteStream ? 'remote' : 'local',
-                        mainStreamId: remoteStream ? remoteStream?.id : localStream?.id,
-                        pipStream: remoteStream && localStream ? 'local' : 'null',
-                        pipStreamId: remoteStream && localStream ? localStream?.id : null,
-                        hasRemoteVideo,
-                        hasLocalVideo,
-                        localStreamExists: !!localStream,
-                        isVideoEnabled,
-                        shouldShowVideo,
-                        pipStreamCondition: remoteStream && localStream
-                    })}
+                                         {console.log('[VideoChat] 🖥️ RENDERING VIDEODISPLAY WITH:', {
+                         mainStream: remoteStream ? 'remote' : 'local',
+                         mainStreamId: remoteStream ? remoteStream?.id : localStream?.id,
+                         pipStream: (remoteStream && localStream && hasRemoteVideoEnabled) ? 'local' : 'null',
+                         pipStreamId: (remoteStream && localStream && hasRemoteVideoEnabled) ? localStream?.id : null,
+                         hasRemoteVideo,
+                         hasRemoteVideoEnabled,
+                         hasLocalVideo,
+                         localStreamExists: !!localStream,
+                         isVideoEnabled,
+                         shouldShowVideo,
+                         pipStreamCondition: remoteStream && localStream && hasRemoteVideoEnabled
+                     })}
                 <VideoDisplay
                         mainStream={mainStream}
                         pipStream={pipStream}
                         isMainStreamRemote={!!remoteStream}
                     />
-                    {console.log('[VideoChat] ✅ VideoDisplay component rendered with props:', {
-                        mainStream: mainStream ? 'present' : 'null',
-                        pipStream: pipStream ? 'present' : 'null',
-                        shouldShowVideo,
-                        pipStreamCondition: remoteStream && localStream,
-                        hasRemoteVideo,
-                        localStreamExists: !!localStream,
-                        isVideoEnabled
-                    })}
-                    {console.log('[VideoChat] 🎯 PiP WINDOW RENDERING CONDITION:', {
-                        condition: remoteStream && localStream,
-                        hasRemoteVideo,
-                        hasLocalVideo,
-                        localStreamExists: !!localStream,
-                        isVideoEnabled,
-                        pipStream: pipStream ? 'WILL RENDER' : 'WILL NOT RENDER'
-                    })}
-                    {console.log('[VideoChat] 🔍 DETAILED PiP CONDITION BREAKDOWN:', {
-                        hasRemoteVideo,
-                        hasLocalVideo,
-                        localStreamExists: !!localStream,
-                        isVideoEnabled,
-                        condition1: !!remoteStream,
-                        condition2: !!localStream,
-                        finalCondition: remoteStream && localStream,
-                        remoteStreamExists: !!remoteStream,
-                        remoteVideoTracks: remoteStream?.getVideoTracks().length || 0,
-                        localVideoTracks: localStream?.getVideoTracks().length || 0
-                    })}
+                                         {console.log('[VideoChat] ✅ VideoDisplay component rendered with props:', {
+                         mainStream: mainStream ? 'present' : 'null',
+                         pipStream: pipStream ? 'present' : 'null',
+                         shouldShowVideo,
+                         pipStreamCondition: remoteStream && localStream && hasRemoteVideoEnabled,
+                         hasRemoteVideo,
+                         hasRemoteVideoEnabled,
+                         localStreamExists: !!localStream,
+                         isVideoEnabled
+                     })}
+                                         {console.log('[VideoChat] 🎯 PiP WINDOW RENDERING CONDITION:', {
+                         condition: remoteStream && localStream && hasRemoteVideoEnabled,
+                         hasRemoteVideo,
+                         hasRemoteVideoEnabled,
+                         hasLocalVideo,
+                         localStreamExists: !!localStream,
+                         isVideoEnabled,
+                         pipStream: pipStream ? 'WILL RENDER' : 'WILL NOT RENDER'
+                     })}
+                                         {console.log('[VideoChat] 🔍 DETAILED PiP CONDITION BREAKDOWN:', {
+                         hasRemoteVideo,
+                         hasRemoteVideoEnabled,
+                         hasLocalVideo,
+                         localStreamExists: !!localStream,
+                         isVideoEnabled,
+                         condition1: !!remoteStream,
+                         condition2: !!localStream,
+                         condition3: hasRemoteVideoEnabled,
+                         finalCondition: remoteStream && localStream && hasRemoteVideoEnabled,
+                         remoteStreamExists: !!remoteStream,
+                         remoteVideoTracks: remoteStream?.getVideoTracks().length || 0,
+                         localVideoTracks: localStream?.getVideoTracks().length || 0
+                     })}
                 </>
             )}
             

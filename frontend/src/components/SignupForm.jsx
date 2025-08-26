@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
+import SERVER_CONFIG from '../services/config.js';
 import '../styles/forms.css';
 
 const SignupForm = () => {
@@ -31,7 +32,7 @@ const SignupForm = () => {
     setSuccess('');
     
     try {
-      const response = await axios.post('http://localhost:8080/api/users/signup', formData);
+      const response = await axios.post(`${SERVER_CONFIG.backend.getUrl()}/api/users/signup`, formData);
       console.log('Signup response:', response);
       setSuccess('Signup successful! Redirecting to login...');
       setTimeout(() => navigate('/login'), 2000);

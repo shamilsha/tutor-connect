@@ -155,6 +155,165 @@ export class WebRTCProvider implements IWebRTCProvider {
         }
         
         console.log(`[WebRTC] WebRTCProvider instance created for user ${this.userId}`);
+        
+        // Run network connectivity test
+        this.runConnectivityTest();
+        
+        // Run enhanced network diagnostics
+        this.runNetworkDiagnostics();
+    }
+    
+    // Network connectivity test
+    private async runConnectivityTest(): Promise<void> {
+        try {
+            console.log(`[WebRTC] 🔍 Running network connectivity test...`);
+            
+            // Test basic connectivity
+            const testConnection = new RTCPeerConnection({
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+            });
+            
+            // Create a dummy data channel to trigger ICE gathering
+            const testChannel = testConnection.createDataChannel('test');
+            
+            // Monitor ICE candidates
+            let candidateCount = 0;
+            let hostCandidates = 0;
+            let srflxCandidates = 0;
+            
+            testConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    candidateCount++;
+                    const candidateString = event.candidate.candidate;
+                    if (candidateString.includes('typ host')) {
+                        hostCandidates++;
+                    } else if (candidateString.includes('typ srflx')) {
+                        srflxCandidates++;
+                    }
+                    
+                    console.log(`[WebRTC] 🔍 Test candidate ${candidateCount}: ${event.candidate.type} - ${event.candidate.address}:${event.candidate.port}`);
+                } else {
+                    console.log(`[WebRTC] 🔍 Connectivity test completed:`, {
+                        totalCandidates: candidateCount,
+                        hostCandidates,
+                        srflxCandidates,
+                        hasHostCandidates: hostCandidates > 0,
+                        hasSrflxCandidates: srflxCandidates > 0,
+                        canConnectDirectly: hostCandidates > 0,
+                        canConnectViaStun: srflxCandidates > 0
+                    });
+                    
+                    // Clean up test connection
+                    testConnection.close();
+                }
+            };
+            
+            // Create a dummy offer to trigger ICE gathering
+            const offer = await testConnection.createOffer();
+            await testConnection.setLocalDescription(offer);
+            
+        } catch (error) {
+            console.error(`[WebRTC] ❌ Connectivity test failed:`, error);
+        }
+    }
+    
+    // Enhanced network diagnostics
+    private async runNetworkDiagnostics(): Promise<void> {
+        try {
+            console.log(`[WebRTC] 🔍 Running enhanced network diagnostics...`);
+            
+            // Test basic network connectivity
+            const networkInfo = {
+                userAgent: navigator.userAgent,
+                platform: navigator.platform,
+                onLine: navigator.onLine,
+                connection: (navigator as any).connection?.effectiveType || 'unknown',
+                timestamp: new Date().toISOString()
+            };
+            
+            console.log(`[WebRTC] 🔍 Network Info:`, networkInfo);
+            
+            // Test if we can reach the signaling server
+            try {
+                const response = await fetch('http://192.168.18.15:8081', { 
+                    method: 'GET',
+                    mode: 'no-cors' // Just test connectivity
+                });
+                console.log(`[WebRTC] ✅ Signaling server reachable`);
+            } catch (error) {
+                console.error(`[WebRTC] ❌ Signaling server not reachable:`, error);
+            }
+            
+            // Test if we can reach the backend
+            try {
+                const response = await fetch('http://192.168.18.15:8080/api/users/login', { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: 'test', password: 'test' })
+                });
+                console.log(`[WebRTC] ✅ Backend server reachable (status: ${response.status})`);
+            } catch (error) {
+                console.error(`[WebRTC] ❌ Backend server not reachable:`, error);
+            }
+
+            // Test direct connectivity between machines
+            console.log(`[WebRTC] 🔍 Testing direct machine connectivity...`);
+            
+            // Test if we can reach the other machine's IP
+            const testIPs = ['192.168.18.15', '192.168.18.56']; // Add both machine IPs
+            for (const ip of testIPs) {
+                try {
+                    // Test HTTP connectivity
+                    const response = await fetch(`http://${ip}:3000`, { 
+                        method: 'GET',
+                        mode: 'no-cors'
+                    });
+                    console.log(`[WebRTC] ✅ Can reach ${ip}:3000 (frontend)`);
+                } catch (error) {
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    console.log(`[WebRTC] ❌ Cannot reach ${ip}:3000 (frontend):`, errorMessage);
+                }
+            }
+
+            // Test UDP connectivity (simulate with WebRTC test)
+            console.log(`[WebRTC] 🔍 Testing UDP connectivity with WebRTC...`);
+            try {
+                const testConnection = new RTCPeerConnection({
+                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                });
+                
+                let candidateCount = 0;
+                let hasPublicIP = false;
+                
+                testConnection.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        candidateCount++;
+                        const candidateString = event.candidate.candidate;
+                        if (candidateString.includes('typ srflx')) {
+                            hasPublicIP = true;
+                            console.log(`[WebRTC] ✅ Public IP obtained via STUN: ${event.candidate.address}`);
+                        }
+                        console.log(`[WebRTC] 🔍 Test candidate ${candidateCount}: ${event.candidate.type} - ${event.candidate.address}:${event.candidate.port}`);
+                    } else {
+                        console.log(`[WebRTC] 🔍 UDP connectivity test completed:`, {
+                            totalCandidates: candidateCount,
+                            hasPublicIP,
+                            canConnectDirectly: hasPublicIP
+                        });
+                        testConnection.close();
+                    }
+                };
+                
+                const offer = await testConnection.createOffer();
+                await testConnection.setLocalDescription(offer);
+                
+            } catch (error) {
+                console.error(`[WebRTC] ❌ UDP connectivity test failed:`, error);
+            }
+            
+        } catch (error) {
+            console.error(`[WebRTC] ❌ Network diagnostics failed:`, error);
+        }
     }
 
     // Event System
@@ -462,6 +621,36 @@ export class WebRTCProvider implements IWebRTCProvider {
         
         this.updateLocalAudioState(hasAudio);
         this.updateLocalVideoState(hasVideo);
+        
+        // Add tracks to existing peer connections
+        console.log(`[WebRTC] 🔄 Adding local stream tracks to ${this.connections.size} existing peer connections`);
+        for (const [peerId, peerState] of this.connections) {
+            if (peerState.connection && peerState.connection.connectionState === 'connected') {
+                console.log(`[WebRTC] 🔄 Adding tracks to peer ${peerId}`);
+                
+                // Add audio tracks
+                for (const audioTrack of stream.getAudioTracks()) {
+                    if (audioTrack.enabled) {
+                        console.log(`[WebRTC] 🔊 Adding audio track to peer ${peerId}:`, audioTrack.id);
+                        const sender = peerState.connection.addTrack(audioTrack, stream);
+                        console.log(`[WebRTC] ✅ Audio track added to peer ${peerId}`);
+                    }
+                }
+                
+                // Add video tracks
+                for (const videoTrack of stream.getVideoTracks()) {
+                    if (videoTrack.enabled) {
+                        console.log(`[WebRTC] 🎥 Adding video track to peer ${peerId}:`, videoTrack.id);
+                        const sender = peerState.connection.addTrack(videoTrack, stream);
+                        console.log(`[WebRTC] ✅ Video track added to peer ${peerId}`);
+                    }
+                }
+                
+                // Trigger renegotiation to send the new tracks
+                console.log(`[WebRTC] 🔄 Triggering renegotiation for peer ${peerId} to send new tracks`);
+                await this.forceRenegotiation(peerId);
+            }
+        }
     }
 
     // Initialize local media stream
@@ -491,7 +680,31 @@ export class WebRTCProvider implements IWebRTCProvider {
             
             console.log('[WebRTC] ✅ Local media stream initialized successfully');
         } catch (error) {
-            console.error('[WebRTC] ❌ Failed to initialize local media stream:', error);
+            // Enhanced error classification
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorName = error instanceof Error ? error.name : 'UnknownError';
+            
+            // Classify different types of errors
+            if (errorName === 'NotAllowedError') {
+                console.error('[WebRTC] 🔒 PERMISSION DENIED: User denied camera/microphone access');
+                console.error('[WebRTC] 🔒 This is expected behavior - user must grant permissions manually');
+            } else if (errorName === 'NotReadableError') {
+                console.error('[WebRTC] 🔒 DEVICE BUSY: Camera/microphone is already in use by another application');
+                console.error('[WebRTC] 🔒 Close other apps using camera/microphone and try again');
+            } else if (errorName === 'NotFoundError') {
+                console.error('[WebRTC] 🔒 DEVICE NOT FOUND: No camera/microphone detected on this device');
+                console.error('[WebRTC] 🔒 Check if camera/microphone is properly connected');
+            } else if (errorName === 'NotSupportedError') {
+                console.error('[WebRTC] 🔒 NOT SUPPORTED: Camera/microphone not supported in this browser');
+                console.error('[WebRTC] 🔒 Try using a different browser or device');
+            } else if (errorMessage.includes('MediaDevices API not available')) {
+                console.error('[WebRTC] 🔒 API NOT AVAILABLE: MediaDevices API not supported in this browser');
+                console.error('[WebRTC] 🔒 This browser does not support camera/microphone access');
+            } else {
+                console.error('[WebRTC] ❌ UNKNOWN ERROR: Failed to initialize local media stream:', error);
+                console.error('[WebRTC] ❌ This appears to be an unexpected technical issue');
+            }
+            
             throw error;
         }
     }
@@ -696,22 +909,171 @@ export class WebRTCProvider implements IWebRTCProvider {
         // ICE connection state changes
         connection.oniceconnectionstatechange = () => {
             const state = connection.iceConnectionState;
-            console.log(`[WebRTC] ICE connection state for peer ${peerId}: ${state}`);
+            const gatheringState = connection.iceGatheringState;
+            console.log(`[WebRTC] 🧊 ICE connection state for peer ${peerId}: ${state} (gathering: ${gatheringState})`);
             
-            if (state === 'failed') {
-                this.handleError(peerId, new Error('ICE connection failed'));
+            // Enhanced ICE state debugging
+            switch (state) {
+                case 'new':
+                    console.log(`[WebRTC] 🧊 ICE gathering started for peer ${peerId}`);
+                    break;
+                case 'checking':
+                    console.log(`[WebRTC] 🧊 ICE connectivity checks in progress for peer ${peerId}`);
+                    // Log available candidates for debugging
+                    console.log(`[WebRTC] 🧊 Connection stats for peer ${peerId}:`, {
+                        localDescription: !!connection.localDescription,
+                        remoteDescription: !!connection.remoteDescription,
+                        signalingState: connection.signalingState,
+                        connectionState: connection.connectionState
+                    });
+                    break;
+                case 'connected':
+                    console.log(`[WebRTC] ✅ ICE connection established for peer ${peerId}`);
+                    break;
+                case 'completed':
+                    console.log(`[WebRTC] ✅ ICE connection completed for peer ${peerId}`);
+                    break;
+                case 'failed':
+                    console.error(`[WebRTC] ❌ ICE connection failed for peer ${peerId}`);
+                    console.error(`[WebRTC] ❌ Debugging info:`, {
+                        signalingState: connection.signalingState,
+                        connectionState: connection.connectionState,
+                        iceGatheringState: connection.iceGatheringState,
+                        localDescription: !!connection.localDescription,
+                        remoteDescription: !!connection.remoteDescription,
+                        rtcConfiguration: this.rtcConfiguration
+                    });
+                    
+                    // Enhanced ICE failure analysis
+                    console.error(`[WebRTC] 🔍 ICE FAILURE ANALYSIS:`);
+                    console.error(`[WebRTC] 🔍 This typically means:`);
+                    console.error(`[WebRTC] 🔍 1. Both peers are behind NAT/firewalls that block direct connections`);
+                    console.error(`[WebRTC] 🔍 2. Network policies prevent UDP/TCP connectivity between the machines`);
+                    console.error(`[WebRTC] 🔍 3. STUN servers cannot establish a direct path between the peers`);
+                    console.error(`[WebRTC] 🔍 4. Need TURN servers for relay functionality`);
+                    
+                    // Log network information for debugging
+                    console.error(`[WebRTC] 🔍 Network Info:`, {
+                        userAgent: navigator.userAgent,
+                        platform: navigator.platform,
+                        connection: (navigator as any).connection?.effectiveType || 'unknown',
+                        onLine: navigator.onLine
+                    });
+                    
+                    // Enhanced network topology analysis
+                    console.error(`[WebRTC] 🔍 NETWORK TOPOLOGY ANALYSIS:`);
+                    console.error(`[WebRTC] 🔍 Current location: ${window.location.hostname}:${window.location.port}`);
+                    console.error(`[WebRTC] 🔍 Protocol: ${window.location.protocol}`);
+                    console.error(`[WebRTC] 🔍 This suggests:`, {
+                        isLocalhost: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1',
+                        isIPAddress: /^\d+\.\d+\.\d+\.\d+$/.test(window.location.hostname),
+                        isCrossMachine: window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
+                    });
+                    
+                    // Check if we have any candidates at all
+                    connection.getStats().then(stats => {
+                        const candidates: Array<{
+                            type: string;
+                            candidateType?: string;
+                            protocol?: string;
+                            address?: string;
+                            port?: number;
+                        }> = [];
+                        stats.forEach(report => {
+                            if (report.type === 'local-candidate' || report.type === 'remote-candidate') {
+                                candidates.push({
+                                    type: report.type,
+                                    candidateType: report.candidateType,
+                                    protocol: report.protocol,
+                                    address: report.address,
+                                    port: report.port
+                                });
+                            }
+                        });
+                        console.error(`[WebRTC] ❌ ICE candidates for failed connection:`, candidates);
+                        
+                        // Analyze candidate types
+                        const localCandidates = candidates.filter(c => c.type === 'local-candidate');
+                        const remoteCandidates = candidates.filter(c => c.type === 'remote-candidate');
+                        const hostCandidates = candidates.filter(c => c.candidateType === 'host');
+                        const srflxCandidates = candidates.filter(c => c.candidateType === 'srflx');
+                        
+                        console.error(`[WebRTC] 🔍 CANDIDATE ANALYSIS:`, {
+                            totalCandidates: candidates.length,
+                            localCandidates: localCandidates.length,
+                            remoteCandidates: remoteCandidates.length,
+                            hostCandidates: hostCandidates.length,
+                            srflxCandidates: srflxCandidates.length,
+                            hasLocalCandidates: localCandidates.length > 0,
+                            hasRemoteCandidates: remoteCandidates.length > 0,
+                            hasHostCandidates: hostCandidates.length > 0,
+                            hasSrflxCandidates: srflxCandidates.length > 0
+                        });
+                        
+                        if (localCandidates.length === 0) {
+                            console.error(`[WebRTC] ❌ NO LOCAL CANDIDATES - This is a critical issue!`);
+                        }
+                        if (remoteCandidates.length === 0) {
+                            console.error(`[WebRTC] ❌ NO REMOTE CANDIDATES - ICE candidate exchange failed!`);
+                        }
+                        if (srflxCandidates.length === 0) {
+                            console.error(`[WebRTC] ❌ NO SERVER REFLEXIVE CANDIDATES - STUN server not working!`);
+                        }
+                    }).catch(err => {
+                        console.error(`[WebRTC] ❌ Failed to get stats:`, err);
+                    });
+                    
+                    this.handleError(peerId, new Error('ICE connection failed'));
+                    break;
+                case 'disconnected':
+                    console.warn(`[WebRTC] ⚠️ ICE connection disconnected for peer ${peerId}`);
+                    break;
+                case 'closed':
+                    console.log(`[WebRTC] 🚪 ICE connection closed for peer ${peerId}`);
+                    break;
             }
         };
 
         // ICE candidates
         connection.onicecandidate = (event) => {
-            if (event.candidate && this.signalingService) {
-                this.signalingService.send({
-                    type: 'ice-candidate',
-                    from: this.userId,
-                    to: peerId,
-                    candidate: event.candidate
+            if (event.candidate) {
+                console.log(`[WebRTC] 🧊 ICE candidate found for peer ${peerId}:`, {
+                    candidate: event.candidate.candidate,
+                    sdpMLineIndex: event.candidate.sdpMLineIndex,
+                    sdpMid: event.candidate.sdpMid,
+                    protocol: event.candidate.protocol,
+                    type: event.candidate.type,
+                    address: event.candidate.address,
+                    port: event.candidate.port,
+                    priority: event.candidate.priority,
+                    foundation: event.candidate.foundation
                 });
+                
+                // Analyze candidate type for better debugging
+                const candidateString = event.candidate.candidate;
+                if (candidateString.includes('typ host')) {
+                    console.log(`[WebRTC] 🏠 Host candidate (local network): ${event.candidate.address}:${event.candidate.port}`);
+                } else if (candidateString.includes('typ srflx')) {
+                    console.log(`[WebRTC] 🌐 Server reflexive candidate (via STUN): ${event.candidate.address}:${event.candidate.port}`);
+                } else if (candidateString.includes('typ relay')) {
+                    console.log(`[WebRTC] 🔄 Relay candidate (via TURN): ${event.candidate.address}:${event.candidate.port}`);
+                } else if (candidateString.includes('typ prflx')) {
+                    console.log(`[WebRTC] 🔍 Peer reflexive candidate: ${event.candidate.address}:${event.candidate.port}`);
+                }
+                
+                if (this.signalingService) {
+                    this.signalingService.send({
+                        type: 'ice-candidate',
+                        from: this.userId,
+                        to: peerId,
+                        candidate: event.candidate
+                    });
+                } else {
+                    console.error(`[WebRTC] ❌ Cannot send ICE candidate - no signaling service`);
+                }
+            } else {
+                console.log(`[WebRTC] 🧊 ICE candidate gathering completed for peer ${peerId}`);
+                console.log(`[WebRTC] 🧊 ICE gathering state: ${connection.iceGatheringState}`);
             }
         };
 
@@ -1360,12 +1722,31 @@ export class WebRTCProvider implements IWebRTCProvider {
 
     private async handleIceCandidate(peerId: string, candidate: RTCIceCandidate): Promise<void> {
         const peerState = this.connections.get(peerId);
-        if (!peerState) return;
+        if (!peerState) {
+            console.error(`[WebRTC] ❌ No peer state found for ICE candidate from ${peerId}`);
+            return;
+        }
 
         try {
+            console.log(`[WebRTC] 🧊 Adding ICE candidate from peer ${peerId}:`, {
+                candidate: candidate.candidate,
+                sdpMLineIndex: candidate.sdpMLineIndex,
+                sdpMid: candidate.sdpMid,
+                protocol: candidate.protocol,
+                type: candidate.type,
+                address: candidate.address,
+                port: candidate.port
+            });
+            
             await peerState.connection.addIceCandidate(candidate);
+            console.log(`[WebRTC] ✅ Successfully added ICE candidate from peer ${peerId}`);
         } catch (error) {
-            console.error(`[WebRTC] Failed to add ICE candidate for peer ${peerId}:`, error);
+            console.error(`[WebRTC] ❌ Failed to add ICE candidate for peer ${peerId}:`, error);
+            console.error(`[WebRTC] ❌ Candidate details:`, {
+                candidate: candidate.candidate,
+                sdpMLineIndex: candidate.sdpMLineIndex,
+                sdpMid: candidate.sdpMid
+            });
         }
     }
 

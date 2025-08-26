@@ -64,5 +64,41 @@ A: Access to audio/video require https  protocol but there is some workaround to
    now chrome will treat it as secure ip, localhost always considered secure.
    but before that COR should be allowed
 
+Q: Deploy to Azure
+A: open command prompt
+   (1) Deploy backend....
+   az login (it will open pop up window to varify)
+   cd backend/tutor-connect
+   # build jar file for deployment
+   mvn clean package -DskipTests
+   # deploy jar file to azure
+   az webapp deploy --resource-group tutor-cancen-rg --name tutor-cancen-backend --src-path target/tutor-connect-0.0.1-SNAPSHOT.jar --type jar
+   # verify it is working
+   curl https://tutor-cancen-backend-bxepcjdqeca7f6bk.canadacentral-01.azurewebsites.net/api/users/health
+   (2) Deploy signaling server:
+   cd signaling-server
+   #compress folder
+   Compress-Archive -Path server.js,package.json,package-lock.json -DestinationPath signaling-server.zip -Force
+   # deploy
+   az webapp config set --resource-group tutor-cancen-rg --name tutor-cancen-signalling --startup-file "npm install && node server.js
+   # test
+   curl https://tutor-cancen-signalling-e7bcaybxd0dygeec.canadacentral-01.azurewebsites.net/health
+   # download  log for debuggging
+   az webapp log download --resource-group tutor-cancen-rg --name tutor-cancen-signalling
+
+   (3) deploy frontend
+    # make sure correct cli is installed
+    npm install -g @azure/static-web-apps-cli
+    # get deployment  token from portal
+    332ea4ac45c51a22d0e89c997e655d6fbfeff2cd35c712a89ad6737f3a1f214901-434cbdd2-0451-4c3a-985b-3f56ae83184500f27250ba06940f
+    # go to frontend folder and build it
+    npm run build
+    # deploy it
+    swa deploy --deployment-token 332ea4ac45c51a22d0e89c997e655d6fbfeff2cd35c712a89ad6737f3a1f214901-434cbdd2-0451-4c3a-985b-3f56ae83184500f27250ba06940f --app-location build
+    # test the site
+    https://thankful-water-0ba06940f-preview.eastus2.1.azurestaticapps.net
     
     
+
+
+

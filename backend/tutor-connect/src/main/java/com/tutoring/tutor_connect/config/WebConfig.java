@@ -11,7 +11,8 @@ public class WebConfig implements WebMvcConfigurer {
         registry.addMapping("/**")
                 .allowedOriginPatterns(
                     "http://localhost:3000",
-                    "http://192.168.*.*:3000"  // Allow any IP in 192.168.x.x range
+                    "http://192.168.*.*:3000",  // Allow any IP in 192.168.x.x range
+                    "https://*.azurestaticapps.net"  // Allow Azure Static Web Apps
                 )
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
