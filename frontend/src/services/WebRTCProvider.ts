@@ -27,6 +27,9 @@ interface RTCPeerState {
     };
     // Track which tracks we've added as senders to avoid counting them as remote
     localSenderTrackIds: Set<string>;
+    // State synchronization tracking
+    waitingForAck: boolean;
+    pendingAction: string | null;
 }
 
 export class WebRTCProvider implements IWebRTCProvider {
@@ -156,13 +159,13 @@ export class WebRTCProvider implements IWebRTCProvider {
         
         console.log(`[WebRTC] WebRTCProvider instance created for user ${this.userId}`);
         
-        // Run network connectivity test
-        this.runConnectivityTest();
-        
-        // Run enhanced network diagnostics
-        this.runNetworkDiagnostics();
+        // DIAGNOSTIC CODE COMMENTED OUT - Only for debugging when needed
+        // this.runConnectivityTest();
+        // this.runNetworkDiagnostics();
     }
     
+    // DIAGNOSTIC CODE COMMENTED OUT - Only for debugging when needed
+    /*
     // Network connectivity test
     private async runConnectivityTest(): Promise<void> {
         try {
@@ -216,7 +219,10 @@ export class WebRTCProvider implements IWebRTCProvider {
             console.error(`[WebRTC] ❌ Connectivity test failed:`, error);
         }
     }
+    */
     
+    // DIAGNOSTIC CODE COMMENTED OUT - Only for debugging when needed
+    /*
     // Enhanced network diagnostics
     private async runNetworkDiagnostics(): Promise<void> {
         try {
@@ -260,7 +266,7 @@ export class WebRTCProvider implements IWebRTCProvider {
             console.log(`[WebRTC] 🔍 Testing direct machine connectivity...`);
             
             // Test if we can reach the other machine's IP
-            const testIPs = ['192.168.18.15', '192.168.18.56']; // Add both machine IPs
+              const testIPs = ['192.168.18.15', '192.168.18.56']; // Add both machine IPs
             for (const ip of testIPs) {
                 try {
                     // Test HTTP connectivity
@@ -315,6 +321,7 @@ export class WebRTCProvider implements IWebRTCProvider {
             console.error(`[WebRTC] ❌ Network diagnostics failed:`, error);
         }
     }
+    */
 
     // Event System
     private dispatchEvent(event: WebRTCEvent): void {
@@ -862,7 +869,9 @@ export class WebRTCProvider implements IWebRTCProvider {
                 audio: false,
                 video: false
             },
-            localSenderTrackIds: new Set<string>()
+            localSenderTrackIds: new Set<string>(),
+            waitingForAck: false,
+            pendingAction: null
         };
 
         this.setupPeerConnectionHandlers(connection, peerId);
@@ -870,7 +879,27 @@ export class WebRTCProvider implements IWebRTCProvider {
     }
 
     private setupPeerConnectionHandlers(connection: RTCPeerConnection, peerId: string): void {
-        // Connection state changes
+        /**
+         * 🎯 CONNECTION STATE CHANGE EVENT
+         * 
+         * WHEN CALLED:
+         * - Called whenever the overall connection state changes between peers
+         * - Fires after ICE connection is established and data/media channels are ready
+         * 
+         * POSSIBLE STATES:
+         * - 'new': Initial state when RTCPeerConnection is created
+         * - 'connecting': ICE connection is being established
+         * - 'connected': Full connection established (data + media channels ready)
+         * - 'disconnected': Connection lost temporarily (may reconnect)
+         * - 'failed': Connection failed permanently
+         * - 'closed': Connection was closed intentionally
+         * 
+         * TRIGGERS:
+         * - After successful ICE candidate exchange and connectivity checks
+         * - When network conditions change (WiFi to mobile, etc.)
+         * - When connection is manually closed
+         * - When connection times out or fails
+         */
         connection.onconnectionstatechange = () => {
             const state = connection.connectionState;
             console.log(`[WebRTC] Connection state for peer ${peerId}: ${state}`);
@@ -906,7 +935,29 @@ export class WebRTCProvider implements IWebRTCProvider {
             }
         };
 
-        // ICE connection state changes
+        /**
+         * 🧊 ICE CONNECTION STATE CHANGE EVENT
+         * 
+         * WHEN CALLED:
+         * - Called whenever the ICE (Interactive Connectivity Establishment) connection state changes
+         * - Fires during the process of finding the best network path between peers
+         * 
+         * POSSIBLE STATES:
+         * - 'new': ICE gathering has not started yet
+         * - 'checking': ICE connectivity checks are in progress (testing candidate pairs)
+         * - 'connected': ICE connection established successfully
+         * - 'completed': ICE connection completed (all checks done, optimal path found)
+         * - 'failed': ICE connection failed (no valid path found between peers)
+         * - 'disconnected': ICE connection lost temporarily
+         * - 'closed': ICE connection was closed
+         * 
+         * TRIGGERS:
+         * - When ICE candidate gathering starts/stops
+         * - During connectivity checks between different network candidates
+         * - When STUN/TURN servers respond with public IP addresses
+         * - When network conditions change
+         * - When connection fails due to NAT/firewall issues
+         */
         connection.oniceconnectionstatechange = () => {
             const state = connection.iceConnectionState;
             const gatheringState = connection.iceGatheringState;
@@ -1034,7 +1085,36 @@ export class WebRTCProvider implements IWebRTCProvider {
             }
         };
 
-        // ICE candidates
+        /**
+         * 🧊 ICE CANDIDATE EVENT
+         * 
+         * WHEN CALLED:
+         * - Called whenever a new ICE candidate is discovered by the local peer
+         * - Fires multiple times during the ICE gathering process
+         * - Called with null candidate when ICE gathering is complete
+         * 
+         * CANDIDATE TYPES:
+         * - 'host': Local network interface (192.168.x.x, 10.x.x.x, etc.)
+         * - 'srflx': Server reflexive (public IP from STUN server)
+         * - 'relay': Relay (TURN server relay address)
+         * - 'prflx': Peer reflexive (discovered during connectivity checks)
+         * 
+         * TRIGGERS:
+         * - When local network interfaces are discovered
+         * - When STUN servers respond with public IP addresses
+         * - When TURN servers provide relay addresses
+         * - When ICE gathering completes (null candidate)
+         * 
+         * IMPORTANT:
+         * - Each candidate must be sent to the remote peer via signaling
+         * - Remote peer will add these candidates to their RTCPeerConnection
+         * - ICE connectivity checks will test all candidate pairs
+         * 
+         * STRICT SEQUENTIAL PROCESSING:
+         * - Queue candidates until SDP negotiation is complete
+         * - Only send candidates after both peers have remote descriptions
+         * - Process all queued candidates before starting ICE connection testing
+         */
         connection.onicecandidate = (event) => {
             if (event.candidate) {
                 console.log(`[WebRTC] 🧊 ICE candidate found for peer ${peerId}:`, {
@@ -1049,11 +1129,21 @@ export class WebRTCProvider implements IWebRTCProvider {
                     foundation: event.candidate.foundation
                 });
                 
-                // Analyze candidate type for better debugging
+                // Filter out unwanted network interfaces
+                if (event.candidate.address && event.candidate.address.startsWith('192.168.56.')) {
+                    console.log(`[WebRTC] 🚫 Filtering out ICE candidate from unwanted network: ${event.candidate.address}:${event.candidate.port}`);
+                    return; // Skip this candidate
+                }
+                
+                // Filter out private (host) candidates - only allow public (srflx) candidates
                 const candidateString = event.candidate.candidate;
                 if (candidateString.includes('typ host')) {
-                    console.log(`[WebRTC] 🏠 Host candidate (local network): ${event.candidate.address}:${event.candidate.port}`);
-                } else if (candidateString.includes('typ srflx')) {
+                    console.log(`[WebRTC] 🚫 Filtering out private host candidate: ${event.candidate.address}:${event.candidate.port}`);
+                    return; // Skip private candidates
+                }
+                
+                // Analyze candidate type for better debugging
+                if (candidateString.includes('typ srflx')) {
                     console.log(`[WebRTC] 🌐 Server reflexive candidate (via STUN): ${event.candidate.address}:${event.candidate.port}`);
                 } else if (candidateString.includes('typ relay')) {
                     console.log(`[WebRTC] 🔄 Relay candidate (via TURN): ${event.candidate.address}:${event.candidate.port}`);
@@ -1074,15 +1164,67 @@ export class WebRTCProvider implements IWebRTCProvider {
             } else {
                 console.log(`[WebRTC] 🧊 ICE candidate gathering completed for peer ${peerId}`);
                 console.log(`[WebRTC] 🧊 ICE gathering state: ${connection.iceGatheringState}`);
+                
+                // Send ICE complete notification to peer
+                if (this.signalingService) {
+                    this.signalingService.send({
+                        type: 'ice-complete',
+                        from: this.userId,
+                        to: peerId,
+                        data: { timestamp: Date.now() }
+                    });
+                }
             }
         };
 
-        // Data channel (always create for initiator)
+        /**
+         * 📡 DATA CHANNEL EVENT
+         * 
+         * WHEN CALLED:
+         * - Called when the remote peer creates a data channel that this peer receives
+         * - Only the responder (non-initiator) will receive this event
+         * - The initiator creates the data channel, responder receives it
+         * 
+         * TRIGGERS:
+         * - When remote peer calls createDataChannel() and sends offer
+         * - When this peer receives an offer containing a data channel
+         * - After setRemoteDescription() is called with an offer containing data channel
+         * 
+         * IMPORTANT:
+         * - This event provides the RTCDataChannel object from the remote peer
+         * - Must set up event handlers (onopen, onclose, onmessage) for the received channel
+         * - Data channels are bidirectional once established
+         * - Used for sending text messages, file transfers, etc.
+         */
         connection.ondatachannel = (event) => {
             this.setupDataChannel(event.channel, peerId);
         };
 
-        // Tracks
+        /**
+         * 🎥 TRACK EVENT
+         * 
+         * WHEN CALLED:
+         * - Called when the remote peer adds a media track to the connection
+         * - Fires for each audio/video track that the remote peer shares
+         * - Can fire multiple times if remote peer adds/removes tracks
+         * 
+         * TRACK TYPES:
+         * - 'audio': Microphone audio from remote peer
+         * - 'video': Camera video from remote peer
+         * 
+         * TRIGGERS:
+         * - When remote peer calls addTrack() and sends offer/answer
+         * - When this peer receives an offer/answer containing media tracks
+         * - After setRemoteDescription() is called with SDP containing media
+         * - During renegotiation when remote peer enables/disables media
+         * 
+         * IMPORTANT:
+         * - This event provides the MediaStreamTrack object from the remote peer
+         * - Must add the track to a MediaStream for display/playback
+         * - Track can be enabled/disabled by remote peer
+         * - Track can end when remote peer stops sharing media
+         * - Used for video chat, screen sharing, etc.
+         */
         connection.ontrack = (event) => {
             console.log(`[WebRTC] 🎥 PEER ${this.userId} RECEIVED ${event.track.kind} TRACK FROM PEER ${peerId}`);
             console.log(`[WebRTC] Track details:`, {
@@ -1292,13 +1434,25 @@ export class WebRTCProvider implements IWebRTCProvider {
             case 'offer':
                 this.handleOffer(peerId, message.data);
                 break;
+            case 'offer-ack':
+                this.handleOfferAck(peerId, message.data);
+                break;
             case 'answer':
                 this.handleAnswer(peerId, message.data);
+                break;
+            case 'answer-ack':
+                this.handleAnswerAck(peerId, message.data);
                 break;
             case 'ice-candidate':
                 if (message.candidate) {
                     this.handleIceCandidate(peerId, message.candidate);
                 }
+                break;
+            case 'ice-complete':
+                this.handleIceComplete(peerId, message.data);
+                break;
+            case 'ice-complete-ack':
+                this.handleIceCompleteAck(peerId, message.data);
                 break;
             case 'disconnect':
                 this.handleDisconnect(peerId);
@@ -1356,6 +1510,62 @@ export class WebRTCProvider implements IWebRTCProvider {
         await this.createOffer(peerId);
     }
 
+    private async handleOfferAck(peerId: string, data: any): Promise<void> {
+        const peerState = this.connections.get(peerId);
+        if (!peerState || !peerState.isInitiator || peerState.phase !== 'connecting') {
+            console.log(`[WebRTC] Ignoring offer-ack from ${peerId} - invalid state`);
+            return;
+        }
+
+        console.log(`[WebRTC] ✅ Offer acknowledged by peer ${peerId}`);
+        peerState.waitingForAck = false;
+        peerState.pendingAction = null;
+    }
+
+    private async handleAnswerAck(peerId: string, data: any): Promise<void> {
+        const peerState = this.connections.get(peerId);
+        if (!peerState || peerState.phase !== 'connecting') {
+            console.log(`[WebRTC] Ignoring answer-ack from ${peerId} - invalid state`);
+            return;
+        }
+
+        console.log(`[WebRTC] ✅ Answer acknowledged by peer ${peerId}`);
+        peerState.waitingForAck = false;
+        peerState.pendingAction = null;
+    }
+
+    private async handleIceComplete(peerId: string, data: any): Promise<void> {
+        const peerState = this.connections.get(peerId);
+        if (!peerState) {
+            console.log(`[WebRTC] Ignoring ice-complete from ${peerId} - no peer state`);
+            return;
+        }
+
+        console.log(`[WebRTC] 🧊 ICE gathering completed by peer ${peerId}`);
+        
+        // Acknowledge ICE completion
+        if (this.signalingService) {
+            this.signalingService.send({
+                type: 'ice-complete-ack',
+                from: this.userId,
+                to: peerId,
+                data: { timestamp: Date.now() }
+            });
+        }
+    }
+
+    private async handleIceCompleteAck(peerId: string, data: any): Promise<void> {
+        const peerState = this.connections.get(peerId);
+        if (!peerState) {
+            console.log(`[WebRTC] Ignoring ice-complete-ack from ${peerId} - no peer state`);
+            return;
+        }
+
+        console.log(`[WebRTC] ✅ ICE completion acknowledged by peer ${peerId}`);
+        peerState.waitingForAck = false;
+        peerState.pendingAction = null;
+    }
+
     private async createOffer(peerId: string, isRenegotiation: boolean = false): Promise<void> {
         const peerState = this.connections.get(peerId);
         if (!peerState) return;
@@ -1363,8 +1573,8 @@ export class WebRTCProvider implements IWebRTCProvider {
         try {
             const connection = peerState.connection;
             
-            // Add local tracks if available
-            if (this.localStream) {
+            // Add local tracks only for renegotiation (when user enables media)
+            if (isRenegotiation && this.localStream) {
                 const enabledTracks = this.localStream.getTracks().filter(track => track.enabled);
                 console.log(`[WebRTC] Adding ${enabledTracks.length} enabled local tracks to offer for peer ${peerId} (renegotiation: ${isRenegotiation})`);
                 console.log(`[WebRTC] 🔍 Track filtering details:`, {
@@ -1401,9 +1611,9 @@ export class WebRTCProvider implements IWebRTCProvider {
                     // Check if this track is already added
                     if (existingTrackIds.has(track.id)) {
                         console.log(`[WebRTC] Track ${track.id} already exists in connection, skipping`);
-                return;
-            }
-            
+                        return;
+                    }
+                    
                     try {
                         const sender = connection.addTrack(track, this.localStream!);
                         console.log(`[WebRTC] Track sender created:`, { 
@@ -1420,8 +1630,10 @@ export class WebRTCProvider implements IWebRTCProvider {
                         console.error(`[WebRTC] Failed to add track ${track.id} to connection:`, error);
                     }
                 });
+            } else if (isRenegotiation && !this.localStream) {
+                console.log(`[WebRTC] Renegotiation requested but no local stream available for peer ${peerId}`);
             } else {
-                console.log(`[WebRTC] No local stream available for offer to peer ${peerId}`);
+                console.log(`[WebRTC] Initial connection - creating data-channel-only offer for peer ${peerId} (no media tracks)`);
             }
 
             // Only create data channel for initial connection, not renegotiation
@@ -1489,8 +1701,12 @@ export class WebRTCProvider implements IWebRTCProvider {
                 });
             }
 
-            // Send offer
+            // Send offer and wait for acknowledgment
             if (this.signalingService) {
+                console.log(`[WebRTC] 📤 Sending offer to peer ${peerId} and waiting for acknowledgment`);
+                peerState.waitingForAck = true;
+                peerState.pendingAction = 'offer';
+                
                 this.signalingService.send({
                     type: 'offer',
                     from: this.userId,
@@ -1548,13 +1764,24 @@ export class WebRTCProvider implements IWebRTCProvider {
 
         console.log(`[WebRTC] Processing offer from peer ${peerId} (renegotiation: ${peerState.phase === 'connected'})`);
 
+        // Send offer acknowledgment
+        if (this.signalingService) {
+            console.log(`[WebRTC] ✅ Acknowledging offer from peer ${peerId}`);
+            this.signalingService.send({
+                type: 'offer-ack',
+                from: this.userId,
+                to: peerId,
+                data: { timestamp: Date.now() }
+            });
+        }
+
         try {
             const connection = peerState.connection;
 
-            // Add local tracks if available
-            if (this.localStream) {
+            // Add local tracks only for renegotiation (when user enables media)
+            if (peerState.phase === 'connected' && this.localStream) {
                 const enabledTracks = this.localStream.getTracks().filter(track => track.enabled);
-                console.log(`[WebRTC] Adding ${enabledTracks.length} enabled local tracks to answer for peer ${peerId}`);
+                console.log(`[WebRTC] Adding ${enabledTracks.length} enabled local tracks to answer for peer ${peerId} (renegotiation)`);
                 
                 // Get existing senders to avoid duplicates
                 const existingSenders = connection.getSenders();
@@ -1566,8 +1793,8 @@ export class WebRTCProvider implements IWebRTCProvider {
                     // Check if this track is already added
                     if (existingTrackIds.has(track.id)) {
                         console.log(`[WebRTC] Track ${track.id} already exists in connection, skipping`);
-                return;
-            }
+                        return;
+                    }
 
                     try {
                         const sender = connection.addTrack(track, this.localStream!);
@@ -1581,13 +1808,14 @@ export class WebRTCProvider implements IWebRTCProvider {
                             peerState.localSenderTrackIds.add(sender.track.id);
                             console.log(`[WebRTC] Added track ${sender.track.id} to local sender track IDs for peer ${peerId}`);
                         }
-        } catch (error) {
+                    } catch (error) {
                         console.error(`[WebRTC] Failed to add track ${track.id} to connection:`, error);
                     }
                 });
+            } else if (peerState.phase === 'connected' && !this.localStream) {
+                console.log(`[WebRTC] Renegotiation requested but no local stream available for peer ${peerId}`);
             } else {
-                console.log(`[WebRTC] No local stream available for answer to peer ${peerId}`);
-                console.log(`[WebRTC] This means the responder peer doesn't have audio/video enabled yet`);
+                console.log(`[WebRTC] Initial connection - creating data-channel-only answer for peer ${peerId} (no media tracks)`);
             }
 
             // Note: Responder should NOT create data channel - it will receive it via ondatachannel
@@ -1655,8 +1883,12 @@ export class WebRTCProvider implements IWebRTCProvider {
                 throw error;
             }
 
-            // Send answer
+            // Send answer and wait for acknowledgment
             if (this.signalingService) {
+                console.log(`[WebRTC] 📤 Sending answer to peer ${peerId} and waiting for acknowledgment`);
+                peerState.waitingForAck = true;
+                peerState.pendingAction = 'answer';
+                
                 const answerMessage = {
                     type: 'answer',
                     from: this.userId,
@@ -1713,6 +1945,17 @@ export class WebRTCProvider implements IWebRTCProvider {
             await connection.setRemoteDescription(new RTCSessionDescription(answer));
             console.log(`[WebRTC] Remote description set for peer ${peerId}`);
             console.log(`[WebRTC] Answer processing completed successfully for peer ${peerId}`);
+
+            // Send answer acknowledgment
+            if (this.signalingService) {
+                console.log(`[WebRTC] ✅ Acknowledging answer from peer ${peerId}`);
+                this.signalingService.send({
+                    type: 'answer-ack',
+                    from: this.userId,
+                    to: peerId,
+                    data: { timestamp: Date.now() }
+                });
+            }
 
         } catch (error) {
             console.error(`[WebRTC] Failed to set remote description for peer ${peerId}:`, error);
@@ -2186,4 +2429,16 @@ export class WebRTCProvider implements IWebRTCProvider {
         
         return isValid;
     }
+
+    // Sequence tracking for debugging
+    private logSequence(peerId: string, step: string, action: string, details?: any): void {
+        const timestamp = new Date().toISOString();
+        const peerState = this.connections.get(peerId);
+        const phase = peerState?.phase || 'unknown';
+        const isInitiator = peerState?.isInitiator || false;
+        
+        console.log(`[SEQUENCE] ${timestamp} | Peer ${peerId} | Step: ${step} | Action: ${action} | Phase: ${phase} | Initiator: ${isInitiator}`, details || '');
+    }
+
+
 } 

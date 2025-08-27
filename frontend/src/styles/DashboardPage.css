@@ -112,4 +112,25 @@
     justify-content: center;
     align-items: center;
     color: #6c757d;
+}
+
+/* Build version styles */
+.dashboard-header {
+    position: relative; /* Added for absolute positioning of build-info */
+}
+
+.build-info {
+    position: absolute;
+    bottom: 0.5rem;
+    right: 2rem;
+    font-size: 0.75rem;
+    color: #999;
+}
+
+.build-version {
+    background-color: #f8f9fa;
+    padding: 0.25rem 0.5rem;
+    border-radius: 3px;
+    border: 1px solid #dee2e6;
+    font-family: 'Courier New', monospace;
 } 

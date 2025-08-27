@@ -6,6 +6,7 @@ import ConnectionStatusLight from './ConnectionStatusLight';
 import '../styles/DashboardPage.css';
 import { useCommunication } from '../context/CommunicationContext';
 import { WebSocketProvider } from '../services/WebSocketProvider';
+import { getBuildDisplay } from '../utils/buildVersion';
 
 const DashboardPage = () => {
     const [isWebSocketConnected, setIsWebSocketConnected] = useState(false);
@@ -36,6 +37,7 @@ const DashboardPage = () => {
     // Initialize user and WebSocket connection
     useEffect(() => {
         console.log('[DashboardPage] 🔄 Component mounted');
+        console.log('[DashboardPage] 📦 Build version:', getBuildDisplay());
 
         // Get user email from localStorage
         const user = JSON.parse(localStorage.getItem('user'));
@@ -359,6 +361,9 @@ const DashboardPage = () => {
                     <button className="logout-button" onClick={handleLogout}>
                         Logout
                     </button>
+                </div>
+                <div className="build-info">
+                    <span className="build-version">{getBuildDisplay()}</span>
                 </div>
             </div>
             {error && (

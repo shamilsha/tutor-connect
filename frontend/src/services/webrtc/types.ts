@@ -1,6 +1,6 @@
 export type WebRTCEventType = 'connection' | 'track' | 'media' | 'stream' | 'error' | 'message' | 'stateChange';
 
-export type ConnectionPhase = 'idle' | 'initiating' | 'responding' | 'connecting' | 'connected' | 'disconnected' | 'failed';
+export type ConnectionPhase = 'idle' | 'initiating' | 'responding' | 'offering' | 'answering' | 'connecting' | 'connected' | 'disconnected' | 'failed';
 
 export type ConnectionStateString = 'connecting' | 'connected' | 'disconnected' | 'failed';
 
@@ -102,7 +102,7 @@ export interface PeerState {
     iceCandidates: RTCIceCandidate[];
 }
 
-export type SignalingMessageType = 'initiate' | 'initiate-ack' | 'offer' | 'answer' | 'ice-candidate' | 'disconnect' | 'media-state';
+export type SignalingMessageType = 'initiate' | 'initiate-ack' | 'offer' | 'offer-ack' | 'answer' | 'answer-ack' | 'ice-candidate' | 'ice-complete' | 'ice-complete-ack' | 'disconnect' | 'media-state';
 
 export interface SignalingMessage {
     type: SignalingMessageType;
