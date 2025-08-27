@@ -80,7 +80,10 @@ A: open command prompt
    #compress folder
    Compress-Archive -Path server.js,package.json,package-lock.json -DestinationPath signaling-server.zip -Force
    # deploy
-   az webapp config set --resource-group tutor-cancen-rg --name tutor-cancen-signalling --startup-file "npm install && node server.js
+   //#az webapp config set --resource-group tutor-cancen-rg --name tutor-cancen-signalling --startup-file "npm install && node server.js
+   az webapp deployment source config-zip --resource-group tutor-cancen-rg --name tutor-cancen-signalling --src signaling-server.zip
+   az webapp config set --resource-group tutor-cancen-rg --name tutor-cancen-signalling --startup-file "npm install && node server.js"
+
    # test
    curl https://tutor-cancen-signalling-e7bcaybxd0dygeec.canadacentral-01.azurewebsites.net/health
    # download  log for debuggging
@@ -92,7 +95,8 @@ A: open command prompt
     # get deployment  token from portal
     332ea4ac45c51a22d0e89c997e655d6fbfeff2cd35c712a89ad6737f3a1f214901-434cbdd2-0451-4c3a-985b-3f56ae83184500f27250ba06940f
     # go to frontend folder and build it
-    npm run build
+    # npm run build
+    npm run build:versioned
     # deploy it
     swa deploy --deployment-token 332ea4ac45c51a22d0e89c997e655d6fbfeff2cd35c712a89ad6737f3a1f214901-434cbdd2-0451-4c3a-985b-3f56ae83184500f27250ba06940f --app-location build
     # test the site
