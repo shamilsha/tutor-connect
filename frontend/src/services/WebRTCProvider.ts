@@ -19,7 +19,6 @@ interface RTCPeerState {
     connection: RTCPeerConnection;
     dataChannel: RTCDataChannel | null;
     phase: 'idle' | 'initiating' | 'responding' | 'connecting' | 'connected' | 'disconnected' | 'failed';
-    isInitiator: boolean;
     connectionTimeout: NodeJS.Timeout | null;
     mediaState: {
         audio: boolean;
@@ -386,6 +385,9 @@ export class WebRTCProvider implements IWebRTCProvider {
         try {
             console.log(`[WebRTC] Initiating connection to peer ${peerId}`);
             
+            // Whoever clicks the Connect button first becomes the initiator for this connection
+            console.log(`[WebRTC] ${this.userId} is the initiator for this connection to peer ${peerId}`);
+            
             // Send initiation intent
             this.signalingService.send({
                 type: 'initiate',
@@ -394,8 +396,8 @@ export class WebRTCProvider implements IWebRTCProvider {
                 data: { timestamp: Date.now() }
             });
 
-            // Create peer state as initiator
-            const peerState = this.createPeerState(peerId, true);
+            // Create peer state
+            const peerState = this.createPeerState(peerId);
             this.connections.set(peerId, peerState);
 
             // Set connection timeout
@@ -480,6 +482,9 @@ export class WebRTCProvider implements IWebRTCProvider {
         const peersNeedingRenegotiation: string[] = [];
 
         console.log(`[WebRTC] 🔄 Processing ${this.connections.size} connected peers`);
+
+        // Whoever clicks Audio/Video button first becomes the initiator for this action
+        console.log(`[WebRTC] ${this.userId} is the initiator for this Audio/Video action`);
 
         // Update senders for all connected peers
         for (const [connectedPeerId, peerState] of this.connections.entries()) {
@@ -583,10 +588,33 @@ export class WebRTCProvider implements IWebRTCProvider {
                     console.log(`[WebRTC] 🔄 No track changes for peer ${connectedPeerId}, no renegotiation needed`);
                 }
 
-                // Send media state to peer
+                // Send media state to peer using current state variables
+                console.log(`[WebRTC] 📤 PRE-SEND MEDIA STATE CHECK for peer ${connectedPeerId}:`, {
+                    hasLocalAudio_prop: this.hasLocalAudio,
+                    hasLocalVideo_prop: this.hasLocalVideo,
+                    localStreamExists: !!this.localStream,
+                    localStreamId: this.localStream?.id,
+                    localStreamVideoTracks: this.localStream?.getVideoTracks().length,
+                    localStreamAudioTracks: this.localStream?.getAudioTracks().length,
+                    localStreamVideoTrackEnabled: this.localStream?.getVideoTracks()[0]?.enabled,
+                    localStreamAudioTrackEnabled: this.localStream?.getAudioTracks()[0]?.enabled,
+                });
+                
+                // Use actual track enabled state to ensure accuracy
+                const actualAudioEnabled = this.localStream?.getAudioTracks()[0]?.enabled ?? false;
+                const actualVideoEnabled = this.localStream?.getVideoTracks()[0]?.enabled ?? false;
+                
+                console.log(`[WebRTC] 📤 Sending media state to peer ${connectedPeerId}:`, {
+                    audio: actualAudioEnabled,
+                    video: actualVideoEnabled,
+                    hasLocalAudio_prop: this.hasLocalAudio,
+                    hasLocalVideo_prop: this.hasLocalVideo,
+                    peerStateAudio: peerState.mediaState.audio,
+                    peerStateVideo: peerState.mediaState.video
+                });
                 await this.sendMediaState(connectedPeerId, {
-                    audio: peerState.mediaState.audio,
-                    video: peerState.mediaState.video,
+                    audio: actualAudioEnabled,
+                    video: actualVideoEnabled,
                     stream: this.localStream
                 });
             } else {
@@ -717,10 +745,14 @@ export class WebRTCProvider implements IWebRTCProvider {
     }
 
     public getMediaState(): MediaState {
+        // Use actual track enabled state to ensure accuracy
+        const actualAudioEnabled = this.localStream?.getAudioTracks()[0]?.enabled ?? false;
+        const actualVideoEnabled = this.localStream?.getVideoTracks()[0]?.enabled ?? false;
+        
         return {
             stream: this.localStream,
-            audio: this.localStream?.getAudioTracks().some(track => track.enabled) || false,
-            video: this.localStream?.getVideoTracks().some(track => track.enabled) || false
+            audio: actualAudioEnabled,
+            video: actualVideoEnabled
         };
     }
 
@@ -769,13 +801,21 @@ export class WebRTCProvider implements IWebRTCProvider {
     }
 
     public getRemoteStream(peerId?: string): MediaStream | null {
-        const currentStreamsState = `${this.remoteStreams.size}-${Array.from(this.remoteStreams.keys()).join(',')}`;
-        // Only log when streams state changes
-        if (this._lastLoggedRemoteStreamState !== currentStreamsState) {
+        const currentStreamsState = JSON.stringify({
+            remoteStreamsSize: this.remoteStreams.size,
+            remoteStreamKeys: Array.from(this.remoteStreams.keys()),
+            remoteStreamIds: Array.from(this.remoteStreams.values()).map(s => s.id),
+            localStreamId: this.localStream?.id
+        });
+        
+        // Only log if state has changed to avoid spam
+        if (currentStreamsState !== this._lastLoggedRemoteStreamState) {
             console.log('[WebRTC] 🔍 getRemoteStream called:', {
                 peerId,
                 remoteStreamsSize: this.remoteStreams.size,
                 remoteStreamKeys: Array.from(this.remoteStreams.keys()),
+                remoteStreamIds: Array.from(this.remoteStreams.values()).map(s => s.id),
+                localStreamId: this.localStream?.id,
                 hasRemoteVideo: this.hasRemoteVideo,
                 hasRemoteAudio: this.hasRemoteAudio
             });
@@ -784,11 +824,33 @@ export class WebRTCProvider implements IWebRTCProvider {
         
         if (peerId) {
             const stream = this.remoteStreams.get(peerId) || null;
+            
+            // CRITICAL: Check if we're returning the local stream
+            if (stream && this.localStream && stream.id === this.localStream.id) {
+                console.error(`[WebRTC] 🚨 CRITICAL ERROR: getRemoteStream returning local stream for peer ${peerId}!`);
+                console.error(`[WebRTC] 🚨 Local stream ID: ${this.localStream.id}, Returned stream ID: ${stream.id}`);
+                console.error(`[WebRTC] 🚨 This should never happen!`);
+            }
+            
             return stream;
         }
         // Return the first available remote stream (for backward compatibility)
-        for (const [peerId, remoteStream] of this.remoteStreams.entries()) {
+        for (const [currentPeerId, remoteStream] of this.remoteStreams.entries()) {
             if (remoteStream) {
+                console.log(`[WebRTC] 🔍 Returning first available remote stream:`, {
+                    peerId: currentPeerId,
+                    streamId: remoteStream.id,
+                    localStreamId: this.localStream?.id,
+                    isLocalStream: this.localStream && remoteStream.id === this.localStream.id
+                });
+                
+                // CRITICAL: Check if we're returning the local stream
+                if (this.localStream && remoteStream.id === this.localStream.id) {
+                    console.error(`[WebRTC] 🚨 CRITICAL ERROR: getRemoteStream returning local stream as first available remote stream!`);
+                    console.error(`[WebRTC] 🚨 Peer ID: ${currentPeerId}, Local stream ID: ${this.localStream.id}, Returned stream ID: ${remoteStream.id}`);
+                    console.error(`[WebRTC] 🚨 This indicates the local stream was incorrectly stored in remoteStreams map!`);
+                }
+                
                 return remoteStream;
             }
         }
@@ -856,14 +918,17 @@ export class WebRTCProvider implements IWebRTCProvider {
     }
 
     // Private Helper Methods
-    private createPeerState(peerId: string, isInitiator: boolean): RTCPeerState {
+    /**
+     * Creates a new peer state for a connection
+     * @param peerId - The ID of the peer to connect to
+     */
+    private createPeerState(peerId: string): RTCPeerState {
         const connection = new RTCPeerConnection(this.rtcConfiguration);
         
         const peerState: RTCPeerState = {
             connection,
             dataChannel: null,
             phase: 'idle',
-            isInitiator,
             connectionTimeout: null,
             mediaState: {
                 audio: false,
@@ -1248,8 +1313,31 @@ export class WebRTCProvider implements IWebRTCProvider {
             let streamCreated = false;
             if (!remoteStream) {
                 remoteStream = new MediaStream();
+                
+                // CRITICAL DEBUG: Log what we're storing
+                console.log(`[WebRTC] 🔍 STORING NEW REMOTE STREAM FOR PEER ${peerId}:`, {
+                    newRemoteStreamId: remoteStream.id,
+                    localStreamId: this.localStream?.id,
+                    isLocalStreamSameAsRemote: remoteStream.id === this.localStream?.id,
+                    peerId,
+                    eventStreamIds: event.streams?.map(s => s.id) || [],
+                    trackId: event.track.id,
+                    trackKind: event.track.kind
+                });
+                
+                // CRITICAL: Verify we're not storing the local stream
+                if (this.localStream && remoteStream.id === this.localStream.id) {
+                    console.error(`[WebRTC] 🚨 CRITICAL ERROR: Attempting to store local stream as remote stream for peer ${peerId}!`);
+                    console.error(`[WebRTC] 🚨 Local stream ID: ${this.localStream.id}, Remote stream ID: ${remoteStream.id}`);
+                    throw new Error(`Critical error: local stream being stored as remote stream`);
+                }
+                
                 this.remoteStreams.set(peerId, remoteStream);
-                console.log(`[WebRTC] Created new remote stream for peer ${peerId}`);
+                console.log(`[WebRTC] ✅ Created and stored new remote stream for peer ${peerId}:`, {
+                    streamId: remoteStream.id,
+                    remoteStreamsSize: this.remoteStreams.size,
+                    allRemoteStreamIds: Array.from(this.remoteStreams.values()).map(s => s.id)
+                });
                 streamCreated = true;
             }
             
@@ -1475,10 +1563,13 @@ export class WebRTCProvider implements IWebRTCProvider {
             this.cleanup(peerId);
         }
 
-        // Create peer state as responder
-        const peerState = this.createPeerState(peerId, false);
+        // Create peer state as responder (whoever receives the initiate message)
+        const peerState = this.createPeerState(peerId);
         peerState.phase = 'responding';
         this.connections.set(peerId, peerState);
+        
+        // The peer who sent the initiate message is the initiator for this connection
+        console.log(`[WebRTC] ${peerId} is the initiator for this connection (received initiate)`);
         
         console.log(`[WebRTC] Created peer state for ${peerId} as responder, current connections:`, Array.from(this.connections.keys()));
 
@@ -1497,7 +1588,8 @@ export class WebRTCProvider implements IWebRTCProvider {
 
     private async handleInitiateAck(peerId: string, data: any): Promise<void> {
         const peerState = this.connections.get(peerId);
-        if (!peerState || !peerState.isInitiator || peerState.phase !== 'idle') {
+        // Only the peer who initiated the connection should handle initiate-ack
+        if (!peerState || peerState.phase !== 'idle') {
             console.log(`[WebRTC] Ignoring initiate-ack from ${peerId} - invalid state`);
             return;
         }
@@ -1512,7 +1604,8 @@ export class WebRTCProvider implements IWebRTCProvider {
 
     private async handleOfferAck(peerId: string, data: any): Promise<void> {
         const peerState = this.connections.get(peerId);
-        if (!peerState || !peerState.isInitiator || peerState.phase !== 'connecting') {
+        // Only the peer who sent the offer should handle offer-ack
+        if (!peerState || peerState.phase !== 'connecting') {
             console.log(`[WebRTC] Ignoring offer-ack from ${peerId} - invalid state`);
             return;
         }
@@ -1658,30 +1751,30 @@ export class WebRTCProvider implements IWebRTCProvider {
                 // Only modify SDP if we have no enabled tracks at all AND we're turning off media
                 if (!hasAnyEnabledTracks) {
                     console.log(`[WebRTC] 🔧 No enabled tracks found, attempting to remove all media lines from SDP for peer ${peerId}`);
-                    
-                    let modifiedSdp = offer.sdp;
-                    let sdpModified = false;
-                    
+                
+                let modifiedSdp = offer.sdp;
+                let sdpModified = false;
+                
                     // Remove video media lines
                     const originalSdp = modifiedSdp;
                     modifiedSdp = this.removeVideoMediaLines(modifiedSdp);
                     if (modifiedSdp !== originalSdp) {
                         sdpModified = true;
-                    }
-                    
+            }
+                
                     // Remove audio media lines
                     const audioOriginalSdp = modifiedSdp;
                     modifiedSdp = this.removeAudioMediaLines(modifiedSdp);
                     if (modifiedSdp !== audioOriginalSdp) {
                         sdpModified = true;
-                    }
-                    
-                    // Only use modified SDP if it was actually changed and is valid
-                    if (sdpModified && this.isValidSDP(modifiedSdp)) {
-                        console.log(`[WebRTC] 🔧 Using modified SDP for peer ${peerId}`);
-                        offer.sdp = modifiedSdp;
-                    } else {
-                        console.log(`[WebRTC] 🔧 Using original SDP for peer ${peerId} (no modifications or invalid result)`);
+            }
+                
+                // Only use modified SDP if it was actually changed and is valid
+                if (sdpModified && this.isValidSDP(modifiedSdp)) {
+                    console.log(`[WebRTC] 🔧 Using modified SDP for peer ${peerId}`);
+                    offer.sdp = modifiedSdp;
+                } else {
+                    console.log(`[WebRTC] 🔧 Using original SDP for peer ${peerId} (no modifications or invalid result)`);
                     }
                 } else {
                     console.log(`[WebRTC] 🔧 Has enabled tracks, using original SDP for peer ${peerId}`);
@@ -1755,11 +1848,12 @@ export class WebRTCProvider implements IWebRTCProvider {
             return;
         }
 
-        // For renegotiation (connected state), both initiator and responder can receive offers
+        // For renegotiation (connected state), both peers can receive offers
         // For initial connection (responding state), only responder should receive offers
-        if (peerState.phase === 'responding' && peerState.isInitiator) {
-            console.log(`[WebRTC] Ignoring initial offer from ${peerId} - we are the initiator, should not receive initial offers`);
-            return;
+        // The responder is the one who received the initiate message (phase = 'responding')
+        if (peerState.phase === 'responding') {
+            // This is correct - we are the responder and should receive offers
+            console.log(`[WebRTC] Processing initial offer as responder from peer ${peerId}`);
         }
 
         console.log(`[WebRTC] Processing offer from peer ${peerId} (renegotiation: ${peerState.phase === 'connected'})`);
@@ -1846,30 +1940,30 @@ export class WebRTCProvider implements IWebRTCProvider {
                     // Only modify SDP if we have no enabled tracks at all AND we're turning off media
                     if (!hasAnyEnabledTracks) {
                         console.log(`[WebRTC] 🔧 No enabled tracks found, attempting to remove all media lines from answer SDP for peer ${peerId}`);
-                        
-                        let modifiedSdp = answer.sdp;
-                        let sdpModified = false;
-                        
+                    
+                    let modifiedSdp = answer.sdp;
+                    let sdpModified = false;
+                    
                         // Remove video media lines
                         const originalSdp = modifiedSdp;
                         modifiedSdp = this.removeVideoMediaLines(modifiedSdp);
                         if (modifiedSdp !== originalSdp) {
                             sdpModified = true;
-                        }
-                        
+                    }
+                    
                         // Remove audio media lines
                         const audioOriginalSdp = modifiedSdp;
                         modifiedSdp = this.removeAudioMediaLines(modifiedSdp);
                         if (modifiedSdp !== audioOriginalSdp) {
                             sdpModified = true;
-                        }
-                        
-                        // Only use modified SDP if it was actually changed and is valid
-                        if (sdpModified && this.isValidSDP(modifiedSdp)) {
-                            console.log(`[WebRTC] 🔧 Using modified answer SDP for peer ${peerId}`);
-                            answer.sdp = modifiedSdp;
-                        } else {
-                            console.log(`[WebRTC] 🔧 Using original answer SDP for peer ${peerId} (no modifications or invalid result)`);
+                    }
+                    
+                    // Only use modified SDP if it was actually changed and is valid
+                    if (sdpModified && this.isValidSDP(modifiedSdp)) {
+                        console.log(`[WebRTC] 🔧 Using modified answer SDP for peer ${peerId}`);
+                        answer.sdp = modifiedSdp;
+                    } else {
+                        console.log(`[WebRTC] 🔧 Using original answer SDP for peer ${peerId} (no modifications or invalid result)`);
                         }
                     } else {
                         console.log(`[WebRTC] 🔧 Has enabled tracks, using original answer SDP for peer ${peerId}`);
@@ -1918,30 +2012,29 @@ export class WebRTCProvider implements IWebRTCProvider {
             return;
         }
         
-        console.log(`[WebRTC] handleAnswer: peerId=${peerId}, phase=${peerState.phase}, isInitiator=${peerState.isInitiator}`);
+        console.log(`[WebRTC] handleAnswer: peerId=${peerId}, phase=${peerState.phase}`);
         
         // Allow answers in both 'connecting' (initial connection) and 'connected' (renegotiation) states
         if (peerState.phase !== 'connecting' && peerState.phase !== 'connected') {
             console.log(`[WebRTC] Ignoring answer from ${peerId} - invalid state (phase: ${peerState.phase})`);
-            return;
+              return;
         }
 
-        // For initial connection: only initiators should handle answers
-        // For renegotiation: both peers can handle answers (whoever sent the offer should receive the answer)
-        if (peerState.phase === 'connecting' && !peerState.isInitiator) {
-            console.log(`[WebRTC] Ignoring initial answer from ${peerId} - we are the responder, should not receive initial answers`);
-            return;
-        }
-        
-        // For renegotiation: the peer that sent the offer (isInitiator=true) should receive the answer
-        if (peerState.phase === 'connected' && !peerState.isInitiator) {
-            console.log(`[WebRTC] Ignoring renegotiation answer from ${peerId} - we are not the initiator of this renegotiation`);
-            return;
+        // For initial connection: only the peer who sent the offer should handle answers
+        // For renegotiation: the peer who sent the offer should receive the answer
+        // We determine this by checking if we're in the right phase and if we sent an offer
+        if (peerState.phase === 'connecting') {
+            // For initial connection, only the initiator (who sent the offer) should receive answers
+            console.log(`[WebRTC] Processing initial answer as initiator from peer ${peerId}`);
+        } else if (peerState.phase === 'connected') {
+            // For renegotiation, the peer who sent the offer should receive the answer
+            // We can determine this by checking if we're currently sending an offer
+            console.log(`[WebRTC] Processing renegotiation answer from peer ${peerId}`);
         }
 
         try {
             const connection = peerState.connection;
-            console.log(`[WebRTC] Processing answer from peer ${peerId} (phase: ${peerState.phase}, isInitiator: ${peerState.isInitiator})`);
+            console.log(`[WebRTC] Processing answer from peer ${peerId} (phase: ${peerState.phase})`);
             await connection.setRemoteDescription(new RTCSessionDescription(answer));
             console.log(`[WebRTC] Remote description set for peer ${peerId}`);
             console.log(`[WebRTC] Answer processing completed successfully for peer ${peerId}`);
@@ -2023,29 +2116,39 @@ export class WebRTCProvider implements IWebRTCProvider {
             
             // If video is disabled, clean up the remote stream for this peer
             if (!mediaState.video) {
-                const remoteStream = this.remoteStreams.get(peerId);
+            const remoteStream = this.remoteStreams.get(peerId);
                 if (remoteStream) {
-                    console.log(`[WebRTC] 🧹 Cleaning up remote stream for peer ${peerId} (video disabled)`, {
-                        streamId: remoteStream.id,
-                        videoTracks: remoteStream.getVideoTracks().length,
-                        audioTracks: remoteStream.getAudioTracks().length
-                    });
+                            // Check if we're in the middle of renegotiation - if so, be more conservative
+        // We can detect renegotiation by checking if there's an ongoing renegotiation
+        const isRenegotiating = this.ongoingRenegotiations.has(peerId);
                     
-                    // End all tracks in the remote stream to ensure they're properly stopped
-                    const allTracks = remoteStream.getTracks();
-                    allTracks.forEach(track => {
-                        console.log(`[WebRTC] 🛑 Ending remote track:`, {
-                            kind: track.kind,
-                            id: track.id,
-                            enabled: track.enabled,
-                            readyState: track.readyState
+                                         if (isRenegotiating) {
+                         console.log(`[WebRTC] ⚠️ Video disabled during renegotiation for peer ${peerId} - being conservative, not deleting stream`);
+                         // During renegotiation, just update the state but don't delete the stream
+                         this.updateRemoteVideoState(false, false);
+                } else {
+                        console.log(`[WebRTC] 🧹 Cleaning up remote stream for peer ${peerId} (video disabled)`, {
+                            streamId: remoteStream.id,
+                            videoTracks: remoteStream.getVideoTracks().length,
+                            audioTracks: remoteStream.getAudioTracks().length
                         });
-                        track.stop();
-                    });
-                    
-                    this.remoteStreams.delete(peerId);
-                    console.log(`[WebRTC] 🧹 Remote stream deleted from map for peer ${peerId}`);
-                    stateChanged = true;
+                        
+                        // End all tracks in the remote stream to ensure they're properly stopped
+                        const allTracks = remoteStream.getTracks();
+                        allTracks.forEach(track => {
+                            console.log(`[WebRTC] 🛑 Ending remote track:`, {
+                                kind: track.kind,
+                                id: track.id,
+                                enabled: track.enabled,
+                                readyState: track.readyState
+                            });
+                            track.stop();
+                        });
+                        
+                        this.remoteStreams.delete(peerId);
+                        console.log(`[WebRTC] 🧹 Remote stream deleted from map for peer ${peerId}`);
+                        stateChanged = true;
+                    }
                 } else {
                     console.log(`[WebRTC] 🔄 Video disabled for peer ${peerId} but no remote stream to clean up`);
                 }
@@ -2059,7 +2162,7 @@ export class WebRTCProvider implements IWebRTCProvider {
                 hasRemoteAudio: this.hasRemoteAudio,
                 remoteStreamsSize: this.remoteStreams.size,
                 remoteStreamKeys: Array.from(this.remoteStreams.keys()),
-            peerId,
+                peerId,
                 mediaStateVideo: mediaState.video
             });
         }
@@ -2070,7 +2173,7 @@ export class WebRTCProvider implements IWebRTCProvider {
             
             // If audio is disabled and no video, clean up the remote stream
             if (!mediaState.audio) {
-                const remoteStream = this.remoteStreams.get(peerId);
+            const remoteStream = this.remoteStreams.get(peerId);
                 if (remoteStream) {
                     const remainingVideoTracks = remoteStream.getVideoTracks().filter(track => track.readyState !== 'ended');
                     if (remainingVideoTracks.length === 0) {
@@ -2082,8 +2185,8 @@ export class WebRTCProvider implements IWebRTCProvider {
                         console.log(`[WebRTC] 🔄 Audio disabled for peer ${peerId} but video still available, notifying UI`);
                         // Still notify UI even if stream has video
                         this.notifyStateChange();
-                    }
-                } else {
+                }
+            } else {
                     console.log(`[WebRTC] 🔄 Audio disabled for peer ${peerId} but no remote stream to clean up`);
                     // Still notify UI even if no stream to clean up
                     this.notifyStateChange();
@@ -2161,9 +2264,10 @@ export class WebRTCProvider implements IWebRTCProvider {
                 
                 this.connections.delete(peerId);
                 
-                // Clean up remote stream for this peer
-                this.remoteStreams.delete(peerId);
-                console.log(`[WebRTC] Cleaned up connection and remote stream for peer ${peerId}`);
+                 // Clean up remote stream for this peer
+                    this.remoteStreams.delete(peerId);
+                
+                 console.log(`[WebRTC] Cleaned up connection and remote stream for peer ${peerId}`);
                 
                 // Reset remote state variables if no more remote streams
                 if (this.remoteStreams.size === 0) {
@@ -2182,11 +2286,13 @@ export class WebRTCProvider implements IWebRTCProvider {
             }
             this.connections.clear();
             
-            // Clean up all remote streams
+                         // Clean up all remote streams
             this.remoteStreams.clear();
             
-            // Reset remote state variables
-            console.log(`[WebRTC] 🔄 All connections cleaned up, resetting remote state variables`);
+
+             
+             // Reset remote state variables
+             console.log(`[WebRTC] 🔄 All connections cleaned up, resetting remote state variables`);
             this.updateRemoteVideoState(false);
             this.updateRemoteAudioState(false);
             
@@ -2221,9 +2327,8 @@ export class WebRTCProvider implements IWebRTCProvider {
         console.log(`[WebRTC] 🔒 Starting renegotiation for peer ${peerId}`);
 
         try {
-            // For renegotiation, the peer sending the offer becomes the initiator
-            console.log(`[WebRTC] Renegotiation: Setting ${this.userId} as initiator for peer ${peerId} (was: ${peerState.isInitiator})`);
-            peerState.isInitiator = true;
+            // Whoever clicks button first becomes the initiator for this renegotiation
+            console.log(`[WebRTC] Renegotiation: ${this.userId} sending offer to peer ${peerId} (initiator for this action)`);
             
             // Ensure tracks are properly synchronized before creating offer
             if (this.localStream) {
@@ -2435,9 +2540,8 @@ export class WebRTCProvider implements IWebRTCProvider {
         const timestamp = new Date().toISOString();
         const peerState = this.connections.get(peerId);
         const phase = peerState?.phase || 'unknown';
-        const isInitiator = peerState?.isInitiator || false;
         
-        console.log(`[SEQUENCE] ${timestamp} | Peer ${peerId} | Step: ${step} | Action: ${action} | Phase: ${phase} | Initiator: ${isInitiator}`, details || '');
+        console.log(`[SEQUENCE] ${timestamp} | Peer ${peerId} | Step: ${step} | Action: ${action} | Phase: ${phase}`, details || '');
     }
 
 

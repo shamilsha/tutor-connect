@@ -541,6 +541,17 @@ const VideoChat = ({
             });
             
             // Update local state based on WebRTC provider state
+            console.log('[VideoChat] 🔄 UPDATING LOCAL STATE FROM PROVIDER:', {
+                newLocalStreamId: newLocalStream?.id,
+                newRemoteStreamId: newRemoteStream?.id,
+                providerLocalAudio: provider.getLocalAudioState(),
+                providerLocalVideo: provider.getLocalVideoState(),
+                providerRemoteVideo: provider.getRemoteVideoState(),
+                providerRemoteAudio: provider.getRemoteAudioState(),
+                oldLocalStreamId: localStream?.id,
+                oldRemoteStreamId: remoteStream?.id
+            });
+            
             setLocalStream(newLocalStream);
             setRemoteStream(newRemoteStream);
             setIsAudioEnabled(provider.getLocalAudioState());
@@ -561,6 +572,17 @@ const VideoChat = ({
                 hasRemoteVideo: provider.getRemoteVideoState(),
                 hasRemoteAudio: provider.getRemoteAudioState(),
                 mediaStateVersion: mediaStateVersion + 1
+            });
+            
+            // Debug: Check if streams are actually available
+            console.log('[VideoChat] 🔄 STREAM AVAILABILITY CHECK:', {
+                localStreamExists: !!newLocalStream,
+                remoteStreamExists: !!newRemoteStream,
+                localStreamVideoTracks: newLocalStream?.getVideoTracks().length || 0,
+                remoteStreamVideoTracks: newRemoteStream?.getVideoTracks().length || 0,
+                localStreamAudioTracks: newLocalStream?.getAudioTracks().length || 0,
+                remoteStreamAudioTracks: newRemoteStream?.getAudioTracks().length || 0,
+                shouldShowVideo: !!(newLocalStream || newRemoteStream)
             });
         };
         
