@@ -32,6 +32,14 @@ interface RTCPeerState {
 }
 
 export class WebRTCProvider implements IWebRTCProvider {
+    // Static instance management to prevent multiple instances
+    private static activeInstance: WebRTCProvider | null = null;
+    private static instanceId = 0;
+
+    // Instance properties
+    private readonly instanceId: number;
+    private isDestroyed = false;
+
     // signaling service used to send and receive messages between peers before establishing a direct connection
     private signalingService: ISignalingService | null = null;
     // map of peer connections
@@ -144,6 +152,16 @@ export class WebRTCProvider implements IWebRTCProvider {
     private readonly INITIATION_TIMEOUT = 10000; // 10 seconds
 
     constructor(config: WebRTCConfig) {
+        // Ensure only one active instance
+        if (WebRTCProvider.activeInstance && !WebRTCProvider.activeInstance.isDestroyed) {
+            console.log(`[WebRTC] ⚠️ Destroying existing instance ${WebRTCProvider.activeInstance.instanceId} before creating new one`);
+            WebRTCProvider.activeInstance.destroy();
+        }
+
+        // Set this as the active instance
+        WebRTCProvider.activeInstance = this;
+        this.instanceId = WebRTCProvider.instanceId++;
+
         this.config = config;
         this.userId = config.userId;
         this.rtcConfiguration = {
@@ -158,7 +176,7 @@ export class WebRTCProvider implements IWebRTCProvider {
             this.eventListeners.set(type, new Set());
         }
         
-        console.log(`[WebRTC] WebRTCProvider instance created for user ${this.userId}`);
+        console.log(`[WebRTC] WebRTCProvider instance ${this.instanceId} created for user ${this.userId}`);
         
         // DIAGNOSTIC CODE COMMENTED OUT - Only for debugging when needed
         // this.runConnectivityTest();
@@ -1157,6 +1175,21 @@ export class WebRTCProvider implements IWebRTCProvider {
                         this.clearConnectionTimeout(peerId);
                         this.dispatchConnectionEvent(peerId, 'disconnected');
                         this.cleanup(peerId);
+                        
+                        // Request updated peer list when a peer disconnects unexpectedly
+                        this.requestUpdatedPeerList();
+                    }
+                    break;
+                case 'disconnected':
+                    if (peerState.phase !== 'disconnected') {
+                        console.log(`[WebRTC] Peer ${peerId} connection disconnected, cleaning up`);
+                        peerState.phase = 'disconnected';
+                        this.clearConnectionTimeout(peerId);
+                        this.dispatchConnectionEvent(peerId, 'disconnected');
+                        this.cleanup(peerId);
+                        
+                        // Request updated peer list when a peer disconnects unexpectedly
+                        this.requestUpdatedPeerList();
                     }
                     break;
             }
@@ -1639,6 +1672,12 @@ export class WebRTCProvider implements IWebRTCProvider {
 
     // Signaling Message Handling
     private async handleSignalingMessage(message: any): Promise<void> {
+        // Skip if this instance is not the active one
+        if (!this.isActive()) {
+            console.log(`[WebRTC] 🚫 Ignoring message - instance ${this.instanceId} is not active`);
+            return;
+        }
+
         const { from: peerId, type, data } = message;
         
         console.log(`[WebRTC] Processing signaling message:`, { 
@@ -1658,47 +1697,14 @@ export class WebRTCProvider implements IWebRTCProvider {
             return;
         }
 
-        // Enhanced deduplication with timestamp checking
+        // Basic message deduplication
         if (type !== 'media-state') {
             const messageId = `${type}-${peerId}-${JSON.stringify(message.data || {})}`;
-            const messageTimestamp = message.data?.timestamp || Date.now();
-            
-            console.log(`[WebRTC] 🔍 DEDUPLICATION CHECK:`, {
-                messageId,
-                messageTimestamp,
-                lastResetTime: this.lastResetTime,
-                isStale: messageTimestamp < this.lastResetTime,
-                processedMessagesSize: this.processedMessages.size,
-                isDuplicate: this.processedMessages.has(messageId)
-            });
-            
-            // Check if we've processed this exact message
             if (this.processedMessages.has(messageId)) {
                 console.log(`[WebRTC] Ignoring duplicate message: ${messageId}`);
                 return;
             }
-            
-            // Check if this message is from before our last reset (stale message)
-            // Add a 1-second buffer to account for network delays and clock differences
-            // Never filter out 'initiate' messages as stale since they represent fresh connection attempts
-            if (type !== 'initiate') {
-                const staleThreshold = this.lastResetTime - 1000;
-                if (messageTimestamp < staleThreshold) {
-                    console.log(`[WebRTC] Ignoring stale message from before reset: ${messageId} (timestamp: ${messageTimestamp}, reset: ${this.lastResetTime}, threshold: ${staleThreshold})`);
-                    return;
-                }
-            }
-            
-            // Check if we've processed a similar message recently (within 5 seconds)
-            const existingTimestamp = this.messageTimestamps.get(messageId);
-            if (existingTimestamp && (messageTimestamp - existingTimestamp) < 5000) {
-                console.log(`[WebRTC] Ignoring recent duplicate message: ${messageId} (time diff: ${messageTimestamp - existingTimestamp}ms)`);
-                return;
-            }
-            
             this.processedMessages.add(messageId);
-            this.messageTimestamps.set(messageId, messageTimestamp);
-            console.log(`[WebRTC] ✅ Message passed deduplication: ${messageId}`);
         }
 
         // Clean up old messages (keep only last 50 messages)
@@ -1763,13 +1769,10 @@ export class WebRTCProvider implements IWebRTCProvider {
             this.cleanup(peerId);
         }
 
-        // Create peer state as responder (whoever receives the initiate message)
+        // Create peer state as responder
         const peerState = this.createPeerState(peerId);
         peerState.phase = 'responding';
         this.connections.set(peerId, peerState);
-        
-        // The peer who sent the initiate message is the initiator for this connection
-        console.log(`[WebRTC] ${peerId} is the initiator for this connection (received initiate)`);
         
         console.log(`[WebRTC] Created peer state for ${peerId} as responder, current connections:`, Array.from(this.connections.keys()));
 
@@ -2427,6 +2430,8 @@ export class WebRTCProvider implements IWebRTCProvider {
                 console.log(`[WebRTC] Cleaning up connection for peer ${peerId}, phase: ${peerState.phase}`);
                 this.clearConnectionTimeout(peerId);
                 
+
+                
                 if (peerState.dataChannel) {
                     peerState.dataChannel.close();
                 }
@@ -2454,6 +2459,9 @@ export class WebRTCProvider implements IWebRTCProvider {
             console.log(`[WebRTC] Cleaning up all connections:`, Array.from(this.connections.keys()));
             for (const [id, state] of this.connections.entries()) {
                 this.clearConnectionTimeout(id);
+                
+
+                
                 if (state.dataChannel) state.dataChannel.close();
                 if (state.connection) state.connection.close();
             }
@@ -2811,8 +2819,23 @@ export class WebRTCProvider implements IWebRTCProvider {
         }
     }
 
+    /**
+     * Request an updated peer list from the signaling server
+     * This is called when connections fail or are lost unexpectedly
+     */
+    private requestUpdatedPeerList(): void {
+        if (this.signalingService?.isConnected) {
+            console.log(`[WebRTC] 🔄 Requesting updated peer list after unexpected disconnection`);
+            // Send a request for updated peer list through the signaling service
+            this.signalingService.send({
+                type: 'get_peers',
+                userId: this.userId
+            });
+        }
+    }
+
     public destroy(): void {
-        console.log(`[WebRTC] 🗑️ DESTROY: Starting WebRTCProvider destruction`);
+        console.log(`[WebRTC] 🗑️ DESTROY: Starting WebRTCProvider destruction for instance ${this.instanceId}`);
         
         try {
             // Unregister message handler from signaling service
@@ -2848,9 +2871,37 @@ export class WebRTCProvider implements IWebRTCProvider {
             // Clear signaling service reference
             this.signalingService = null;
             
-            console.log(`[WebRTC] 🗑️ DESTROY: WebRTCProvider destruction completed`);
+            // Mark as destroyed and clear static reference
+            this.isDestroyed = true;
+            if (WebRTCProvider.activeInstance === this) {
+                WebRTCProvider.activeInstance = null;
+            }
+            
+            console.log(`[WebRTC] 🗑️ DESTROY: WebRTCProvider destruction completed for instance ${this.instanceId}`);
         } catch (error) {
             console.error(`[WebRTC] ❌ DESTROY: Error during destruction:`, error);
         }
     }
-} 
+
+    // Static methods for instance management
+    public static getActiveInstance(): WebRTCProvider | null {
+        return WebRTCProvider.activeInstance;
+    }
+
+    public static clearActiveInstance(): void {
+        if (WebRTCProvider.activeInstance) {
+            console.log(`[WebRTC] 🧹 Clearing active instance ${WebRTCProvider.activeInstance.instanceId}`);
+            WebRTCProvider.activeInstance.destroy();
+        }
+    }
+
+    public static clearAllInstances(): void {
+        console.log(`[WebRTC] 🧹 Clearing all WebRTC instances`);
+        WebRTCProvider.clearActiveInstance();
+        WebRTCProvider.instanceId = 0;
+    }
+
+    public isActive(): boolean {
+        return !this.isDestroyed && WebRTCProvider.activeInstance === this;
+    }
+}

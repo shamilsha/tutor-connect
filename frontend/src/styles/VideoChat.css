@@ -113,4 +113,52 @@ video.hidden {
 .play-button:hover {
     background: rgba(0, 0, 0, 0.9);
     transform: translate(-50%, -50%) scale(1.05);
+}
+
+/* Error message styling */
+.error-message {
+    background: #ff4444;
+    color: white;
+    padding: 15px;
+    margin: 10px 20px;
+    border-radius: 8px;
+    border: 1px solid #cc0000;
+}
+
+.error-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 15px;
+}
+
+.error-content span {
+    flex: 1;
+}
+
+.retry-button {
+    background: #ffffff;
+    color: #ff4444;
+    border: 2px solid #ffffff;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    white-space: nowrap;
+}
+
+.retry-button:hover:not(:disabled) {
+    background: #f0f0f0;
+    border-color: #f0f0f0;
+    transform: scale(1.05);
+}
+
+.retry-button:disabled {
+    background: #cccccc;
+    color: #999999;
+    border-color: #cccccc;
+    cursor: not-allowed;
+    transform: none;
 } 

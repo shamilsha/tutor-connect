@@ -15,6 +15,7 @@ export class SignalingService {
         this.nextHandlerId = 1;
         this.processedMessages = new Map();
         this.handlerId = 0;
+        this.lastMessageTime = Date.now();
         
         // Add beforeunload handler
         window.addEventListener('beforeunload', () => {
@@ -25,22 +26,27 @@ export class SignalingService {
     // Add a message handler and return its ID
     addMessageHandler(handler) {
         const handlerId = ++this.handlerId;
-        console.log(`[SignalingService] Adding message handler (ID: ${handlerId})`);
+        console.log(`[SignalingService] Adding message handler (ID: ${handlerId}) - Total handlers: ${this.messageHandlers.size + 1}`);
         
         this.messageHandlers.set(handlerId, handler);
         
-        console.log(`[SignalingService] Signaling service registered with handler ID: ${handlerId}`);
+        console.log(`[SignalingService] Signaling service registered with handler ID: ${handlerId} - Total handlers: ${this.messageHandlers.size}`);
         return handlerId;
     }
 
     // Remove a message handler by ID
     removeMessageHandler(id) {
-        console.log(`[SignalingService] Removing message handler (ID: ${id})`);
-        return this.messageHandlers.delete(id);
+        console.log(`[SignalingService] Removing message handler (ID: ${id}) - Total handlers before removal: ${this.messageHandlers.size}`);
+        const removed = this.messageHandlers.delete(id);
+        console.log(`[SignalingService] Message handler removal result: ${removed} - Total handlers after removal: ${this.messageHandlers.size}`);
+        return removed;
     }
 
     // Forward message to all handlers
     async forwardMessage(message) {
+        // Update last message time for cleanup tracking
+        this.lastMessageTime = Date.now();
+        
         // Create a new array from the Map values to avoid modification during iteration
         const handlers = Array.from(this.messageHandlers.entries());
         const handlerCount = handlers.length;
@@ -49,14 +55,30 @@ export class SignalingService {
         if (message.type !== 'heartbeat') {
             console.log(`[SignalingService] 📨 Forwarding ${message.type} message to ${handlerCount} handler${handlerCount !== 1 ? 's' : ''}`);
         }
+        
+        // If no handlers, don't process the message
+        if (handlerCount === 0) {
+            console.log(`[SignalingService] ⚠️ No message handlers registered for ${message.type} message`);
+            return;
+        }
 
         // For signaling messages, we want to ensure all handlers receive them
         const isSignalingMessage = ['offer', 'answer', 'ice-candidate', 'initiate', 'initiate-ack', 'disconnect', 'media-state'].includes(message.type);
         
-        // Create a unique message ID - for signaling messages, don't include timestamp to allow all handlers to process
-        const messageId = isSignalingMessage 
-            ? `${message.type}-${message.from}-${message.to}`
-            : `${message.type}-${message.from}-${message.to}-${Date.now()}`;
+        // Create a unique message ID
+        // For offers and answers, include SDP hash to allow renegotiation
+        // For other signaling messages, use basic format
+        let messageId;
+        if (message.type === 'offer' || message.type === 'answer') {
+            // Include SDP hash to allow renegotiation offers/answers
+            const sdpHash = message.sdp ? btoa(message.sdp).substring(0, 8) : Date.now();
+            messageId = `${message.type}-${message.from}-${message.to}-${sdpHash}`;
+            console.log(`[SignalingService] 🔍 Generated message ID for ${message.type}: ${messageId} (SDP hash: ${sdpHash})`);
+        } else if (isSignalingMessage) {
+            messageId = `${message.type}-${message.from}-${message.to}`;
+        } else {
+            messageId = `${message.type}-${message.from}-${message.to}-${Date.now()}`;
+        }
             
         let processedHandlers = this.processedMessages.get(messageId);
         
@@ -68,9 +90,8 @@ export class SignalingService {
         let forwardedCount = 0;
         for (const [handlerId, handler] of handlers) {
             try {
-                // For signaling messages, always forward to all handlers
-                // For other messages, check if this handler has already processed this message
-                if (isSignalingMessage || !processedHandlers.has(handlerId)) {
+                // Check if this handler has already processed this message
+                if (!processedHandlers.has(handlerId)) {
                     // Handle both sync and async handlers
                     const result = handler(message);
                     if (result && typeof result.then === 'function') {
@@ -91,19 +112,12 @@ export class SignalingService {
             console.log(`[SignalingService] ✅ Forwarded ${message.type} message to ${forwardedCount} handler(s)`);
         }
 
-        // Cleanup old processed messages (older than 5 seconds)
-        // Only clean up non-signaling messages as they include timestamps
-        if (!isSignalingMessage) {
-            const now = Date.now();
-            for (const [msgId] of this.processedMessages) {
-                const parts = msgId.split('-');
-                if (parts.length === 4) { // Only clean up messages with timestamps
-                    const msgTime = parseInt(parts[3]);
-                    if (now - msgTime > 5000) {
-                        this.processedMessages.delete(msgId);
-                    }
-                }
-            }
+        // Cleanup old processed messages periodically
+        // Clear all processed messages every 10 seconds to prevent memory buildup
+        const now = Date.now();
+        if (now - this.lastMessageTime > 10000) {
+            this.processedMessages.clear();
+            console.log('[SignalingService] 🧹 Cleaned up processed messages cache');
         }
     }
 
@@ -222,6 +236,20 @@ export class SignalingService {
                 if (this.onConnectionStatusChange) {
                     this.onConnectionStatusChange(true);
                 }
+                
+                // Start connection monitoring to detect disconnections and reconnections
+                this.startConnectionMonitoring();
+                
+                // Request updated peer list after successful registration
+                // This helps detect peers that may have logged out while we were disconnected
+                setTimeout(() => {
+                    console.log('[SignalingService] 🔄 Requesting updated peer list after registration');
+                    this.wsProvider.publish('get_peers', {
+                        type: 'get_peers',
+                        userId: this.userId
+                    });
+                }, 1000); // Small delay to ensure registration is fully processed
+                
                 resolve(true);
             });
 
@@ -244,6 +272,9 @@ export class SignalingService {
     }
 
     cleanup() {
+        // Stop connection monitoring
+        this.stopConnectionMonitoring();
+        
         if (this.wsProvider) {
             this.wsProvider.disconnect();
         }
@@ -269,11 +300,27 @@ export class SignalingService {
             clearInterval(this.connectionMonitorInterval);
         }
 
+        let wasConnected = this.wsProvider?.isConnected || false;
+
         this.connectionMonitorInterval = setInterval(() => {
-            if (!this.wsProvider || !this.wsProvider.isConnected) {
-                console.log('[SignalingService] 🔍 Connection monitor detected socket not ready');
+            const isCurrentlyConnected = this.wsProvider?.isConnected || false;
+            
+            if (!isCurrentlyConnected && wasConnected) {
+                console.log('[SignalingService] 🔍 Connection monitor detected connection loss');
                 this.handleConnectionLoss();
+            } else if (isCurrentlyConnected && !wasConnected) {
+                console.log('[SignalingService] 🔄 Connection monitor detected reconnection');
+                // Request updated peer list after reconnection to detect any peers that logged out
+                setTimeout(() => {
+                    console.log('[SignalingService] 🔄 Requesting updated peer list after reconnection');
+                    this.wsProvider.publish('get_peers', {
+                        type: 'get_peers',
+                        userId: this.userId
+                    });
+                }, 1000); // Small delay to ensure connection is stable
             }
+            
+            wasConnected = isCurrentlyConnected;
         }, 1000);
     }
 
@@ -343,7 +390,7 @@ export class SignalingService {
 
     // Reset Methods
     resetMessageHandlers() {
-        console.log(`[SignalingService] 🔄 RESET: Starting message handlers reset`);
+        console.log(`[SignalingService] 🔄 RESET: Starting message handlers reset - Current handlers: ${this.messageHandlers.size}, handlerId: ${this.handlerId}`);
         
         // Clear all message handlers
         this.messageHandlers.clear();
@@ -355,7 +402,7 @@ export class SignalingService {
         this.handlerId = 0;
         this.nextHandlerId = 1;
         
-        console.log(`[SignalingService] 🔄 RESET: Message handlers reset completed`);
+        console.log(`[SignalingService] 🔄 RESET: Message handlers reset completed - Handlers: ${this.messageHandlers.size}, handlerId: ${this.handlerId}`);
     }
 
     resetPeerTracking() {

@@ -983,7 +983,18 @@ const VideoChat = ({
             
             {error && (
                 <div className="error-message">
-                    {error}
+                    <div className="error-content">
+                        <span>{error}</span>
+                        {error.includes('failed') || error.includes('lost') ? (
+                            <button 
+                                className="retry-button" 
+                                onClick={onConnect}
+                                disabled={isConnecting}
+                            >
+                                {isConnecting ? 'Retrying...' : 'Retry Connection'}
+                            </button>
+                        ) : null}
+                    </div>
                 </div>
             )}
         </div>
