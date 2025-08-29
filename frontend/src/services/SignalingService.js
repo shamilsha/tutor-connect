@@ -40,7 +40,7 @@ export class SignalingService {
     }
 
     // Forward message to all handlers
-    forwardMessage(message) {
+    async forwardMessage(message) {
         // Create a new array from the Map values to avoid modification during iteration
         const handlers = Array.from(this.messageHandlers.entries());
         const handlerCount = handlers.length;
@@ -71,7 +71,12 @@ export class SignalingService {
                 // For signaling messages, always forward to all handlers
                 // For other messages, check if this handler has already processed this message
                 if (isSignalingMessage || !processedHandlers.has(handlerId)) {
-                    handler(message);
+                    // Handle both sync and async handlers
+                    const result = handler(message);
+                    if (result && typeof result.then === 'function') {
+                        // Async handler - wait for it to complete
+                        await result;
+                    }
                     processedHandlers.add(handlerId);
                     forwardedCount++;
                 } else {
@@ -103,7 +108,7 @@ export class SignalingService {
     }
 
     // Socket message handler
-    handleSocketMessage(message) {
+    async handleSocketMessage(message) {
         try {
             switch (message.type) {
                 case 'registered':
@@ -137,7 +142,7 @@ export class SignalingService {
                         this.onIncomingConnection(message);
                     }
                     
-                    this.forwardMessage(message);
+                    await this.forwardMessage(message);
                     break;
                     
                 default:
@@ -333,6 +338,71 @@ export class SignalingService {
             }
         } catch (error) {
             console.error('[SignalingService] Failed to handle message:', error);
+        }
+    }
+
+    // Reset Methods
+    resetMessageHandlers() {
+        console.log(`[SignalingService] 🔄 RESET: Starting message handlers reset`);
+        
+        // Clear all message handlers
+        this.messageHandlers.clear();
+        
+        // Clear processed messages
+        this.processedMessages.clear();
+        
+        // Reset handler counters
+        this.handlerId = 0;
+        this.nextHandlerId = 1;
+        
+        console.log(`[SignalingService] 🔄 RESET: Message handlers reset completed`);
+    }
+
+    resetPeerTracking() {
+        console.log(`[SignalingService] 🔄 RESET: Starting peer tracking reset`);
+        
+        // Clear registered peers
+        this.registeredPeers.clear();
+        
+        // Reset reconnection attempts
+        this.reconnectAttempts = 0;
+        
+        console.log(`[SignalingService] 🔄 RESET: Peer tracking reset completed`);
+    }
+
+    resetEventHandlers() {
+        console.log(`[SignalingService] 🔄 RESET: Starting event handlers reset`);
+        
+        // Clear event handler callbacks
+        this.onPeerListUpdate = null;
+        this.onIncomingConnection = null;
+        this.onConnectionStatusChange = null;
+        
+        console.log(`[SignalingService] 🔄 RESET: Event handlers reset completed`);
+    }
+
+    reset() {
+        console.log(`[SignalingService] 🔄 RESET: Starting complete signaling service reset`);
+        
+        try {
+            // Reset in order: message handlers → peer tracking → event handlers
+            this.resetMessageHandlers();
+            this.resetPeerTracking();
+            this.resetEventHandlers();
+            
+            // Reset connection state
+            this.isConnected = false;
+            
+            // Clear connection monitor
+            if (this.connectionMonitorInterval) {
+                clearInterval(this.connectionMonitorInterval);
+                this.connectionMonitorInterval = null;
+            }
+            
+            console.log(`[SignalingService] 🔄 RESET: Complete signaling service reset successful`);
+        } catch (error) {
+            console.error(`[SignalingService] ❌ RESET: Error during reset:`, error);
+            throw error;
         }
     }
 }

@@ -825,6 +825,54 @@ const VideoChat = ({
         }
     };
 
+    // Reset Methods
+    const resetVideoDisplay = () => {
+        console.log('[VideoChat] 🔄 RESET: Starting video display reset');
+        
+        // Reset video-related states
+        setIsVideoEnabled(false);
+        setHasRemoteVideo(false);
+        setHasRemoteVideoEnabled(false);
+        
+        // Clear any video-related refs or state
+        // Note: VideoDisplay component handles its own cleanup via React's cleanup
+        
+        console.log('[VideoChat] 🔄 RESET: Video display reset completed');
+    };
+
+    const resetMediaState = () => {
+        console.log('[VideoChat] 🔄 RESET: Starting media state reset');
+        
+        // Reset all media-related states
+        setIsVideoEnabled(false);
+        setHasRemoteVideo(false);
+        setHasRemoteVideoEnabled(false);
+        
+        // Clear any media-related state
+        setLocalStream(null);
+        setRemoteStream(null);
+        
+        console.log('[VideoChat] 🔄 RESET: Media state reset completed');
+    };
+
+    const reset = () => {
+        console.log('[VideoChat] 🔄 RESET: Starting complete video chat reset');
+        
+        try {
+            // Reset in order: video display → media state
+            resetVideoDisplay();
+            resetMediaState();
+            
+            console.log('[VideoChat] 🔄 RESET: Complete video chat reset successful');
+        } catch (error) {
+            console.error('[VideoChat] ❌ RESET: Error during reset:', error);
+            throw error;
+        }
+    };
+
+    // Reset method available for parent component to call
+    // Note: Parent can call this method directly if needed
+
     return (
         <div className="video-chat">
             <ConnectionPanel

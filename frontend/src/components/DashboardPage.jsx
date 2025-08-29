@@ -33,6 +33,16 @@ const DashboardPage = () => {
     // Store user data and message handler IDs in ref
     const userRef = useRef(null);
     const messageHandlerRef = useRef(null);
+
+    // Cleanup provider when provider state changes
+    useEffect(() => {
+        return () => {
+            if (provider) {
+                console.log('[DashboardPage] 🧹 Cleaning up WebRTC provider on provider change');
+                provider.destroy();
+            }
+        };
+    }, [provider]);
     
     // Initialize user and WebSocket connection
     useEffect(() => {
@@ -72,24 +82,54 @@ const DashboardPage = () => {
         }
 
         return () => {
-            // Cleanup
-            if (provider) {
-                provider.cleanup();
-            }
+            // Component unmount cleanup - WebRTC provider cleanup is handled by the [provider] useEffect
         };
     }, []);
 
-    // Cleanup provider on unmount only
-    useEffect(() => {
-        return () => {
-            if (provider) {
-                console.log('[DashboardPage] 🧹 Cleaning up WebRTC provider');
-                provider.closeAllConnections();
+
+
+
+
+
+
+    // Define handlePeerListUpdate outside useEffect so it can be accessed by other functions
+    const handlePeerListUpdate = (peers) => {
+        const user = userRef.current;
+        if (!user) {
+            console.log('[DashboardPage] No user data available for peer list handler');
+            return;
+        }
+
+        console.log('[DashboardPage] Received peer list update:', peers);
+        
+        // Filter out current user and format peer list using user ID
+        const filteredPeers = peers
+            .filter(peerId => peerId !== user.id)
+            .map(peerId => ({
+                id: peerId,
+                name: `Peer ${peerId}`
+            }));
+
+        console.log('[DashboardPage] Filtered peer list:', filteredPeers);
+        
+        // Update peer list state
+        setPeerList(prevPeers => {
+            // Compare with current peer list
+            const currentPeerIds = new Set(prevPeers.map(p => p.id));
+            const newPeerIds = new Set(filteredPeers.map(p => p.id));
+            
+            // Check if the sets are different
+            const hasChanged = currentPeerIds.size !== newPeerIds.size || 
+                             [...currentPeerIds].some(id => !newPeerIds.has(id)) ||
+                             [...newPeerIds].some(id => !currentPeerIds.has(id));
+
+            if (hasChanged) {
+                console.log('[DashboardPage] Updating peer list state:', filteredPeers);
+                return filteredPeers;
             }
-        };
-    }, []); // Empty dependency array for unmount only
-
-
+            return prevPeers;
+        });
+    };
 
     // Set up peer list handler - separate effect to avoid re-runs
     useEffect(() => {
@@ -101,38 +141,6 @@ const DashboardPage = () => {
 
         console.log('[DashboardPage] Setting up peer list handler for user:', user.id);
 
-        const handlePeerListUpdate = (peers) => {
-            console.log('[DashboardPage] Received peer list update:', peers);
-            
-            // Filter out current user and format peer list using user ID
-            const filteredPeers = peers
-                .filter(peerId => peerId !== user.id)
-                .map(peerId => ({
-                    id: peerId,
-                    name: `Peer ${peerId}`
-                }));
-
-            console.log('[DashboardPage] Filtered peer list:', filteredPeers);
-            
-            // Update peer list state
-            setPeerList(prevPeers => {
-                // Compare with current peer list
-                const currentPeerIds = new Set(prevPeers.map(p => p.id));
-                const newPeerIds = new Set(filteredPeers.map(p => p.id));
-                
-                // Check if the sets are different
-                const hasChanged = currentPeerIds.size !== newPeerIds.size || 
-                                 [...currentPeerIds].some(id => !newPeerIds.has(id)) ||
-                                 [...newPeerIds].some(id => !currentPeerIds.has(id));
-
-                if (hasChanged) {
-                    console.log('[DashboardPage] Updating peer list state:', filteredPeers);
-                    return filteredPeers;
-                }
-                return prevPeers;
-            });
-        };
-
         // Set up handlers in signaling service
         if (signalingService) {
             console.log('[DashboardPage] Registering peer list handler with signaling service');
@@ -142,40 +150,35 @@ const DashboardPage = () => {
             signalingService.onIncomingConnection = async (message) => {
                 console.log('[DashboardPage] 🔄 Incoming connection detected:', message.type, 'from peer', message.from);
                 
-                // Only create WebRTC provider for the first incoming message (initiate)
-                if (message.type === 'initiate' && !provider) {
-                    console.log('[DashboardPage] 🔄 Creating WebRTC provider for incoming connection');
+                // Always create a fresh WebRTC provider for incoming connections
+                if (message.type === 'initiate') {
+                    console.log('[DashboardPage] 🔄 Creating fresh WebRTC provider for incoming connection');
                     
                     // Set connecting state for incoming connection
                     setIsConnecting(true);
                     setError(null);
                     
-                                    const rtcProvider = new WebRTCProvider({
-                    userId: user.id,
-                    iceServers: [
-                        {
-                            urls: [
-                                'stun:stun.l.google.com:19302',
-                                'stun:stun1.l.google.com:19302',
-                                'stun:stun2.l.google.com:19302',
-                                'stun:stun3.l.google.com:19302',
-                                'stun:stun4.l.google.com:19302'
-                            ]
-                        }
-                    ]
-                });
+                    const rtcProvider = new WebRTCProvider({
+                        userId: user.id,
+                        iceServers: [
+                            {
+                                urls: [
+                                    'stun:stun.l.google.com:19302',
+                                    'stun:stun1.l.google.com:19302',
+                                    'stun:stun2.l.google.com:19302',
+                                    'stun:stun3.l.google.com:19302',
+                                    'stun:stun4.l.google.com:19302'
+                                ]
+                            }
+                        ]
+                    });
 
                     // Set up WebRTC event listeners
                     setupWebRTCEventListeners(rtcProvider);
 
                     // Connect to signaling service
                     rtcProvider.setSignalingService(signalingService);
-                    setProvider(rtcProvider);
-                } else if (message.type === 'initiate' && provider) {
-                    // If we already have a provider, just set connecting state
-                    console.log('[DashboardPage] WebRTC provider already exists for incoming connection');
-                    setIsConnecting(true);
-                    setError(null);
+                    setProvider(rtcProvider); // Set provider directly
                 }
             };
             
@@ -231,12 +234,32 @@ const DashboardPage = () => {
                     signalingService.removeMessageHandler(messageHandlerRef.current);
                     messageHandlerRef.current = null;
                 }
+                
+                // Destroy provider on disconnect or failure to ensure fresh instance for retry
+                if (state === 'failed' || state === 'disconnected') {
+                    console.log(`[DashboardPage] Connection ${state} - destroying provider for retry`);
+                    setProvider(null); // Set provider to null to trigger cleanup
+                    
+                    // For failed connections, show a retry message
+                    if (state === 'failed') {
+                        setError('Connection failed. Please try reconnecting.');
+                    }
+                }
             }
         });
 
         rtcProvider.addEventListener('error', (event) => {
             console.error('[DashboardPage] WebRTC error:', event.data);
-            setError(event.data.message);
+            
+            // Provide more specific error messages for common issues
+            let errorMessage = event.data.message;
+            if (event.data.error && event.data.error.name === 'InvalidStateError') {
+                errorMessage = 'Connection state error - this usually resolves automatically. Please try reconnecting.';
+            } else if (event.data.message && event.data.message.includes('Failed to execute')) {
+                errorMessage = 'Connection setup error - please try reconnecting.';
+            }
+            
+            setError(errorMessage);
         });
 
         rtcProvider.addEventListener('message', (event) => {
@@ -264,33 +287,30 @@ const DashboardPage = () => {
             setIsConnecting(true);
             setError(null);
 
-            // Use existing provider or create if not exists
-            let rtcProvider = provider;
-            if (!rtcProvider) {
-                console.log('[DashboardPage] 🔄 Creating WebRTC provider for outgoing connection');
-                const user = userRef.current;
-                rtcProvider = new WebRTCProvider({
-                    userId: user.id,
-                    iceServers: [
-                        {
-                            urls: [
-                                'stun:stun.l.google.com:19302',
-                                'stun:stun1.l.google.com:19302',
-                                'stun:stun2.l.google.com:19302',
-                                'stun:stun3.l.google.com:19302',
-                                'stun:stun4.l.google.com:19302'
-                            ]
-                        }
-                    ]
-                });
+            // Always create a fresh WebRTC provider for clean connection
+            console.log('[DashboardPage] 🔄 Creating fresh WebRTC provider for connection');
+            const user = userRef.current;
+            const rtcProvider = new WebRTCProvider({
+                userId: user.id,
+                iceServers: [
+                    {
+                        urls: [
+                            'stun:stun.l.google.com:19302',
+                            'stun:stun1.l.google.com:19302',
+                            'stun:stun2.l.google.com:19302',
+                            'stun:stun3.l.google.com:19302',
+                            'stun:stun4.l.google.com:19302'
+                        ]
+                    }
+                ]
+            });
 
-                // Set up WebRTC event listeners
-                setupWebRTCEventListeners(rtcProvider);
+            // Set up WebRTC event listeners
+            setupWebRTCEventListeners(rtcProvider);
 
-                // Connect to signaling service
-                rtcProvider.setSignalingService(signalingService);
-                setProvider(rtcProvider);
-            }
+            // Connect to signaling service
+            rtcProvider.setSignalingService(signalingService);
+            setProvider(rtcProvider); // Set provider directly
 
             // Connect to the selected peer
             await rtcProvider.connect(selectedPeer);
@@ -304,13 +324,82 @@ const DashboardPage = () => {
 
     const handleDisconnect = async () => {
         try {
-            if (messageHandlerRef.current) {
-                signalingService.removeMessageHandler(messageHandlerRef.current);
-                messageHandlerRef.current = null;
-            }
+            console.log('[DashboardPage] 🔄 Starting disconnect process');
+            
+            // Disconnect from the specific peer
             await provider.disconnect(selectedPeer);
-            setIsPeerConnected(false);
-            setShowChat(false);
+            
+            // Reset the WebRTC provider to ensure clean state
+            console.log('[DashboardPage] 🔄 Resetting WebRTC provider for clean reconnection');
+            await provider.reset();
+            
+            // Reset signaling service to clear message handlers
+            console.log('[DashboardPage] 🔄 Resetting signaling service for clean reconnection');
+            if (signalingService) {
+                signalingService.reset();
+                
+                // Add a small delay to ensure all messages are cleared
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                // Re-register peer list handler after reset
+                console.log('[DashboardPage] 🔄 Re-registering peer list handler after signaling service reset');
+                const user = userRef.current;
+                if (user) {
+                    signalingService.onPeerListUpdate = handlePeerListUpdate;
+                    signalingService.onIncomingConnection = async (message) => {
+                        console.log('[DashboardPage] 🔄 Incoming connection detected after reset:', message.type, 'from peer', message.from);
+                        
+                        // Always create a fresh WebRTC provider for incoming connections
+                        if (message.type === 'initiate') {
+                            console.log('[DashboardPage] 🔄 Creating fresh WebRTC provider for incoming connection after reset');
+                            
+                            // Set connecting state for incoming connection
+                            setIsConnecting(true);
+                            setError(null);
+                            
+                            const rtcProvider = new WebRTCProvider({
+                                userId: user.id,
+                                iceServers: [
+                                    {
+                                        urls: [
+                                            'stun:stun.l.google.com:19302',
+                                            'stun:stun1.l.google.com:19302',
+                                            'stun:stun2.l.google.com:19302',
+                                            'stun:stun3.l.google.com:19302',
+                                            'stun:stun4.l.google.com:19302'
+                                        ]
+                                    }
+                                ]
+                            });
+
+                            // Set up WebRTC event listeners
+                            setupWebRTCEventListeners(rtcProvider);
+
+                            // Connect to signaling service
+                            rtcProvider.setSignalingService(signalingService);
+                            setProvider(rtcProvider); // Set provider directly
+                        }
+                    };
+                    
+                    // Request initial peer list
+                    signalingService.wsProvider?.publish('get_peers', {
+                        type: 'get_peers',
+                        userId: user.id
+                    });
+                }
+            }
+            
+            // Reset dashboard state
+            reset();
+            
+            // Destroy the provider to properly clean up message handlers before creating fresh instance
+            console.log('[DashboardPage] 🔄 Destroying WebRTC provider for fresh reconnection');
+            setProvider(null); // Set provider to null to trigger cleanup
+            
+            // Add a small delay to ensure everything is properly reset before allowing reconnection
+            await new Promise(resolve => setTimeout(resolve, 200));
+            
+            console.log('[DashboardPage] 🔄 Disconnect process completed');
         } catch (error) {
             console.error('[DashboardPage] Disconnect error:', error);
             setError(error.message);
@@ -319,12 +408,34 @@ const DashboardPage = () => {
 
     const handleLogout = () => {
         console.log('[DashboardPage] 👋 User logging out');
-        if (provider) {
-            provider.closeAllConnections();
+        
+        try {
+            // Reset all components
+            if (provider) {
+                provider.destroy(); // This will properly clean up all connections and message handlers
+            }
+            
+            // Reset signaling service
+            if (signalingService) {
+                signalingService.reset();
+            }
+            
+            // Reset dashboard state
+            reset();
+            
+            // Clean up user data
+            localStorage.removeItem('user');
+            
+            // Navigate to login
+            navigate('/');
+            
+            console.log('[DashboardPage] 👋 Logout completed successfully');
+        } catch (error) {
+            console.error('[DashboardPage] ❌ Error during logout:', error);
+            // Still navigate to login even if reset fails
+            localStorage.removeItem('user');
+            navigate('/');
         }
-        signalingService.disconnect();
-        localStorage.removeItem('user');
-        navigate('/');
     };
 
     const handleSendMessage = async (message) => {
@@ -335,6 +446,66 @@ const DashboardPage = () => {
         } catch (err) {
             console.error('[DashboardPage] Failed to send message:', err);
             setError('Failed to send message');
+        }
+    };
+
+    const resetConnectionState = () => {
+        console.log('[DashboardPage] 🔄 RESET: Starting connection state reset');
+        
+        // Reset connection states
+        setIsPeerConnected(false);
+        setIsConnecting(false);
+        setShowChat(false);
+        setError(null);
+        
+        // DON'T clear peer selection - keep it for reconnection
+        // setSelectedPeer(''); // REMOVED - selected peer should remain for easy reconnection
+        
+        console.log('[DashboardPage] 🔄 RESET: Connection state reset completed - peer selection preserved');
+    };
+
+    const resetPeerManagement = () => {
+        console.log('[DashboardPage] 🔄 RESET: Starting peer management reset');
+        
+        // DON'T clear peer list - keep it available for reconnection
+        // setPeerList([]); // REMOVED - peers should remain available
+        
+        // Clear received messages
+        setReceivedMessages([]);
+        
+        // Clear message handler
+        if (messageHandlerRef.current) {
+            signalingService.removeMessageHandler(messageHandlerRef.current);
+            messageHandlerRef.current = null;
+        }
+        
+        console.log('[DashboardPage] 🔄 RESET: Peer management reset completed - peer list preserved');
+    };
+
+    const resetUIState = () => {
+        console.log('[DashboardPage] 🔄 RESET: Starting UI state reset');
+        
+        // Reset all UI-related states to initial values
+        setShowChat(false);
+        setError(null);
+        setReceivedMessages([]);
+        
+        console.log('[DashboardPage] 🔄 RESET: UI state reset completed');
+    };
+
+    const reset = () => {
+        console.log('[DashboardPage] 🔄 RESET: Starting complete dashboard reset');
+        
+        try {
+            // Reset in order: connection state → peer management → UI state
+            resetConnectionState();
+            resetPeerManagement();
+            resetUIState();
+            
+            console.log('[DashboardPage] 🔄 RESET: Complete dashboard reset successful');
+        } catch (error) {
+            console.error('[DashboardPage] ❌ RESET: Error during reset:', error);
+            throw error;
         }
     };
 

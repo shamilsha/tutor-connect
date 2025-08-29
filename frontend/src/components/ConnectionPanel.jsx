@@ -77,6 +77,49 @@ const ConnectionPanel = ({
 
     const buttonState = getButtonState();
 
+    // Reset Methods
+    const resetPeerList = () => {
+        console.log('[ConnectionPanel] 🔄 RESET: Starting peer list reset');
+        
+        // DON'T reset peer selection - keep it for reconnection
+        // if (onPeerSelect) {
+        //     onPeerSelect('');
+        // }
+        
+        // Enable peer list for future connections
+        setIsPeerListEnabled(true);
+        
+        console.log('[ConnectionPanel] 🔄 RESET: Peer list reset completed - peer selection preserved');
+    };
+
+    const resetConnectionState = () => {
+        console.log('[ConnectionPanel] 🔄 RESET: Starting connection state reset');
+        
+        // Reset connection-related states
+        // Note: Connection states are managed by parent components
+        // This method is for any local state cleanup
+        
+        console.log('[ConnectionPanel] 🔄 RESET: Connection state reset completed');
+    };
+
+    const reset = () => {
+        console.log('[ConnectionPanel] 🔄 RESET: Starting complete connection panel reset');
+        
+        try {
+            // Reset in order: peer list → connection state
+            resetPeerList();
+            resetConnectionState();
+            
+            console.log('[ConnectionPanel] 🔄 RESET: Complete connection panel reset successful');
+        } catch (error) {
+            console.error('[ConnectionPanel] ❌ RESET: Error during reset:', error);
+            throw error;
+        }
+    };
+
+    // Reset method available for parent component to call
+    // Note: Parent can call this method directly if needed
+
     return (
         <div className="connection-panel">
             {/* Login Status Indicator */}

@@ -45,6 +45,8 @@ export class WebRTCProvider implements IWebRTCProvider {
     private rtcConfiguration: RTCConfiguration;
     private messageHandlerId: number | null = null;
     private processedMessages: Set<string> = new Set();
+    private messageTimestamps: Map<string, number> = new Map(); // Track message timestamps for better deduplication
+    private lastResetTime: number = 0; // Track when the last reset occurred
     // State tracking variables
     private hasLocalAudio: boolean = false;
     private hasLocalVideo: boolean = false;
@@ -417,8 +419,8 @@ export class WebRTCProvider implements IWebRTCProvider {
     public async disconnect(peerId: string): Promise<void> {
         console.log(`[WebRTC] Disconnecting from peer ${peerId}`);
 
-            const peerState = this.connections.get(peerId);
-            if (!peerState) return;
+        const peerState = this.connections.get(peerId);
+        if (!peerState) return;
 
         // Send disconnect notification
         if (this.signalingService) {
@@ -435,6 +437,20 @@ export class WebRTCProvider implements IWebRTCProvider {
         }
 
         this.cleanup(peerId);
+    }
+
+    public async disconnectAll(): Promise<void> {
+        console.log(`[WebRTC] Disconnecting from all peers and resetting state`);
+        
+        try {
+            // Use the comprehensive reset method
+            await this.reset();
+            
+            console.log(`[WebRTC] Disconnect all completed successfully`);
+        } catch (error) {
+            console.error(`[WebRTC] Error during disconnect all:`, error);
+            throw error;
+        }
     }
 
     // Media Management
@@ -1060,9 +1076,7 @@ export class WebRTCProvider implements IWebRTCProvider {
 
     // Cleanup
     public closeAllConnections(): void {
-        for (const peerId of this.connections.keys()) {
-            this.disconnect(peerId);
-        }
+        this.disconnectAll();
     }
 
     // Private Helper Methods
@@ -1624,16 +1638,18 @@ export class WebRTCProvider implements IWebRTCProvider {
     }
 
     // Signaling Message Handling
-    private handleSignalingMessage = (message: SignalingMessage): void => {
-        const { type, from: peerId, to: targetId } = message;
+    private async handleSignalingMessage(message: any): Promise<void> {
+        const { from: peerId, type, data } = message;
         
         console.log(`[WebRTC] Processing signaling message:`, { 
             type, 
             from: peerId, 
-            to: targetId, 
+            to: message.to, 
             self: this.userId,
             isFromSelf: peerId === this.userId,
-            isToSelf: targetId === this.userId
+            isToSelf: message.to === this.userId,
+            timestamp: data?.timestamp || 'none',
+            resetTime: this.lastResetTime
         });
         
         // Ignore messages from self
@@ -1642,20 +1658,56 @@ export class WebRTCProvider implements IWebRTCProvider {
             return;
         }
 
-        // Deduplicate messages (but never ignore media-state messages as they contain critical state updates)
+        // Enhanced deduplication with timestamp checking
         if (type !== 'media-state') {
-            const messageId = `${type}-${peerId}-${JSON.stringify(message.data)}`;
+            const messageId = `${type}-${peerId}-${JSON.stringify(message.data || {})}`;
+            const messageTimestamp = message.data?.timestamp || Date.now();
+            
+            console.log(`[WebRTC] 🔍 DEDUPLICATION CHECK:`, {
+                messageId,
+                messageTimestamp,
+                lastResetTime: this.lastResetTime,
+                isStale: messageTimestamp < this.lastResetTime,
+                processedMessagesSize: this.processedMessages.size,
+                isDuplicate: this.processedMessages.has(messageId)
+            });
+            
+            // Check if we've processed this exact message
             if (this.processedMessages.has(messageId)) {
                 console.log(`[WebRTC] Ignoring duplicate message: ${messageId}`);
                 return;
             }
+            
+            // Check if this message is from before our last reset (stale message)
+            // Add a 1-second buffer to account for network delays and clock differences
+            // Never filter out 'initiate' messages as stale since they represent fresh connection attempts
+            if (type !== 'initiate') {
+                const staleThreshold = this.lastResetTime - 1000;
+                if (messageTimestamp < staleThreshold) {
+                    console.log(`[WebRTC] Ignoring stale message from before reset: ${messageId} (timestamp: ${messageTimestamp}, reset: ${this.lastResetTime}, threshold: ${staleThreshold})`);
+                    return;
+                }
+            }
+            
+            // Check if we've processed a similar message recently (within 5 seconds)
+            const existingTimestamp = this.messageTimestamps.get(messageId);
+            if (existingTimestamp && (messageTimestamp - existingTimestamp) < 5000) {
+                console.log(`[WebRTC] Ignoring recent duplicate message: ${messageId} (time diff: ${messageTimestamp - existingTimestamp}ms)`);
+                return;
+            }
+            
             this.processedMessages.add(messageId);
+            this.messageTimestamps.set(messageId, messageTimestamp);
+            console.log(`[WebRTC] ✅ Message passed deduplication: ${messageId}`);
         }
 
-        // Clean up old messages
-        if (this.processedMessages.size > 100) {
-            const oldestMessage = Array.from(this.processedMessages)[0];
-            this.processedMessages.delete(oldestMessage);
+        // Clean up old messages (keep only last 50 messages)
+        if (this.processedMessages.size > 50) {
+            const oldestMessages = Array.from(this.processedMessages).slice(0, 10);
+            oldestMessages.forEach(msg => {
+                this.processedMessages.delete(msg);
+                this.messageTimestamps.delete(msg);
+            });
         }
 
         console.log(`[WebRTC] Received ${type} from peer ${peerId}`);
@@ -1691,7 +1743,7 @@ export class WebRTCProvider implements IWebRTCProvider {
                 this.handleIceCompleteAck(peerId, message.data);
                 break;
             case 'disconnect':
-                this.handleDisconnect(peerId);
+                await this.handleDisconnect(peerId);
                 break;
             case 'media-state':
                 this.handleMediaState(peerId, message.data);
@@ -2107,6 +2159,27 @@ export class WebRTCProvider implements IWebRTCProvider {
         try {
             const connection = peerState.connection;
             console.log(`[WebRTC] Processing answer from peer ${peerId} (phase: ${peerState.phase})`);
+            
+            // Check connection state before setting remote description
+            const signalingState = connection.signalingState;
+            console.log(`[WebRTC] Connection signaling state before setting remote description: ${signalingState}`);
+            
+            // If connection is already stable, this might be a duplicate answer
+            if (signalingState === 'stable') {
+                console.log(`[WebRTC] Connection already stable - this might be a duplicate answer from peer ${peerId}`);
+                // Still send acknowledgment to prevent the other peer from retrying
+                if (this.signalingService) {
+                    console.log(`[WebRTC] ✅ Acknowledging duplicate answer from peer ${peerId}`);
+                    this.signalingService.send({
+                        type: 'answer-ack',
+                        from: this.userId,
+                        to: peerId,
+                        data: { timestamp: Date.now() }
+                    });
+                }
+                return;
+            }
+            
             await connection.setRemoteDescription(new RTCSessionDescription(answer));
             console.log(`[WebRTC] Remote description set for peer ${peerId}`);
             console.log(`[WebRTC] Answer processing completed successfully for peer ${peerId}`);
@@ -2124,6 +2197,23 @@ export class WebRTCProvider implements IWebRTCProvider {
 
         } catch (error) {
             console.error(`[WebRTC] Failed to set remote description for peer ${peerId}:`, error);
+            
+            // If it's a state error, log it but don't treat it as a fatal error
+            if (error instanceof Error && error.name === 'InvalidStateError') {
+                console.log(`[WebRTC] State error for peer ${peerId} - connection may already be established`);
+                // Still send acknowledgment to prevent the other peer from retrying
+                if (this.signalingService) {
+                    console.log(`[WebRTC] ✅ Acknowledging answer despite state error for peer ${peerId}`);
+                    this.signalingService.send({
+                        type: 'answer-ack',
+                        from: this.userId,
+                        to: peerId,
+                        data: { timestamp: Date.now() }
+                    });
+                }
+                return;
+            }
+            
             this.handleError(peerId, error);
         }
     }
@@ -2158,10 +2248,21 @@ export class WebRTCProvider implements IWebRTCProvider {
         }
     }
 
-    private handleDisconnect(peerId: string): void {
-        console.log(`[WebRTC] Received disconnect from peer ${peerId}`);
+    private async handleDisconnect(peerId: string): Promise<void> {
+        console.log(`[WebRTC] 📥 Received disconnect message from peer ${peerId} - performing silent reset`);
+        
+        // Dispatch disconnect event
         this.dispatchConnectionEvent(peerId, 'disconnected');
+        
+        // Clean up the specific peer connection
         this.cleanup(peerId);
+        
+        // If this was the last peer, do a complete silent reset to be ready for fresh connections
+        // Note: We don't send disconnect messages when resetting as a response to receiving a disconnect
+        if (this.connections.size === 0) {
+            console.log(`[WebRTC] 🔄 Last peer disconnected, performing complete silent reset for fresh connections`);
+            await this.resetSilently();
+        }
     }
 
     private handleMediaState(peerId: string, mediaState: any): void {
@@ -2472,5 +2573,284 @@ export class WebRTCProvider implements IWebRTCProvider {
         console.log(`[SEQUENCE] ${timestamp} | Peer ${peerId} | Step: ${step} | Action: ${action} | Phase: ${phase}`, details || '');
     }
 
+    // Reset Methods
+    private async resetMedia(): Promise<void> {
+        console.log(`[WebRTC] 🔄 RESET: Starting media reset`);
+        
+        // Stop all local media tracks gracefully
+        if (this.localStream) {
+            const tracks = this.localStream.getTracks();
+            console.log(`[WebRTC] 🔄 RESET: Stopping ${tracks.length} local tracks`);
+            
+            tracks.forEach(track => {
+                console.log(`[WebRTC] 🔄 RESET: Stopping track:`, {
+                    kind: track.kind,
+                    id: track.id,
+                    enabled: track.enabled,
+                    readyState: track.readyState
+                });
+                track.stop();
+            });
+            
+            this.localStream = null;
+        }
+        
+        // Reset media state flags
+        this.hasLocalAudio = false;
+        this.hasLocalVideo = false;
+        
+        // Notify all connected peers about media state change
+        const connectedPeers = this.getConnectedPeers();
+        if (connectedPeers.length > 0) {
+            console.log(`[WebRTC] 🔄 RESET: Notifying ${connectedPeers.length} peers about media reset`);
+            
+            const mediaState: MediaState = {
+                audio: false,
+                video: false,
+                stream: null
+            };
+            
+            for (const peerId of connectedPeers) {
+                try {
+                    await this.sendMediaState(peerId, mediaState);
+                    console.log(`[WebRTC] 🔄 RESET: Sent media reset notification to peer ${peerId}`);
+                } catch (error) {
+                    console.warn(`[WebRTC] ⚠️ Failed to send media reset to peer ${peerId}:`, error);
+                }
+            }
+        }
+        
+        // Emit local media state change event
+        this.notifyStateChange();
+        
+        console.log(`[WebRTC] 🔄 RESET: Media reset completed`);
+    }
 
+    private async resetRemoteStreams(): Promise<void> {
+        console.log(`[WebRTC] 🔄 RESET: Starting remote streams reset`);
+        
+        const peerIds = Array.from(this.remoteStreams.keys());
+        console.log(`[WebRTC] 🔄 RESET: Clearing ${peerIds.length} remote streams`);
+        
+        for (const peerId of peerIds) {
+            const stream = this.remoteStreams.get(peerId);
+            if (stream) {
+                // Stop all tracks in the remote stream
+                const tracks = stream.getTracks();
+                tracks.forEach(track => {
+                    console.log(`[WebRTC] 🔄 RESET: Stopping remote track:`, {
+                        peerId,
+                        kind: track.kind,
+                        id: track.id,
+                        readyState: track.readyState
+                    });
+                    track.stop();
+                });
+            }
+        }
+        
+        // Clear remote streams map
+        this.remoteStreams.clear();
+        
+        // Reset remote state flags
+        this.hasRemoteAudio = false;
+        this.hasRemoteVideo = false;
+        
+        // Emit state change event to notify UI
+        this.notifyStateChange();
+        
+        console.log(`[WebRTC] 🔄 RESET: Remote streams reset completed`);
+    }
+
+    private async resetConnections(): Promise<void> {
+        console.log(`[WebRTC] 🔄 RESET: Starting connections reset`);
+        
+        const peerIds = Array.from(this.connections.keys());
+        console.log(`[WebRTC] 🔄 RESET: Closing ${peerIds.length} peer connections`);
+        
+        for (const peerId of peerIds) {
+            const peerState = this.connections.get(peerId);
+            if (peerState) {
+                // Send disconnect notification to peer
+                if (this.signalingService) {
+                    try {
+                        console.log(`[WebRTC] 🔄 RESET: Sending disconnect notification to peer ${peerId}`);
+                        this.signalingService.send({
+                            type: 'disconnect',
+                            from: this.userId,
+                            to: peerId,
+                            data: { reason: 'reset', timestamp: Date.now() }
+                        });
+                    } catch (error) {
+                        console.warn(`[WebRTC] ⚠️ Failed to send disconnect to peer ${peerId}:`, error);
+                    }
+                }
+                
+                // Close RTCPeerConnection
+                if (peerState.connection) {
+                    console.log(`[WebRTC] 🔄 RESET: Closing RTCPeerConnection for peer ${peerId}`);
+                    peerState.connection.close();
+                }
+                
+                // Close data channel
+                if (peerState.dataChannel) {
+                    console.log(`[WebRTC] 🔄 RESET: Closing data channel for peer ${peerId}`);
+                    peerState.dataChannel.close();
+                }
+                
+                // Clear timeout
+                if (peerState.connectionTimeout) {
+                    clearTimeout(peerState.connectionTimeout);
+                }
+            }
+        }
+        
+        // Clear all connection maps
+        this.connections.clear();
+        
+        console.log(`[WebRTC] 🔄 RESET: Connections reset completed`);
+    }
+
+    private async resetConnectionsSilently(): Promise<void> {
+        console.log(`[WebRTC] 🔄 SILENT RESET: Starting silent connections reset`);
+        
+        const peerIds = Array.from(this.connections.keys());
+        console.log(`[WebRTC] 🔄 SILENT RESET: Closing ${peerIds.length} peer connections silently`);
+        
+        for (const peerId of peerIds) {
+            const peerState = this.connections.get(peerId);
+            if (peerState) {
+                // Close RTCPeerConnection without sending disconnect message
+                if (peerState.connection) {
+                    console.log(`[WebRTC] 🔄 SILENT RESET: Closing RTCPeerConnection for peer ${peerId}`);
+                    peerState.connection.close();
+                }
+                
+                // Close data channel
+                if (peerState.dataChannel) {
+                    console.log(`[WebRTC] 🔄 SILENT RESET: Closing data channel for peer ${peerId}`);
+                    peerState.dataChannel.close();
+                }
+                
+                // Clear timeout
+                if (peerState.connectionTimeout) {
+                    clearTimeout(peerState.connectionTimeout);
+                }
+            }
+        }
+        
+        // Clear all connection maps
+        this.connections.clear();
+        
+        console.log(`[WebRTC] 🔄 SILENT RESET: Silent connections reset completed`);
+    }
+
+    private resetEventSystem(): void {
+        console.log(`[WebRTC] 🔄 RESET: Starting event system reset`);
+        
+        // Clear event listeners
+        this.eventListeners.clear();
+        
+        // Clear processed messages and timestamps
+        this.processedMessages.clear();
+        this.messageTimestamps.clear();
+        
+        // Clear ongoing renegotiations
+        this.ongoingRenegotiations.clear();
+        
+        // Reset message handler ID
+        this.messageHandlerId = null;
+        
+        // Reset debug state variables
+        this._lastLoggedRemoteVideoState = undefined;
+        this._lastLoggedRemoteStreamState = undefined;
+        this._lastLoggedLocalStreamState = undefined;
+        
+        console.log(`[WebRTC] 🔄 RESET: Event system reset completed`);
+    }
+
+    public async reset(): Promise<void> {
+        console.log(`[WebRTC] 🔄 RESET: Starting complete WebRTC reset`);
+        
+        // Set reset timestamp for message deduplication
+        this.lastResetTime = Date.now();
+        console.log(`[WebRTC] 🔄 RESET: Set reset timestamp to ${this.lastResetTime}`);
+        
+        try {
+            // Reset in order: media → remote streams → connections → event system
+            await this.resetMedia();
+            await this.resetRemoteStreams();
+            await this.resetConnections();
+            this.resetEventSystem();
+            
+            console.log(`[WebRTC] 🔄 RESET: Complete WebRTC reset successful`);
+        } catch (error) {
+            console.error(`[WebRTC] ❌ RESET: Error during reset:`, error);
+            throw error;
+        }
+    }
+
+    public async resetSilently(): Promise<void> {
+        console.log(`[WebRTC] 🔄 SILENT RESET: Starting complete silent WebRTC reset`);
+        
+        // Set reset timestamp for message deduplication
+        this.lastResetTime = Date.now();
+        console.log(`[WebRTC] 🔄 SILENT RESET: Set reset timestamp to ${this.lastResetTime}`);
+        
+        try {
+            // Reset in order: media → remote streams → connections → event system
+            await this.resetMedia();
+            await this.resetRemoteStreams();
+            await this.resetConnectionsSilently(); // Use silent version that doesn't send disconnect messages
+            this.resetEventSystem();
+            
+            console.log(`[WebRTC] 🔄 SILENT RESET: Complete silent WebRTC reset successful`);
+        } catch (error) {
+            console.error(`[WebRTC] ❌ SILENT RESET: Error during silent reset:`, error);
+            throw error;
+        }
+    }
+
+    public destroy(): void {
+        console.log(`[WebRTC] 🗑️ DESTROY: Starting WebRTCProvider destruction`);
+        
+        try {
+            // Unregister message handler from signaling service
+            if (this.messageHandlerId !== null && this.signalingService) {
+                console.log(`[WebRTC] 🗑️ DESTROY: Unregistering message handler ID ${this.messageHandlerId}`);
+                this.signalingService.removeMessageHandler(this.messageHandlerId);
+                this.messageHandlerId = null;
+            }
+            
+            // Clean up all connections
+            this.cleanup();
+            
+            // Clear all state
+            this.connections.clear();
+            this.remoteStreams.clear();
+            this.eventListeners.clear();
+            this.processedMessages.clear();
+            this.messageTimestamps.clear();
+            this.ongoingRenegotiations.clear();
+            
+            // Clear media streams
+            if (this.localStream) {
+                this.localStream.getTracks().forEach(track => track.stop());
+                this.localStream = null;
+            }
+            
+            // Reset all state variables
+            this.hasLocalVideo = false;
+            this.hasLocalAudio = false;
+            this.hasRemoteVideo = false;
+            this.hasRemoteAudio = false;
+            
+            // Clear signaling service reference
+            this.signalingService = null;
+            
+            console.log(`[WebRTC] 🗑️ DESTROY: WebRTCProvider destruction completed`);
+        } catch (error) {
+            console.error(`[WebRTC] ❌ DESTROY: Error during destruction:`, error);
+        }
+    }
 } 

@@ -65,4 +65,7 @@ export interface IWebRTCProvider {
     // Configuration
     setSignalingService(service: ISignalingService): void;
     updateConfiguration(config: Partial<WebRTCConfig>): void;
+    
+    // Cleanup
+    destroy(): void;
 } 
