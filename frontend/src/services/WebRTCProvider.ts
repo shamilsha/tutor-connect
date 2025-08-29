@@ -453,33 +453,117 @@ export class WebRTCProvider implements IWebRTCProvider {
             videoEnabled: this.localStream.getVideoTracks().map(t => t.enabled)
         });
 
-        // Update local stream tracks first
-        if (options.audio !== undefined) {
-            const audioTrack = this.localStream.getAudioTracks()[0];
-            if (audioTrack) {
-                console.log(`[WebRTC] 🔄 BEFORE enabling audio track ${audioTrack.id}: enabled = ${audioTrack.enabled}`);
-                audioTrack.enabled = options.audio;
-                this.updateLocalAudioState(options.audio);
-                console.log(`[WebRTC] 🔄 AFTER enabling audio track ${audioTrack.id}: enabled = ${audioTrack.enabled}, requested = ${options.audio}`);
-            }
-        }
-        if (options.video !== undefined) {
-            const videoTrack = this.localStream.getVideoTracks()[0];
-            if (videoTrack) {
-                console.log(`[WebRTC] 🔄 BEFORE enabling video track ${videoTrack.id}: enabled = ${videoTrack.enabled}`);
-                videoTrack.enabled = options.video;
-                this.updateLocalVideoState(options.video);
-                console.log(`[WebRTC] 🔄 AFTER enabling video track ${videoTrack.id}: enabled = ${videoTrack.enabled}, requested = ${options.video}`);
-                
-                // Add a check to ensure the track state is properly set
-                setTimeout(() => {
-                    console.log(`[WebRTC] 🔄 TRACK STATE VERIFICATION for ${videoTrack.id}: enabled = ${videoTrack.enabled}, hasLocalVideo = ${this.hasLocalVideo}`);
-                }, 50);
-            }
-        }
-
         // Track if we need to renegotiate for any peer
         const peersNeedingRenegotiation: string[] = [];
+        let localStreamChanged = false;
+
+        // Store track references before removing them
+        const audioTrackToRemove = options.audio === false ? this.localStream.getAudioTracks()[0] : null;
+        const videoTrackToRemove = options.video === false ? this.localStream.getVideoTracks()[0] : null;
+        
+        // Store track IDs for sender removal
+        const audioTrackIdToRemove = audioTrackToRemove?.id;
+        const videoTrackIdToRemove = videoTrackToRemove?.id;
+
+        // Handle audio track changes
+        if (options.audio !== undefined) {
+            const currentAudioTrack = this.localStream.getAudioTracks()[0];
+            
+            if (options.audio) {
+                // Turning audio ON - create new track if none exists
+                if (!currentAudioTrack) {
+                    console.log('[WebRTC] 🔄 Creating new audio track');
+                    try {
+                        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                        const newAudioTrack = audioStream.getAudioTracks()[0];
+                        if (newAudioTrack) {
+                            // Check if we already have an audio track to avoid duplicates
+                            const existingAudioTracks = this.localStream.getAudioTracks();
+                            if (existingAudioTracks.length === 0) {
+                                this.localStream.addTrack(newAudioTrack);
+                                localStreamChanged = true;
+                                console.log('[WebRTC] ✅ New audio track added to local stream');
+                            } else {
+                                console.log('[WebRTC] ⚠️ Audio track already exists, stopping new track');
+                                newAudioTrack.stop();
+                            }
+                        }
+                    } catch (error) {
+                        console.error('[WebRTC] ❌ Failed to create new audio track:', error);
+                        return;
+                    }
+                } else {
+                    // Audio track exists but might be stopped - try to enable it
+                    if (!currentAudioTrack.enabled) {
+                        console.log('[WebRTC] 🔄 Enabling existing audio track');
+                        currentAudioTrack.enabled = true;
+                    }
+                }
+            } else {
+                // Turning audio OFF - stop and remove the track
+                if (currentAudioTrack) {
+                    console.log('[WebRTC] 🔄 Stopping and removing audio track');
+                    if (currentAudioTrack.readyState !== 'ended') {
+                        currentAudioTrack.stop();
+                    }
+                    this.localStream.removeTrack(currentAudioTrack);
+                    localStreamChanged = true;
+                    console.log('[WebRTC] ✅ Audio track stopped and removed from local stream');
+                }
+            }
+            
+            this.updateLocalAudioState(options.audio);
+        }
+
+        // Handle video track changes
+        if (options.video !== undefined && this.localStream) {
+            const currentVideoTrack = this.localStream.getVideoTracks()[0];
+            
+            if (options.video) {
+                // Turning video ON - create new track if none exists
+                if (!currentVideoTrack) {
+                    console.log('[WebRTC] 🔄 Creating new video track');
+                    try {
+                        const videoStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
+                        const newVideoTrack = videoStream.getVideoTracks()[0];
+                        if (newVideoTrack) {
+                            // Check if we already have a video track to avoid duplicates
+                            const existingVideoTracks = this.localStream.getVideoTracks();
+                            if (existingVideoTracks.length === 0) {
+                                this.localStream.addTrack(newVideoTrack);
+                                localStreamChanged = true;
+                                console.log('[WebRTC] ✅ New video track added to local stream');
+                            } else {
+                                console.log('[WebRTC] ⚠️ Video track already exists, stopping new track');
+                                newVideoTrack.stop();
+                            }
+                        }
+                    } catch (error) {
+                        console.error('[WebRTC] ❌ Failed to create new video track:', error);
+                        return;
+                    }
+                } else {
+                    // Video track exists but might be stopped - try to enable it
+                    if (!currentVideoTrack.enabled) {
+                        console.log('[WebRTC] 🔄 Enabling existing video track');
+                        currentVideoTrack.enabled = true;
+                    }
+                }
+            } else {
+                // Turning video OFF - stop and remove the track
+                if (currentVideoTrack) {
+                    console.log('[WebRTC] 🔄 Stopping and removing video track');
+                    if (currentVideoTrack.readyState !== 'ended') {
+                        currentVideoTrack.stop();
+                    }
+                    this.localStream.removeTrack(currentVideoTrack);
+                    localStreamChanged = true;
+                    console.log('[WebRTC] ✅ Video track stopped and removed from local stream');
+                }
+            }
+            
+            this.updateLocalVideoState(options.video);
+        }
 
         console.log(`[WebRTC] 🔄 Processing ${this.connections.size} connected peers`);
 
@@ -514,9 +598,9 @@ export class WebRTCProvider implements IWebRTCProvider {
 
                 // Handle audio track changes
                 if (options.audio !== undefined) {
-                    const audioTrack = this.localStream.getAudioTracks()[0];
-                    if (audioTrack) {
-                        if (options.audio && !existingTrackIds.has(audioTrack.id)) {
+                    if (options.audio && this.localStream) {
+                        const audioTrack = this.localStream.getAudioTracks()[0];
+                        if (audioTrack && !existingTrackIds.has(audioTrack.id)) {
                             // Adding audio track
                             console.log(`[WebRTC] 🔄 Adding audio track ${audioTrack.id} to peer ${connectedPeerId}`);
                             const sender = peerState.connection.addTrack(audioTrack, this.localStream!);
@@ -524,24 +608,27 @@ export class WebRTCProvider implements IWebRTCProvider {
                                 peerState.localSenderTrackIds.add(sender.track.id);
                             }
                             trackAdded = true;
-                        } else if (!options.audio && existingTrackIds.has(audioTrack.id)) {
-                            // Removing audio track
-                            console.log(`[WebRTC] 🔄 Removing audio track ${audioTrack.id} from peer ${connectedPeerId}`);
-                            const sender = senders.find(s => s.track?.id === audioTrack.id);
-                            if (sender) {
-                                peerState.connection.removeTrack(sender);
-                                peerState.localSenderTrackIds.delete(audioTrack.id);
-                                trackRemoved = true;
-                            }
+                        }
+                    } else if (!options.audio && audioTrackIdToRemove) {
+                        // Removing audio track - use stored track ID
+                        console.log(`[WebRTC] 🔄 Removing audio track ${audioTrackIdToRemove} from peer ${connectedPeerId}`);
+                        const sender = senders.find(s => s.track?.id === audioTrackIdToRemove);
+                        if (sender) {
+                            peerState.connection.removeTrack(sender);
+                            peerState.localSenderTrackIds.delete(audioTrackIdToRemove);
+                            trackRemoved = true;
+                            console.log(`[WebRTC] ✅ Audio sender removed from peer ${connectedPeerId}`);
+                        } else {
+                            console.warn(`[WebRTC] ⚠️ Audio sender not found for track ID ${audioTrackIdToRemove} in peer ${connectedPeerId}`);
                         }
                     }
                 }
                 
                 // Handle video track changes
                 if (options.video !== undefined) {
-                    const videoTrack = this.localStream.getVideoTracks()[0];
-                    if (videoTrack) {
-                        if (options.video && !existingTrackIds.has(videoTrack.id)) {
+                    if (options.video && this.localStream) {
+                        const videoTrack = this.localStream.getVideoTracks()[0];
+                        if (videoTrack && !existingTrackIds.has(videoTrack.id)) {
                             // Adding video track
                             console.log(`[WebRTC] 🔄 Adding video track ${videoTrack.id} to peer ${connectedPeerId}`);
                             const sender = peerState.connection.addTrack(videoTrack, this.localStream!);
@@ -549,42 +636,27 @@ export class WebRTCProvider implements IWebRTCProvider {
                                 peerState.localSenderTrackIds.add(sender.track.id);
                             }
                             trackAdded = true;
-                        } else if (!options.video && existingTrackIds.has(videoTrack.id)) {
-                            // Removing video track
-                            console.log(`[WebRTC] 🔄 Removing video track ${videoTrack.id} from peer ${connectedPeerId}`);
-                            const sender = senders.find(s => s.track?.id === videoTrack.id);
-                    if (sender) {
-                                peerState.connection.removeTrack(sender);
-                                peerState.localSenderTrackIds.delete(videoTrack.id);
-                                trackRemoved = true;
-                            }
+                        }
+                    } else if (!options.video && videoTrackIdToRemove) {
+                        // Removing video track - use stored track ID
+                        console.log(`[WebRTC] 🔄 Removing video track ${videoTrackIdToRemove} from peer ${connectedPeerId}`);
+                        const sender = senders.find(s => s.track?.id === videoTrackIdToRemove);
+                        if (sender) {
+                            peerState.connection.removeTrack(sender);
+                            peerState.localSenderTrackIds.delete(videoTrackIdToRemove);
+                            trackRemoved = true;
+                            console.log(`[WebRTC] ✅ Video sender removed from peer ${connectedPeerId}`);
+                        } else {
+                            console.warn(`[WebRTC] ⚠️ Video sender not found for track ID ${videoTrackIdToRemove} in peer ${connectedPeerId}`);
                         }
                     }
                 }
-
-                // Update existing senders (for enabled/disabled state)
-                for (const sender of senders) {
-                    if (sender.track) {
-                        if (options.audio !== undefined && sender.track.kind === 'audio') {
-                            console.log(`[WebRTC] 🔄 BEFORE updating audio sender track ${sender.track.id}: enabled = ${sender.track.enabled}`);
-                            sender.track.enabled = options.audio;
-                            console.log(`[WebRTC] 🔄 AFTER updating audio sender track ${sender.track.id}: enabled = ${sender.track.enabled}, requested = ${options.audio}`);
-                        }
-                        if (options.video !== undefined && sender.track.kind === 'video') {
-                            console.log(`[WebRTC] 🔄 BEFORE updating video sender track ${sender.track.id}: enabled = ${sender.track.enabled}`);
-                            sender.track.enabled = options.video;
-                            console.log(`[WebRTC] 🔄 AFTER updating video sender track ${sender.track.id}: enabled = ${sender.track.enabled}, requested = ${options.video}`);
-                        }
-                    }
-                }
-
-
 
                 // If we added or removed a track, we need to renegotiate
                 if (trackAdded || trackRemoved) {
                     console.log(`[WebRTC] 🔄 Track ${trackAdded ? 'added' : 'removed'} to peer ${connectedPeerId}, will trigger renegotiation`);
                     peersNeedingRenegotiation.push(connectedPeerId);
-                    } else {
+                } else {
                     console.log(`[WebRTC] 🔄 No track changes for peer ${connectedPeerId}, no renegotiation needed`);
                 }
 
@@ -620,6 +692,82 @@ export class WebRTCProvider implements IWebRTCProvider {
             } else {
                 console.log(`[WebRTC] 🔄 Skipping peer ${connectedPeerId} - not connected (state: ${peerState.connection?.connectionState})`);
             }
+        }
+
+        // CRITICAL FIX: Check if both audio and video are now disabled
+        const currentAudioEnabled = this.localStream?.getAudioTracks()[0]?.enabled ?? false;
+        const currentVideoEnabled = this.localStream?.getVideoTracks()[0]?.enabled ?? false;
+        
+        console.log(`[WebRTC] 🔍 FINAL MEDIA STATE CHECK:`, {
+            currentAudioEnabled,
+            currentVideoEnabled,
+            localStreamExists: !!this.localStream,
+            localStreamTracks: this.localStream?.getTracks().length || 0,
+            hasLocalAudio: this.hasLocalAudio,
+            hasLocalVideo: this.hasLocalVideo
+        });
+
+        // If both audio and video are disabled, ensure complete cleanup
+        if (!currentAudioEnabled && !currentVideoEnabled && this.localStream) {
+            console.log('[WebRTC] 🚨 BOTH AUDIO AND VIDEO DISABLED - PERFORMING COMPLETE CLEANUP');
+            
+            // Remove any remaining senders from all peer connections
+            for (const [peerId, peerState] of this.connections.entries()) {
+                if (peerState.connection && peerState.connection.connectionState === 'connected') {
+                    const senders = peerState.connection.getSenders();
+                    const localSenders = senders.filter(s => s.track && peerState.localSenderTrackIds.has(s.track.id));
+                    
+                    if (localSenders.length > 0) {
+                        console.log(`[WebRTC] 🧹 Final cleanup: removing ${localSenders.length} remaining senders from peer ${peerId}`);
+                        for (const sender of localSenders) {
+                            if (sender.track) {
+                                peerState.connection.removeTrack(sender);
+                                peerState.localSenderTrackIds.delete(sender.track.id);
+                                console.log(`[WebRTC] ✅ Final cleanup: removed sender for track ${sender.track.id} from peer ${peerId}`);
+                            }
+                        }
+                        peersNeedingRenegotiation.push(peerId);
+                    }
+                }
+            }
+            
+            // Ensure all tracks in the stream are properly stopped before nullifying
+            const remainingTracks = this.localStream.getTracks();
+            if (remainingTracks.length > 0) {
+                console.log(`[WebRTC] 🛑 Stopping ${remainingTracks.length} remaining tracks before nullifying stream`);
+                remainingTracks.forEach(track => {
+                    if (track.readyState !== 'ended') {
+                        console.log(`[WebRTC] 🛑 Stopping track:`, { kind: track.kind, id: track.id, readyState: track.readyState });
+                        track.stop();
+                    }
+                });
+            }
+            
+            // Additional safety: explicitly stop all tracks and clear the stream
+            console.log('[WebRTC] 🧹 Additional safety cleanup - stopping all tracks explicitly');
+            this.localStream.getTracks().forEach(track => {
+                if (track.readyState !== 'ended') {
+                    console.log(`[WebRTC] 🛑 Explicitly stopping track:`, { kind: track.kind, id: track.id, readyState: track.readyState });
+                    track.stop();
+                }
+            });
+            
+            console.log('[WebRTC] 🗑️ Local stream is empty, nullifying to release browser media indicator');
+            this.localStream = null;
+            
+            // Force update state variables to ensure consistency
+            this.updateLocalAudioState(false);
+            this.updateLocalVideoState(false);
+            
+            // Notify UI of state change to ensure red circle disappears
+            this.notifyStateChange();
+            
+            // Add a small delay to ensure browser processes the cleanup
+            await new Promise(resolve => setTimeout(resolve, 50));
+            
+            // Additional safety: force another state notification after delay
+            console.log('[WebRTC] 🔄 Forcing additional state notification after cleanup delay');
+            this.notifyStateChange();
         }
 
         // Trigger renegotiation for peers that need it
@@ -1740,47 +1888,9 @@ export class WebRTCProvider implements IWebRTCProvider {
 
             // Create offer
             const offer = await connection.createOffer();
+            console.log(`[WebRTC] 📋 Created offer for peer ${peerId} (renegotiation: ${isRenegotiation})`);
             
-            // CRITICAL FIX: Modify SDP to remove disabled media lines
-            if (isRenegotiation && offer.sdp) {
-                // Check if we have any enabled tracks at all
-                const enabledVideoTracks = this.localStream ? this.localStream.getVideoTracks().filter(t => t.enabled) : [];
-                const enabledAudioTracks = this.localStream ? this.localStream.getAudioTracks().filter(t => t.enabled) : [];
-                const hasAnyEnabledTracks = enabledVideoTracks.length > 0 || enabledAudioTracks.length > 0;
-                
-                // Only modify SDP if we have no enabled tracks at all AND we're turning off media
-                if (!hasAnyEnabledTracks) {
-                    console.log(`[WebRTC] 🔧 No enabled tracks found, attempting to remove all media lines from SDP for peer ${peerId}`);
-                
-                let modifiedSdp = offer.sdp;
-                let sdpModified = false;
-                
-                    // Remove video media lines
-                    const originalSdp = modifiedSdp;
-                    modifiedSdp = this.removeVideoMediaLines(modifiedSdp);
-                    if (modifiedSdp !== originalSdp) {
-                        sdpModified = true;
-            }
-                
-                    // Remove audio media lines
-                    const audioOriginalSdp = modifiedSdp;
-                    modifiedSdp = this.removeAudioMediaLines(modifiedSdp);
-                    if (modifiedSdp !== audioOriginalSdp) {
-                        sdpModified = true;
-            }
-                
-                // Only use modified SDP if it was actually changed and is valid
-                if (sdpModified && this.isValidSDP(modifiedSdp)) {
-                    console.log(`[WebRTC] 🔧 Using modified SDP for peer ${peerId}`);
-                    offer.sdp = modifiedSdp;
-                } else {
-                    console.log(`[WebRTC] 🔧 Using original SDP for peer ${peerId} (no modifications or invalid result)`);
-                    }
-                } else {
-                    console.log(`[WebRTC] 🔧 Has enabled tracks, using original SDP for peer ${peerId}`);
-                }
-            }
-            
+            // Set the offer as local description
             await connection.setLocalDescription(offer);
 
             // Log the offer details to verify track inclusion
@@ -1857,6 +1967,7 @@ export class WebRTCProvider implements IWebRTCProvider {
         }
 
         console.log(`[WebRTC] Processing offer from peer ${peerId} (renegotiation: ${peerState.phase === 'connected'})`);
+        console.log(`[WebRTC] 📋 Incoming offer SDP preview:`, offer.sdp?.substring(0, 500) + '...');
 
         // Send offer acknowledgment
         if (this.signalingService) {
@@ -1929,46 +2040,7 @@ export class WebRTCProvider implements IWebRTCProvider {
             let answer: RTCSessionDescriptionInit;
             try {
                 answer = await connection.createAnswer();
-                
-                // CRITICAL FIX: Modify SDP to remove disabled media lines (same logic as offer)
-                if (peerState.phase === 'connected' && answer.sdp) { // Only for renegotiation
-                    // Check if we have any enabled tracks at all
-                    const enabledVideoTracks = this.localStream ? this.localStream.getVideoTracks().filter(t => t.enabled) : [];
-                    const enabledAudioTracks = this.localStream ? this.localStream.getAudioTracks().filter(t => t.enabled) : [];
-                    const hasAnyEnabledTracks = enabledVideoTracks.length > 0 || enabledAudioTracks.length > 0;
-                    
-                    // Only modify SDP if we have no enabled tracks at all AND we're turning off media
-                    if (!hasAnyEnabledTracks) {
-                        console.log(`[WebRTC] 🔧 No enabled tracks found, attempting to remove all media lines from answer SDP for peer ${peerId}`);
-                    
-                    let modifiedSdp = answer.sdp;
-                    let sdpModified = false;
-                    
-                        // Remove video media lines
-                        const originalSdp = modifiedSdp;
-                        modifiedSdp = this.removeVideoMediaLines(modifiedSdp);
-                        if (modifiedSdp !== originalSdp) {
-                            sdpModified = true;
-                    }
-                    
-                        // Remove audio media lines
-                        const audioOriginalSdp = modifiedSdp;
-                        modifiedSdp = this.removeAudioMediaLines(modifiedSdp);
-                        if (modifiedSdp !== audioOriginalSdp) {
-                            sdpModified = true;
-                    }
-                    
-                    // Only use modified SDP if it was actually changed and is valid
-                    if (sdpModified && this.isValidSDP(modifiedSdp)) {
-                        console.log(`[WebRTC] 🔧 Using modified answer SDP for peer ${peerId}`);
-                        answer.sdp = modifiedSdp;
-                    } else {
-                        console.log(`[WebRTC] 🔧 Using original answer SDP for peer ${peerId} (no modifications or invalid result)`);
-                        }
-                    } else {
-                        console.log(`[WebRTC] 🔧 Has enabled tracks, using original answer SDP for peer ${peerId}`);
-                    }
-                }
+                console.log(`[WebRTC] 📋 Created answer for peer ${peerId}`);
                 
                 await connection.setLocalDescription(answer);
                 console.log(`[WebRTC] Answer created and local description set for peer ${peerId}`);
@@ -2385,155 +2457,11 @@ export class WebRTCProvider implements IWebRTCProvider {
         }
     }
 
-    // Helper methods to modify SDP
-    private removeVideoMediaLines(sdp: string): string {
-        const lines = sdp.split('\n');
-        const result: string[] = [];
-        let skipSection = false;
-        let mediaIndex = 0;
-        
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-            
-            // Check if this is a video media line
-            if (line.startsWith('m=video')) {
-                skipSection = true;
-                console.log(`[WebRTC] 🔧 Skipping video media section at line ${i}: ${line}`);
-                continue;
-            }
-            
-            // If we're skipping a section, continue until we hit the next media line
-            if (skipSection) {
-                if (line.startsWith('m=')) {
-                    // Found next media section, stop skipping
-                    skipSection = false;
-                    result.push(line);
-                } else {
-                    // Still in video section, skip this line
-                    // Only log occasionally to avoid spam
-                    if (Math.random() < 0.1) {
-                        console.log(`[WebRTC] 🔧 Skipping video section line: ${line}`);
-                    }
-                    continue;
-                }
-            } else {
-                result.push(line);
-            }
-        }
-        
-        const modifiedSdp = result.join('\n');
-        console.log(`[WebRTC] 🔧 SDP modified: removed video media lines, length: ${sdp.length} -> ${modifiedSdp.length}`);
-        
-        // Validate the modified SDP has proper structure
-        if (!this.isValidSDP(modifiedSdp)) {
-            console.error(`[WebRTC] ❌ Modified SDP is invalid, reverting to original`);
-            return sdp;
-        }
-        
-        return modifiedSdp;
-    }
 
-    private removeAudioMediaLines(sdp: string): string {
-        const lines = sdp.split('\n');
-        const result: string[] = [];
-        let skipSection = false;
-        
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-            
-            // Check if this is an audio media line
-            if (line.startsWith('m=audio')) {
-                skipSection = true;
-                console.log(`[WebRTC] 🔧 Skipping audio media section at line ${i}: ${line}`);
-                continue;
-            }
-            
-            // If we're skipping a section, continue until we hit the next media line
-            if (skipSection) {
-                if (line.startsWith('m=')) {
-                    // Found next media section, stop skipping
-                    skipSection = false;
-                    result.push(line);
-                } else {
-                    // Still in audio section, skip this line
-                    // Only log occasionally to avoid spam
-                    if (Math.random() < 0.1) {
-                        console.log(`[WebRTC] 🔧 Skipping audio section line: ${line}`);
-                    }
-                    continue;
-                }
-            } else {
-                result.push(line);
-            }
-        }
-        
-        const modifiedSdp = result.join('\n');
-        console.log(`[WebRTC] 🔧 SDP modified: removed audio media lines, length: ${sdp.length} -> ${modifiedSdp.length}`);
-        
-        // Validate the modified SDP has proper structure
-        if (!this.isValidSDP(modifiedSdp)) {
-            console.error(`[WebRTC] ❌ Modified SDP is invalid, reverting to original`);
-            return sdp;
-        }
-        
-        return modifiedSdp;
-    }
 
-    // Validate SDP structure
-    private isValidSDP(sdp: string): boolean {
-        const lines = sdp.split('\n');
-        
-        // Check for required SDP sections
-        const hasSession = lines.some(line => line.startsWith('v='));
-        const hasConnection = lines.some(line => line.startsWith('c='));
-        const hasTiming = lines.some(line => line.startsWith('t='));
-        
-        // Check for at least one media section (data channel counts as media)
-        const mediaLines = lines.filter(line => line.startsWith('m='));
-        const hasMedia = mediaLines.length > 0;
-        
-        // Basic validation - must have session info and at least one media section
-        let isValid = hasSession && hasConnection && hasTiming && hasMedia;
-        
-        if (isValid) {
-            // Additional validation: check that each media line has proper structure
-            for (let i = 0; i < lines.length; i++) {
-                if (lines[i].startsWith('m=')) {
-                    // A media line should be followed by at least a connection line or attribute
-                    let hasMediaContent = false;
-                    for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
-                        if (lines[j].startsWith('c=') || lines[j].startsWith('a=') || lines[j].startsWith('m=')) {
-                            hasMediaContent = true;
-                    break;
-                    }
-                    }
-                    if (!hasMediaContent) {
-                        console.warn(`[WebRTC] ⚠️ Media line at index ${i} appears to have no content: ${lines[i]}`);
-                        isValid = false;
-                    break;
-            }
-                }
-            }
-        }
-        
-        // Additional validation: check for specific SDP format issues
-        if (isValid) {
-            // Check for malformed attribute lines
-            for (let i = 0; i < lines.length; i++) {
-                const line = lines[i];
-                if (line.startsWith('a=') && line.includes('max-message-size')) {
-                    // Check if the max-message-size line is properly formatted
-                    if (!line.match(/^a=max-message-size:\d+$/)) {
-                        console.warn(`[WebRTC] ⚠️ Malformed max-message-size line: ${line}`);
-                        isValid = false;
-                        break;
-                    }
-                }
-            }
-        }
-        
-        return isValid;
-    }
+
+
+
 
     // Sequence tracking for debugging
     private logSequence(peerId: string, step: string, action: string, details?: any): void {

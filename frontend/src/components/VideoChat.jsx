@@ -642,7 +642,8 @@ const VideoChat = ({
 
     // UI decides which stream goes where based on available streams
     // Main window: Show remote video if available, otherwise local video
-    const mainStream = remoteStream || localStream;
+    // FIXED: Prioritize video over audio - don't switch to remote stream just because it has audio
+    const mainStream = (remoteStream && hasEnabledRemoteVideo()) ? remoteStream : localStream;
     // PiP window: Show local video only when remote video is in main window AND remote has enabled video
     const hasRemoteVideoEnabled = hasEnabledRemoteVideo();
     const pipStream = (remoteStream && localStream && hasRemoteVideoEnabled) ? localStream : null;
@@ -762,30 +763,10 @@ const VideoChat = ({
                 return;
             }
             
-            // If local stream exists, check if we need to add the missing track
+            // Always use toggleMedia for existing streams to maintain consistent state management
             if (localStream) {
-                const hasAudioTrack = localStream.getAudioTracks().length > 0;
-                
-                // If we want to enable audio but don't have an audio track, we need to add it
-                if (newAudioState && !hasAudioTrack) {
-                    console.log('[VideoChat] 🎤 No audio track in existing stream - adding audio track');
-                    // Create a new stream with both existing video and new audio
-                    // Check if video tracks exist AND are enabled (not just if they exist)
-                    const videoTracks = localStream.getVideoTracks();
-                    const hasEnabledVideoTrack = videoTracks.length > 0 && videoTracks.some(track => track.enabled);
-                    console.log('[VideoChat] 🎤 Video track check:', {
-                        videoTracksExist: videoTracks.length > 0,
-                        videoTracksEnabled: hasEnabledVideoTrack,
-                        videoTrackStates: videoTracks.map(t => ({ id: t.id, enabled: t.enabled }))
-                    });
-                    await provider.initializeLocalMedia({ 
-                        audio: true, 
-                        video: hasEnabledVideoTrack 
-                    });
-                } else {
-                    // Toggle existing audio track
-                    await provider.toggleMedia({ audio: newAudioState });
-                }
+                console.log('[VideoChat] 🎤 Using toggleMedia for existing stream');
+                await provider.toggleMedia({ audio: newAudioState });
                 console.log(`[VideoChat] ✅ Audio toggled to: ${newAudioState}`);
             } else {
                 console.log('[VideoChat] 🔒 No local stream and not enabling audio - nothing to do');
@@ -823,30 +804,10 @@ const VideoChat = ({
                 return;
             }
             
-            // If local stream exists, check if we need to add the missing track
+            // Always use toggleMedia for existing streams to maintain consistent state management
             if (localStream) {
-                const hasVideoTrack = localStream.getVideoTracks().length > 0;
-                
-                // If we want to enable video but don't have a video track, we need to add it
-                if (newVideoState && !hasVideoTrack) {
-                    console.log('[VideoChat] 🎥 No video track in existing stream - adding video track');
-                    // Create a new stream with both existing audio and new video
-                    // Check if audio tracks exist AND are enabled (not just if they exist)
-                    const audioTracks = localStream.getAudioTracks();
-                    const hasEnabledAudioTrack = audioTracks.length > 0 && audioTracks.some(track => track.enabled);
-                    console.log('[VideoChat] 🎥 Audio track check:', {
-                        audioTracksExist: audioTracks.length > 0,
-                        audioTracksEnabled: hasEnabledAudioTrack,
-                        audioTrackStates: audioTracks.map(t => ({ id: t.id, enabled: t.enabled }))
-                    });
-                    await provider.initializeLocalMedia({ 
-                        audio: hasEnabledAudioTrack, 
-                        video: true 
-                    });
-                } else {
-                    // Toggle existing video track
-                    await provider.toggleMedia({ video: newVideoState });
-                }
+                console.log('[VideoChat] 🎥 Using toggleMedia for existing stream');
+                await provider.toggleMedia({ video: newVideoState });
                 console.log(`[VideoChat] ✅ Video toggled to: ${newVideoState}`);
             } else {
                 console.log('[VideoChat] 🔒 No local stream and not enabling video - nothing to do');
@@ -882,20 +843,36 @@ const VideoChat = ({
             
             {shouldShowVideo && (
                 <>
-                                         {console.log('[VideoChat] 🖥️ RENDERING VIDEODISPLAY WITH:', {
-                         mainStream: remoteStream ? 'remote' : 'local',
-                         mainStreamId: remoteStream ? remoteStream?.id : localStream?.id,
-                         pipStream: (remoteStream && localStream && hasRemoteVideoEnabled) ? 'local' : 'null',
-                         pipStreamId: (remoteStream && localStream && hasRemoteVideoEnabled) ? localStream?.id : null,
-                         hasRemoteVideo,
-                         hasRemoteVideoEnabled,
-                         hasLocalVideo,
-                         localStreamExists: !!localStream,
-                         isVideoEnabled,
-                         shouldShowVideo,
-                         pipStreamCondition: remoteStream && localStream && hasRemoteVideoEnabled
-                     })}
-                <VideoDisplay
+                    {console.log('[VideoChat] 🖥️ RENDERING VIDEODISPLAY WITH:', {
+                        mainStream: remoteStream ? 'remote' : 'local',
+                        mainStreamId: remoteStream ? remoteStream?.id : localStream?.id,
+                        pipStream: (remoteStream && localStream && hasRemoteVideoEnabled) ? 'local' : 'null',
+                        pipStreamId: (remoteStream && localStream && hasRemoteVideoEnabled) ? localStream?.id : null,
+                        hasRemoteVideo,
+                        hasRemoteVideoEnabled,
+                        hasLocalVideo,
+                        localStreamExists: !!localStream,
+                        isVideoEnabled,
+                        shouldShowVideo,
+                        pipStreamCondition: remoteStream && localStream && hasRemoteVideoEnabled
+                    })}
+                    
+                    {/* Separate audio element for remote audio when remote has no video */}
+                    {remoteStream && !hasEnabledRemoteVideo() && remoteStream.getAudioTracks().length > 0 && (
+                        <audio
+                            ref={(audioRef) => {
+                                if (audioRef && audioRef.srcObject !== remoteStream) {
+                                    console.log('[VideoChat] 🔊 Setting remote audio element srcObject:', remoteStream.id);
+                                    audioRef.srcObject = remoteStream;
+                                    audioRef.play().catch(e => console.log('[VideoChat] 🔊 Remote audio play error:', e));
+                                }
+                            }}
+                            autoPlay
+                            style={{ display: 'none' }}
+                        />
+                    )}
+                    
+                    <VideoDisplay
                         mainStream={mainStream}
                         pipStream={pipStream}
                         isMainStreamRemote={!!remoteStream}
