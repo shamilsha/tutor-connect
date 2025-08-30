@@ -82,11 +82,23 @@ const VideoDisplay = React.memo(({ mainStream, pipStream, isMainStreamRemote }) 
                     id: t.id
             })));
 
-            // Only update srcObject if it's actually different
+            // Always update srcObject to ensure proper stream switching
             if (stream !== videoRef.current.srcObject) {
                 console.log(`[VideoDisplay] 🔄 Updating ${videoRef === pipVideoRef ? 'PIP' : 'MAIN'} video srcObject:`, {
                     oldSrcObject: videoRef.current.srcObject?.id,
-                    newSrcObject: stream.id
+                    newSrcObject: stream.id,
+                    elementType: videoRef === pipVideoRef ? 'PIP' : 'MAIN',
+                    streamDetails: {
+                        streamId: stream.id,
+                        videoTracks: stream.getVideoTracks().length,
+                        audioTracks: stream.getAudioTracks().length,
+                        trackDetails: stream.getTracks().map(t => ({
+                            kind: t.kind,
+                            enabled: t.enabled,
+                            readyState: t.readyState,
+                            id: t.id
+                        }))
+                    }
                 });
                 
                 // Pause current playback before changing srcObject
@@ -94,6 +106,20 @@ const VideoDisplay = React.memo(({ mainStream, pipStream, isMainStreamRemote }) 
                     videoRef.current.pause();
                 }
                 
+                // Clear the old srcObject first to ensure proper cleanup
+                videoRef.current.srcObject = null;
+                
+                // Force reload to clear any cached frames
+                videoRef.current.load();
+                
+                // Pause and reset video element to ensure complete cleanup
+                videoRef.current.pause();
+                videoRef.current.currentTime = 0;
+                
+                // Wait a moment for the old stream to be properly cleared
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                // Set the new srcObject
                 videoRef.current.srcObject = stream;
                 console.log(`[VideoDisplay] ✅ ${videoRef === pipVideoRef ? 'PIP' : 'MAIN'} video srcObject updated`);
                 
@@ -223,6 +249,35 @@ const VideoDisplay = React.memo(({ mainStream, pipStream, isMainStreamRemote }) 
             }))
         });
 
+        // 🔍 DETAILED VIDEO ELEMENT ASSIGNMENT LOGGING
+        console.log('[VideoDisplay] 🎬 VIDEO ELEMENT ASSIGNMENT:', {
+            // Main video element
+            mainVideoElement: {
+                willReceiveStream: !!mainStream,
+                streamId: mainStream?.id || 'NO_STREAM',
+                streamType: mainStream ? (mainStream === pipStream ? 'SAME_AS_PIP' : 'UNIQUE') : 'NONE',
+                isMainStreamRemote,
+                videoTracks: mainStream?.getVideoTracks().length || 0,
+                audioTracks: mainStream?.getAudioTracks().length || 0
+            },
+            
+            // PiP video element
+            pipVideoElement: {
+                willReceiveStream: !!pipStream,
+                streamId: pipStream?.id || 'NO_STREAM',
+                streamType: pipStream ? (pipStream === mainStream ? 'SAME_AS_MAIN' : 'UNIQUE') : 'NONE',
+                videoTracks: pipStream?.getVideoTracks().length || 0,
+                audioTracks: pipStream?.getAudioTracks().length || 0
+            },
+            
+            // Assignment summary
+            assignmentSummary: {
+                mainWindowShows: mainStream ? (isMainStreamRemote ? 'REMOTE_VIDEO' : 'LOCAL_VIDEO') : 'NO_VIDEO',
+                pipWindowShows: pipStream ? 'LOCAL_VIDEO' : 'NO_VIDEO',
+                totalUniqueStreams: new Set([mainStream?.id, pipStream?.id].filter(Boolean)).size
+            }
+        });
+
         // Play main video immediately
         console.log('[VideoDisplay] 🎬 CALLING playVideo for mainStream:', {
             streamId: mainStream?.id,
@@ -232,6 +287,9 @@ const VideoDisplay = React.memo(({ mainStream, pipStream, isMainStreamRemote }) 
         
         // Only call playVideo if mainStream exists
         if (mainStream) {
+            // can I log mainStream here?
+        console.log("mainStream", mainStream)
+        console.log("assign the main stream to the main video element")
         playVideo(mainVideoRef, mainStream);
         } else {
             console.log('[VideoDisplay] ⚠️ mainStream is null/undefined, skipping playVideo call');
@@ -239,6 +297,8 @@ const VideoDisplay = React.memo(({ mainStream, pipStream, isMainStreamRemote }) 
         
         // For PiP video, don't call playVideo automatically - let the video element handle it
         if (pipStream) {
+            console.log("pipStream", pipStream)
+            console.log("assign the pip stream to the pip video element")
             console.log('[VideoDisplay] 🎬 PiP stream available, but not calling playVideo automatically');
             console.log('[VideoDisplay] 🎬 PiP video will play when element is created via ref callback');
         } else {
@@ -251,13 +311,22 @@ const VideoDisplay = React.memo(({ mainStream, pipStream, isMainStreamRemote }) 
         if (mainVideoRef.current) {
             console.log('[VideoDisplay] 🎥 Main video element updated:', {
                 srcObject: mainVideoRef.current.srcObject?.id,
-                mainStreamId: mainStream?.id,
+                expectedStreamId: mainStream?.id,
                 videoWidth: mainVideoRef.current.videoWidth,
                 videoHeight: mainVideoRef.current.videoHeight,
                 paused: mainVideoRef.current.paused,
                 readyState: mainVideoRef.current.readyState,
                 currentTime: mainVideoRef.current.currentTime
             });
+            
+            // Force update srcObject if it doesn't match the expected stream
+            if (mainStream && mainVideoRef.current.srcObject !== mainStream) {
+                console.log('[VideoDisplay] 🔧 FORCING srcObject update - mismatch detected:', {
+                    currentSrcObject: mainVideoRef.current.srcObject?.id,
+                    expectedStream: mainStream?.id
+                });
+                mainVideoRef.current.srcObject = mainStream;
+            }
         }
     }, [mainStream]);
 
@@ -284,8 +353,22 @@ const VideoDisplay = React.memo(({ mainStream, pipStream, isMainStreamRemote }) 
         <div className="video-container" onClick={handleUserInteraction}>
             <div className="main-video-wrapper">
                 <video
-                    key={`main-${mainStream?.id || 'null'}`}
-                    ref={mainVideoRef}
+                    key="main-video"  // Fixed key to prevent React from creating new elements
+                    ref={(ref) => {
+                        mainVideoRef.current = ref;
+                        if (ref) {
+                            console.log('[VideoDisplay] 🎥 MAIN VIDEO ELEMENT CREATED/REFERENCED:', {
+                                element: ref,
+                                currentSrcObject: ref.srcObject?.id || 'NO_SRCOBJECT',
+                                expectedStream: mainStream?.id || 'NO_STREAM',
+                                streamMatch: ref.srcObject?.id === mainStream?.id,
+                                videoWidth: ref.videoWidth,
+                                videoHeight: ref.videoHeight,
+                                paused: ref.paused,
+                                readyState: ref.readyState
+                            });
+                        }
+                    }}
                     autoPlay
                     playsInline
                     muted={!isMainStreamRemote}  // Only mute if it's our local stream
@@ -359,7 +442,7 @@ const VideoDisplay = React.memo(({ mainStream, pipStream, isMainStreamRemote }) 
                                 audioTracks: pipStream?.getAudioTracks().length || 0
                             })}
                         <video
-                                key={`pip-${pipStream?.id || 'null'}`}
+                                key="pip-video"  // Fixed key to prevent React from creating new elements
                                 ref={(ref) => {
                                     pipVideoRef.current = ref;
                                     if (ref) {
@@ -527,6 +610,27 @@ const VideoChat = ({
             const newLocalStream = provider.getLocalStream();
             const newRemoteStream = provider.getRemoteStream();
             
+            // 🚨 DETECTION POINT: Check if remote video was lost
+            const oldRemoteVideoState = hasRemoteVideo;
+            const newRemoteVideoState = provider.getRemoteVideoState();
+            const oldRemoteStreamExists = !!oldRemoteStream;
+            const newRemoteStreamExists = !!newRemoteStream;
+            
+            if (oldRemoteVideoState && !newRemoteVideoState) {
+                console.log('[VideoChat] 🚨 DETECTION POINT: Remote video state changed from ON to OFF');
+            }
+            
+            if (oldRemoteStreamExists && !newRemoteStreamExists) {
+                console.log('[VideoChat] 🚨 DETECTION POINT: Remote stream was removed/deleted');
+            }
+            
+            if (oldRemoteStream?.id !== newRemoteStream?.id) {
+                console.log('[VideoChat] 🚨 DETECTION POINT: Remote stream ID changed:', {
+                    oldRemoteStreamId: oldRemoteStream?.id || 'NO_STREAM',
+                    newRemoteStreamId: newRemoteStream?.id || 'NO_STREAM'
+                });
+            }
+            
             console.log('[VideoChat] 🔄 STREAM STATE COMPARISON:', {
                 oldLocalStreamId: oldLocalStream?.id,
                 newLocalStreamId: newLocalStream?.id,
@@ -616,7 +720,7 @@ const VideoChat = ({
         });
         
         if (!remoteStream) {
-            console.log('[VideoChat] 🔍 hasEnabledRemoteVideo check: No remote stream');
+            console.log('[VideoChat] 🚨 DETECTION POINT: No remote stream - remote video lost');
             return false;
         }
         const videoTracks = remoteStream.getVideoTracks();
@@ -635,6 +739,13 @@ const VideoChat = ({
         
         // Check if any video track exists and is enabled
         const hasEnabled = videoTracks.length > 0 && videoTracks.some(track => track.enabled);
+        
+        if (!hasEnabled) {
+            console.log('[VideoChat] 🚨 DETECTION POINT: Remote video tracks disabled or missing - remote video lost');
+        } else {
+            console.log('[VideoChat] ✅ Remote video is available');
+        }
+        
         console.log('[VideoChat] ✅ hasEnabledRemoteVideo result:', hasEnabled);
         
         return hasEnabled;
@@ -643,10 +754,115 @@ const VideoChat = ({
     // UI decides which stream goes where based on available streams
     // Main window: Show remote video if available, otherwise local video
     // FIXED: Prioritize video over audio - don't switch to remote stream just because it has audio
-    const mainStream = (remoteStream && hasEnabledRemoteVideo()) ? remoteStream : localStream;
-    // PiP window: Show local video only when remote video is in main window AND remote has enabled video
-    const hasRemoteVideoEnabled = hasEnabledRemoteVideo();
+    
+    // 🔍 CRITICAL STREAM ASSIGNMENT LOGGING - DETECTING LOST REMOTE VIDEO
+    const hasEnabledRemoteVideoResult = hasEnabledRemoteVideo();
+    console.log('[VideoChat] 🚨 CRITICAL STREAM ASSIGNMENT - DETECTING LOST REMOTE VIDEO:', {
+        // Input conditions
+        remoteStreamExists: !!remoteStream,
+        localStreamExists: !!localStream,
+        hasEnabledRemoteVideoResult,
+        
+        // Stream IDs for tracking
+        remoteStreamId: remoteStream?.id || 'NO_REMOTE_STREAM',
+        localStreamId: localStream?.id || 'NO_LOCAL_STREAM',
+        
+        // Remote stream details
+        remoteVideoTracks: remoteStream?.getVideoTracks().length || 0,
+        remoteAudioTracks: remoteStream?.getAudioTracks().length || 0,
+        remoteVideoTracksEnabled: remoteStream?.getVideoTracks().filter(t => t.enabled).length || 0,
+        
+        // Local stream details
+        localVideoTracks: localStream?.getVideoTracks().length || 0,
+        localAudioTracks: localStream?.getAudioTracks().length || 0,
+        localVideoTracksEnabled: localStream?.getVideoTracks().filter(t => t.enabled).length || 0,
+        
+        // Detection point identification
+        detectionPoint: 'STREAM_ASSIGNMENT_LOGIC',
+        timestamp: new Date().toISOString()
+    });
+    
+    // LINE 1: Main stream assignment
+    const mainStream = (remoteStream && hasEnabledRemoteVideoResult) ? remoteStream : localStream;
+    console.log('[VideoChat] 🎯 LINE 1 - MAIN STREAM ASSIGNMENT:', {
+        condition: `(remoteStream && hasEnabledRemoteVideoResult) ? remoteStream : localStream`,
+        conditionResult: remoteStream && hasEnabledRemoteVideoResult,
+        mainStreamResult: mainStream ? (remoteStream && hasEnabledRemoteVideoResult ? 'REMOTE' : 'LOCAL') : 'NONE',
+        mainStreamId: mainStream?.id || 'NO_STREAM',
+        mainStreamType: mainStream ? (mainStream === remoteStream ? 'REMOTE' : 'LOCAL') : 'NONE',
+        remoteStreamId: remoteStream?.id || 'NO_REMOTE',
+        localStreamId: localStream?.id || 'NO_LOCAL',
+        hasEnabledRemoteVideoResult
+    });
+    
+    // LINE 2: PiP stream assignment
+    const hasRemoteVideoEnabled = hasEnabledRemoteVideoResult;
     const pipStream = (remoteStream && localStream && hasRemoteVideoEnabled) ? localStream : null;
+    console.log('[VideoChat] 🎯 LINE 2 - PIP STREAM ASSIGNMENT:', {
+        condition: `(remoteStream && localStream && hasRemoteVideoEnabled) ? localStream : null`,
+        conditionResult: remoteStream && localStream && hasRemoteVideoEnabled,
+        pipStreamResult: pipStream ? 'LOCAL' : 'NONE',
+        pipStreamId: pipStream?.id || 'NO_STREAM',
+        pipStreamType: pipStream ? 'LOCAL' : 'NONE',
+        remoteStreamId: remoteStream?.id || 'NO_REMOTE',
+        localStreamId: localStream?.id || 'NO_LOCAL',
+        hasRemoteVideoEnabled
+    });
+    
+    // 🔍 FINAL CALCULATED VALUES - AFTER ALL ASSIGNMENTS
+    console.log('[VideoChat] 🎯 FINAL CALCULATED STREAM VALUES:', {
+        // Main stream final value
+        mainStream: mainStream,
+        mainStreamId: mainStream?.id || 'NO_STREAM',
+        mainStreamType: mainStream ? (mainStream === remoteStream ? 'REMOTE' : 'LOCAL') : 'NONE',
+        mainStreamVideoTracks: mainStream?.getVideoTracks().length || 0,
+        mainStreamAudioTracks: mainStream?.getAudioTracks().length || 0,
+        
+        // PiP stream final value
+        pipStream: pipStream,
+        pipStreamId: pipStream?.id || 'NO_STREAM',
+        pipStreamType: pipStream ? 'LOCAL' : 'NONE',
+        pipStreamVideoTracks: pipStream?.getVideoTracks().length || 0,
+        pipStreamAudioTracks: pipStream?.getAudioTracks().length || 0,
+        
+        // Comparison with input streams
+        mainStreamIsRemote: mainStream === remoteStream,
+        mainStreamIsLocal: mainStream === localStream,
+        pipStreamIsLocal: pipStream === localStream,
+        
+        // Final assignment summary
+        finalAssignment: {
+            mainWindowShows: mainStream ? (mainStream === remoteStream ? 'REMOTE_VIDEO' : 'LOCAL_VIDEO') : 'NO_VIDEO',
+            pipWindowShows: pipStream ? 'LOCAL_VIDEO' : 'NO_VIDEO',
+            totalStreamsAssigned: [mainStream, pipStream].filter(Boolean).length
+        }
+    });
+
+    // 🔍 DETAILED STREAM ASSIGNMENT LOGGING
+    console.log('[VideoChat] 🎯 DETAILED STREAM ASSIGNMENT:', {
+        // Input conditions
+        remoteStreamExists: !!remoteStream,
+        localStreamExists: !!localStream,
+        hasEnabledRemoteVideo: hasEnabledRemoteVideo(),
+        hasRemoteVideoEnabled,
+        
+        // Stream IDs
+        remoteStreamId: remoteStream?.id,
+        localStreamId: localStream?.id,
+        
+        // Assignment logic
+        mainStreamLogic: `(remoteStream && hasEnabledRemoteVideo()) ? remoteStream : localStream`,
+        mainStreamResult: mainStream ? (remoteStream && hasEnabledRemoteVideo() ? 'REMOTE' : 'LOCAL') : 'NONE',
+        mainStreamId: mainStream?.id,
+        
+        pipStreamLogic: `(remoteStream && localStream && hasRemoteVideoEnabled) ? localStream : null`,
+        pipStreamResult: pipStream ? 'LOCAL' : 'NONE',
+        pipStreamId: pipStream?.id,
+        
+        // Final assignment
+        mainVideoElementStream: mainStream?.id || 'NO_STREAM',
+        pipVideoElementStream: pipStream?.id || 'NO_STREAM'
+    });
 
     console.log('[VideoChat] 🎯 STREAM ASSIGNMENT DEBUG:', {
         hasLocalVideo,

@@ -74,6 +74,24 @@ export class SignalingService {
             const sdpHash = message.sdp ? btoa(message.sdp).substring(0, 8) : Date.now();
             messageId = `${message.type}-${message.from}-${message.to}-${sdpHash}`;
             console.log(`[SignalingService] 🔍 Generated message ID for ${message.type}: ${messageId} (SDP hash: ${sdpHash})`);
+        } else if (message.type === 'media-state') {
+            // For media-state messages, include the state content to allow different states
+            console.log(`[SignalingService] 🔍 RAW media-state message:`, message);
+            console.log(`[SignalingService] 🔍 message.mediaState:`, message.mediaState);
+            console.log(`[SignalingService] 🔍 message.audio:`, message.audio);
+            console.log(`[SignalingService] 🔍 message.video:`, message.video);
+            console.log(`[SignalingService] 🔍 message.data:`, message.data);
+            
+            // Check for both mediaState and the direct properties
+            const stateData = message.mediaState || { 
+                audio: message.audio !== undefined ? message.audio : message.data?.audio,
+                video: message.video !== undefined ? message.video : message.data?.video
+            };
+            console.log(`[SignalingService] 🔍 stateData:`, stateData);
+            // Use the actual audio and video values as the hash - much simpler and guaranteed unique
+            const hashPart = `${stateData.audio}${stateData.video}`;
+            messageId = `${message.type}-${message.from}-${message.to}-${hashPart}`;
+            console.log(`[SignalingService] 🔍 Generated message ID for media-state: ${messageId} (audio: ${stateData.audio}, video: ${stateData.video}, hash: ${hashPart})`);
         } else if (isSignalingMessage) {
             messageId = `${message.type}-${message.from}-${message.to}`;
         } else {
