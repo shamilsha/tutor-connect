@@ -6,6 +6,113 @@
     background-color: #f8f9fa;
     border-radius: 8px;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 2000; /* Higher than screen share window */
+    background-color: rgba(248, 249, 250, 0.95); /* Slightly transparent */
+    backdrop-filter: blur(10px); /* Blur effect for better visibility */
+    border-bottom: 1px solid #dee2e6;
+    flex-wrap: wrap; /* Allow wrapping on small screens */
+    min-height: 60px; /* Ensure minimum height */
+}
+
+/* Mobile responsive design */
+@media (max-width: 768px) {
+    .connection-panel {
+        flex-direction: row !important;
+        align-items: center !important;
+        gap: 0.5rem;
+        padding: 0.5rem;
+        min-height: 80px; /* Ensure enough height for all controls */
+        flex-wrap: wrap !important;
+    }
+    
+    .connection-panel > div {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    
+    .peer-selection-section {
+        min-width: auto !important;
+        flex: 1;
+        max-width: 150px; /* Limit width on mobile */
+    }
+    
+    .connection-button-section {
+        min-width: auto !important;
+    }
+    
+    /* Keep disconnect and media controls in one line on mobile */
+    .connection-panel {
+        flex-direction: row !important;
+        flex-wrap: wrap !important;
+        gap: 0.5rem !important;
+        align-items: center !important;
+    }
+    
+    .connection-button-section,
+    .media-controls-section {
+        display: flex !important;
+        flex-direction: row !important;
+        justify-content: center !important;
+        align-items: center !important;
+        gap: 0.5rem !important;
+        flex-wrap: wrap !important;
+        border: none !important;
+        margin: 0 !important;
+        padding: 0.25rem 0 !important;
+    }
+    
+    .media-controls-section {
+        gap: 0.5rem !important;
+        padding: 0.25rem 0 !important;
+        border: none !important;
+        margin: 0 !important;
+    }
+    
+    .media-button {
+        padding: 0.75rem !important;
+        font-size: 1.2rem !important;
+        min-width: 50px !important;
+        min-height: 50px !important;
+        border-radius: 8px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+    
+    .connection-button {
+        padding: 0.75rem 1rem;
+        font-size: 0.9rem;
+        min-width: 100px;
+    }
+    
+    .status-section {
+        font-size: 0.8rem;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+    }
+    
+    .status-text {
+        font-size: 0.8rem;
+    }
+    
+    .logout-button {
+        padding: 0.5rem 0.75rem !important;
+        font-size: 0.75rem !important;
+        margin-left: 0.25rem !important;
+        min-width: 50px !important;
+        min-height: 50px !important;
+    }
+    
+    .peer-select {
+        font-size: 0.9rem;
+        padding: 0.75rem;
+    }
 }
 
 /* Login Status Section */
@@ -18,6 +125,27 @@
 .status-text {
     font-size: 0.9rem;
     color: #495057;
+}
+
+.logout-button {
+    padding: 0.5rem 0.75rem;
+    background-color: #dc3545;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+    font-size: 0.8rem;
+    margin-left: 0.5rem;
+    min-width: 60px;
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.logout-button:hover {
+    background-color: #c82333;
 }
 
 /* Peer Selection Section */
@@ -88,6 +216,9 @@
 .media-controls-section {
     display: flex;
     gap: 0.5rem;
+    flex-shrink: 0; /* Prevent shrinking */
+    visibility: visible !important; /* Ensure visibility */
+    opacity: 1 !important; /* Ensure opacity */
 }
 
 .media-button {
@@ -101,6 +232,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    min-width: 40px;
+    min-height: 40px;
+    font-size: 1rem;
 }
 
 .media-button:hover {
@@ -113,6 +247,24 @@
 
 .media-button.active:hover {
     background-color: #218838;
+}
+
+.media-button.connected {
+    background-color: #dc3545;
+}
+
+.media-button.connected:hover {
+    background-color: #c82333;
+}
+
+.media-button:disabled {
+    background-color: #6c757d;
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.media-button:disabled:hover {
+    background-color: #6c757d;
 }
 
 .connection-panel-left {

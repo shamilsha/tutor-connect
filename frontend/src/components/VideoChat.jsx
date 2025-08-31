@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import '../styles/VideoChat.css';
-import ConnectionPanel from './ConnectionPanel';
 import ChatPanel from './ChatPanel';
 
-const VideoDisplay = React.memo(({ mainStream, pipStream, isMainStreamRemote }) => {
+const VideoDisplay = React.memo(({ mainStream, pipStream, isMainStreamRemote, isScreenSharing }) => {
     const mainVideoRef = useRef(null);
     const pipVideoRef = useRef(null);
     const [hasUserInteracted, setHasUserInteracted] = useState(false);
@@ -350,7 +349,7 @@ const VideoDisplay = React.memo(({ mainStream, pipStream, isMainStreamRemote }) 
     };
 
     return (
-        <div className="video-container" onClick={handleUserInteraction}>
+        <div className={`video-container ${isScreenSharing ? 'screen-share-active' : ''}`} onClick={handleUserInteraction}>
             <div className="main-video-wrapper">
                 <video
                     key="main-video"  // Fixed key to prevent React from creating new elements
@@ -532,6 +531,7 @@ const VideoChat = ({
     isConnecting,
     onConnect,
     onDisconnect,
+    onLogout, // Add logout handler
     peerList,
     loginStatus,
     // Chat
@@ -552,11 +552,32 @@ const VideoChat = ({
     // Local state storage - updated only when WebRTC notifies us
     const [localStream, setLocalStream] = useState(null);
     const [remoteStream, setRemoteStream] = useState(null);
+    const [screenShareStream, setScreenShareStream] = useState(null);
+    const [remoteScreenShareStream, setRemoteScreenShareStream] = useState(null);
     const [isAudioEnabled, setIsAudioEnabled] = useState(false);
     const [isVideoEnabled, setIsVideoEnabled] = useState(false);
+    const [isScreenSharing, setIsScreenSharing] = useState(false);
     const [hasLocalVideo, setHasLocalVideo] = useState(false);
     const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
     const [hasRemoteAudio, setHasRemoteAudio] = useState(false);
+    
+    // Screen share support detection
+    const [isScreenShareSupported, setIsScreenShareSupported] = useState(false);
+    
+    // Check screen share support on component mount
+    useEffect(() => {
+        const checkScreenShareSupport = () => {
+            const isSupported = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+            console.log('[VideoChat] 🖥️ Screen share support check:', {
+                hasMediaDevices: !!navigator.mediaDevices,
+                hasGetDisplayMedia: !!navigator.mediaDevices?.getDisplayMedia,
+                isSupported
+            });
+            setIsScreenShareSupported(isSupported);
+        };
+        
+        checkScreenShareSupport();
+    }, []);
     
     // Getter functions that use local state instead of calling provider
     const getLocalStream = () => localStream;
@@ -567,8 +588,12 @@ const VideoChat = ({
     const getHasRemoteVideo = () => hasRemoteVideo;
     const getHasRemoteAudio = () => hasRemoteAudio;
     
+    // Screen share stream assignment (moved up to avoid hoisting issue)
+    // Prioritize local screen share over remote screen share
+    const screenShareStreamForDisplay = screenShareStream || remoteScreenShareStream;
+    
     // Computed values - show video panel if any stream is available
-    const shouldShowVideo = !!localStream || !!remoteStream;
+    const shouldShowVideo = !!localStream || !!remoteStream || !!screenShareStreamForDisplay;
     
     // Debug: Log every time VideoChat renders
     console.log('[VideoChat] 🎬 RENDERING VIDEOCHAT COMPONENT:', {
@@ -652,14 +677,19 @@ const VideoChat = ({
                 providerLocalVideo: provider.getLocalVideoState(),
                 providerRemoteVideo: provider.getRemoteVideoState(),
                 providerRemoteAudio: provider.getRemoteAudioState(),
+                providerScreenShare: provider.getScreenShareStream(),
+                providerIsScreenSharing: provider.isScreenSharingActive(),
                 oldLocalStreamId: localStream?.id,
                 oldRemoteStreamId: remoteStream?.id
             });
             
             setLocalStream(newLocalStream);
             setRemoteStream(newRemoteStream);
+            setScreenShareStream(provider.getScreenShareStream());
+            setRemoteScreenShareStream(provider.getRemoteScreenShareStream(selectedPeer));
             setIsAudioEnabled(provider.getLocalAudioState());
             setIsVideoEnabled(provider.getLocalVideoState());
+            setIsScreenSharing(provider.isScreenSharingActive());
             setHasLocalVideo(provider.getLocalVideoState());
             setHasRemoteVideo(provider.getRemoteVideoState());
             setHasRemoteAudio(provider.getRemoteAudioState());
@@ -696,6 +726,16 @@ const VideoChat = ({
             provider.removeEventListener('stateChange', handleStateChange);
         };
     }, [provider, localStream, remoteStream, mediaStateVersion]);
+    
+    // Clean up screen sharing when disconnecting
+    useEffect(() => {
+        if (!isConnected && isScreenSharing && provider) {
+            console.log('[VideoChat] 🖥️ Disconnect detected - cleaning up screen sharing');
+            provider.stopScreenShare().catch(err => {
+                console.error('[VideoChat] ❌ Error stopping screen share on disconnect:', err);
+            });
+        }
+    }, [isConnected, isScreenSharing, provider]);
     
     // Helper function to check if local stream has video tracks
     const hasLocalVideoTracks = () => {
@@ -798,6 +838,15 @@ const VideoChat = ({
     // LINE 2: PiP stream assignment
     const hasRemoteVideoEnabled = hasEnabledRemoteVideoResult;
     const pipStream = (remoteStream && localStream && hasRemoteVideoEnabled) ? localStream : null;
+    
+    // LINE 3: Screen share stream assignment (NEW - separate from existing logic)
+    // Prioritize local screen share over remote screen share
+    console.log('[VideoChat] 🎯 LINE 3 - SCREEN SHARE STREAM ASSIGNMENT:', {
+        localScreenShareStream: screenShareStream ? 'present' : 'null',
+        remoteScreenShareStream: remoteScreenShareStream ? 'present' : 'null',
+        finalScreenShareStream: screenShareStreamForDisplay ? 'present' : 'null',
+        screenShareStreamId: screenShareStreamForDisplay?.id
+    });
     console.log('[VideoChat] 🎯 LINE 2 - PIP STREAM ASSIGNMENT:', {
         condition: `(remoteStream && localStream && hasRemoteVideoEnabled) ? localStream : null`,
         conditionResult: remoteStream && localStream && hasRemoteVideoEnabled,
@@ -1041,6 +1090,41 @@ const VideoChat = ({
         }
     };
 
+    const handleToggleScreenShare = async () => {
+        if (!provider) return;
+        
+        const newScreenShareState = !isScreenSharing;
+        console.log(`[VideoChat] 🖥️ handleToggleScreenShare called:`, {
+            currentIsScreenSharing: isScreenSharing,
+            newScreenShareState,
+            provider: !!provider
+        });
+        
+        try {
+            if (newScreenShareState) {
+                // Start screen sharing
+                console.log('[VideoChat] 🖥️ Starting screen share...');
+                await provider.startScreenShare();
+                console.log('[VideoChat] ✅ Screen share started');
+            } else {
+                // Stop screen sharing
+                console.log('[VideoChat] 🖥️ Stopping screen share...');
+                await provider.stopScreenShare();
+                console.log('[VideoChat] ✅ Screen share stopped');
+            }
+        } catch (err) {
+            console.error('[VideoChat] Screen share toggle error:', err);
+            // Show user-friendly error message
+            if (err.name === 'NotAllowedError') {
+                alert('Screen sharing access denied. Please allow screen sharing permissions and try again.');
+            } else if (err.name === 'NotReadableError') {
+                alert('Screen sharing is in use by another application. Please close other apps using screen sharing and try again.');
+            } else {
+                alert('Failed to start screen sharing. Please check your permissions and try again.');
+            }
+        }
+    };
+
     // Reset Methods
     const resetVideoDisplay = () => {
         console.log('[VideoChat] 🔄 RESET: Starting video display reset');
@@ -1091,19 +1175,8 @@ const VideoChat = ({
 
     return (
         <div className="video-chat">
-            <ConnectionPanel
-                selectedPeer={selectedPeer}
-                onPeerSelect={onPeerSelect}
-                isConnected={isConnected}
-                isConnecting={isConnecting}
-                onConnect={onConnect}
-                onDisconnect={onDisconnect}
-                isAudioEnabled={isAudioEnabled}
-                isVideoEnabled={isVideoEnabled}
-                onToggleAudio={handleToggleAudio}
-                onToggleVideo={handleToggleVideo}
-                peerList={peerList}
-            />
+            
+
             
             {shouldShowVideo && (
                 <>
@@ -1112,14 +1185,35 @@ const VideoChat = ({
                         mainStreamId: remoteStream ? remoteStream?.id : localStream?.id,
                         pipStream: (remoteStream && localStream && hasRemoteVideoEnabled) ? 'local' : 'null',
                         pipStreamId: (remoteStream && localStream && hasRemoteVideoEnabled) ? localStream?.id : null,
+                        screenShareStream: screenShareStreamForDisplay ? 'present' : 'null',
+                        screenShareStreamId: screenShareStreamForDisplay?.id,
                         hasRemoteVideo,
                         hasRemoteVideoEnabled,
                         hasLocalVideo,
                         localStreamExists: !!localStream,
                         isVideoEnabled,
                         shouldShowVideo,
-                        pipStreamCondition: remoteStream && localStream && hasRemoteVideoEnabled
+                        pipStreamCondition: remoteStream && localStream && hasRemoteVideoEnabled,
+                        isScreenSharing
                     })}
+                    
+                    {/* Screen Share Window (Window #1) - Full window, z-index bottom */}
+                    {screenShareStreamForDisplay && (
+                        <div className="screen-share-window">
+                            <video
+                                ref={(videoRef) => {
+                                    if (videoRef && videoRef.srcObject !== screenShareStreamForDisplay) {
+                                        console.log('[VideoChat] 🖥️ Setting screen share video srcObject:', screenShareStreamForDisplay.id);
+                                        videoRef.srcObject = screenShareStreamForDisplay;
+                                        videoRef.play().catch(e => console.log('[VideoChat] 🖥️ Screen share video play error:', e));
+                                    }
+                                }}
+                                autoPlay
+                                playsInline
+                                style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                            />
+                        </div>
+                    )}
                     
                     {/* Separate audio element for remote audio when remote has no video */}
                     {remoteStream && !hasEnabledRemoteVideo() && remoteStream.getAudioTracks().length > 0 && (
@@ -1140,6 +1234,7 @@ const VideoChat = ({
                         mainStream={mainStream}
                         pipStream={pipStream}
                         isMainStreamRemote={!!remoteStream}
+                        isScreenSharing={!!screenShareStreamForDisplay}
                     />
                                          {console.log('[VideoChat] ✅ VideoDisplay component rendered with props:', {
                          mainStream: mainStream ? 'present' : 'null',
@@ -1187,15 +1282,7 @@ const VideoChat = ({
                 pipStreamId: pipStream?.id
             })}
             
-            {showChat && (
-                <ChatPanel
-                    user={user}
-                    provider={provider}
-                    peers={[selectedPeer]}
-                    onSendMessage={onSendMessage}
-                    receivedMessages={receivedMessages}
-                />
-            )}
+
             
             {error && (
                 <div className="error-message">

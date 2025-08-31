@@ -1,11 +1,22 @@
 .chat-panel {
     display: flex;
     flex-direction: column;
-    height: calc(100vh - 100px);
+    height: calc(100vh - 180px); /* Account for fixed connection panel */
     background: white;
     border-radius: 8px;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     margin: 20px;
+    margin-top: 100px; /* Space for fixed connection panel */
+    z-index: 1999; /* Lower than connection panel to not interfere */
+    position: relative;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 768px) {
+    .chat-panel {
+        height: calc(100vh - 260px); /* Account for mobile connection panel and controls */
+        margin-top: 160px; /* Space for mobile connection panel and controls */
+    }
 }
 
 .chat-header {

@@ -55,6 +55,12 @@ export interface IWebRTCProvider {
     getLocalStream(): MediaStream | null;
     getRemoteStream(peerId?: string): MediaStream | null;
     
+    // Screen Sharing
+    startScreenShare(): Promise<void>;
+    stopScreenShare(): Promise<void>;
+    getScreenShareStream(): MediaStream | null;
+    isScreenSharingActive(): boolean;
+    
     // Messaging
     sendMessage(peerId: string, message: any): Promise<void>;
     

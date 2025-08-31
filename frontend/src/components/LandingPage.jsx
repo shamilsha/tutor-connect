@@ -7,19 +7,19 @@ const LandingPage = () => {
         <div className="landing-page">
             <div className="landing-content">
                 <div className="landing-header">
-                    <h1>Welcome to MyTutor - TEST</h1>
+                    <h1>Welcome to Mysite - TEST</h1>
                     <p>
-                        Connect with expert tutors in real-time through high-quality video calls,
+                        Connect with expert  in real-time through high-quality video calls,
                         interactive whiteboards, and seamless collaboration tools.
                     </p>
                 </div>
 
                 <div className="features-grid">
                     <div className="feature-card">
-                        <h3>Video Tutoring</h3>
+                        <h3>Video </h3>
                         <p>
                             Crystal-clear video calls with screen sharing capabilities
-                            for an immersive learning experience.
+                            for an immersive xyz experience.
                         </p>
                     </div>
                     <div className="feature-card">

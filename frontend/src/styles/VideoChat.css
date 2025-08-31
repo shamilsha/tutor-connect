@@ -7,13 +7,81 @@
     overflow: visible !important;
 }
 
-/* Ensure PiP window is always visible */
+
+
+/* Screen Share Window (Window #1) - Full window, z-index bottom */
+.screen-share-window {
+    position: fixed;
+    top: 144px; /* Just below dashboard header (80px + 64px = 144px) */
+    left: 0;
+    width: 100vw;
+    height: calc(100vh - 144px); /* Subtract space for dashboard header */
+    background: #000;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative; /* For absolute positioning of video panel inside */
+    border: 3px solid #ff6b6b; /* Red border for screen share window */
+    box-sizing: border-box;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 768px) {
+    .screen-share-window {
+        top: 224px; /* Just below mobile dashboard header (160px + 64px = 224px) */
+        height: calc(100vh - 224px);
+    }
+    
+    .video-container.screen-share-active {
+        top: 20px; /* Top-left inside screen share window */
+        width: 200px; /* Fixed width for mobile - consistent aspect ratio */
+        height: 113px; /* 16:9 aspect ratio (200 * 0.5625 = 113) */
+    }
+    
+    .video-chat {
+        margin-top: 0; /* No extra margin since connection panel is now outside */
+    }
+    
+    .video-container:not(.screen-share-active) {
+        width: calc(100vw - 10px); /* Match dashboard-content width (5px padding on each side) */
+        height: calc((100vw - 10px) * 0.5625); /* 16:9 aspect ratio (0.5625 = 9/16) */
+        max-height: calc(50vh - 10px); /* Don't exceed 50% of viewport height */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    /* Mobile PiP window adjustments */
+    .pip-video-wrapper {
+        width: 33.33% !important; /* 1/3 of main window width - consistent across all devices */
+        height: 33.33% !important; /* 1/3 of main window height - maintain square ratio */
+    }
+    
+    .screen-share-active .pip-video-wrapper {
+        width: 33.33% !important; /* 1/3 of main window width - consistent across all devices */
+        height: 33.33% !important; /* 1/3 of main window height - maintain square ratio */
+    }
+}
+
+.screen-share-window video {
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    object-fit: contain; /* Maintain aspect ratio and show full screen share */
+    background: #000;
+    /* Ensure video stays within container boundaries */
+    overflow: hidden;
+}
+
+/* Ensure PiP window is always visible - positioned at top-left of main window */
 .pip-video-wrapper {
     position: absolute !important;
-    top: 20px !important;
-    left: 20px !important;
-    width: 200px !important;
-    height: 150px !important;
+    top: 10px !important;
+    left: 10px !important;
+    width: 33.33% !important; /* 1/3 of main window width - responsive to main window size */
+    height: 33.33% !important; /* 1/3 of main window height - maintain square ratio */
     border-radius: 8px !important;
     overflow: visible !important;
     background: #2a2a2a !important;
@@ -28,6 +96,17 @@
     transform: none !important;
     clip: auto !important;
     clip-path: none !important;
+    border: 3px solid #ffe66d !important; /* Yellow border for PiP window */
+    box-sizing: border-box !important;
+}
+
+/* When screen sharing is active, PiP window scales with main window (1/3 of main window) */
+.screen-share-active .pip-video-wrapper {
+    width: 33.33% !important; /* 1/3 of main window width - responsive to main window size */
+    height: 33.33% !important; /* 1/3 of main window height - maintain square ratio */
+    top: 10px !important;
+    left: 10px !important;
+    position: absolute !important; /* Relative to video panel */
 }
 
 .pip-video-wrapper:hover {
@@ -35,13 +114,18 @@
 }
 
 .pip-video-wrapper video {
-    width: 100% !important;
-    height: 100% !important;
-    object-fit: cover !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
+    width: auto !important;
+    height: auto !important;
+    object-fit: contain !important; /* Maintain aspect ratio and show full video */
     transform: scaleX(-1) !important; /* Mirror local video */
     display: block !important;
     visibility: visible !important;
     opacity: 1 !important;
+    border-radius: 8px !important;
+    /* Ensure video stays within container boundaries */
+    overflow: hidden !important;
 }
 
 .video-chat {
@@ -49,32 +133,92 @@
     flex-direction: column;
     background: #1a1a1a;
     border-radius: 8px;
-    margin: 20px;
+    margin: 20px 0; /* Remove left/right margins to use full width */
+    margin-top: 0; /* No extra margin since connection panel is now outside */
     overflow: visible; /* Changed from hidden to visible to allow PiP window to show */
+    z-index: 2001; /* Higher than connection panel */
+    position: relative;
+    align-items: flex-start; /* Top align instead of center */
+    min-height: auto; /* Remove fixed height */
+    height: auto; /* Let content determine height */
+    width: 100%; /* Use full available width */
+}
+
+
+
+/* When no screen sharing, position video container within video-chat */
+.video-container:not(.screen-share-active) {
+    position: relative; /* Changed from fixed to relative to stay within video-chat */
+    width: 100%; /* Use full width of video-chat container */
+    height: calc(100% * 0.5625); /* 16:9 aspect ratio based on width (0.5625 = 9/16) */
+    max-height: calc(50vh - 40px); /* Don't exceed 1/2 of viewport height */
+    margin: 0; /* No margin to use full width */
+    z-index: 2001; /* Higher than connection panel */
+    background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 50%, #1a1a1a 100%);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 3px solid #4ecdc4; /* Teal border for main video window */
+    box-sizing: border-box;
 }
 
 .video-container {
     position: relative;
     width: 100%;
-    padding-top: 56.25%; /* 16:9 Aspect Ratio */
+    height: auto; /* Let content determine height */
     overflow: visible; /* Ensure PiP window is not clipped */
+    align-self: flex-start; /* Top align the video container */
+}
+
+/* When no screen sharing, ensure video is at the top */
+.video-container:not(.screen-share-active) {
+    margin-top: 0;
+    height: auto; /* Let content determine height */
+}
+
+/* When screen sharing is active, position main video container inside screen share window */
+.video-container.screen-share-active {
+    position: absolute;
+    top: 20px; /* Top-left inside screen share window */
+    left: 20px;
+    width: 300px; /* Fixed width for consistent aspect ratio */
+    height: 169px; /* 16:9 aspect ratio (300 * 0.5625 = 169) */
+    padding-top: 0;
+    z-index: 2000; /* Higher than screen share content */
+    background: #2a2a2a;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 3px solid #4ecdc4; /* Teal border for main video window */
+    box-sizing: border-box;
 }
 
 .main-video-wrapper {
-    position: absolute;
-    top: 0;
-    left: 0;
+    position: relative; /* Changed from absolute to relative for proper nesting */
     width: 100%;
-    height: 100%;
-    background: #2a2a2a;
+    height: 100%; /* Match parent container height */
+    background: transparent; /* Make transparent to show parent gradient */
     border-radius: 8px;
     overflow: visible; /* Changed from hidden to visible to allow PiP window to show */
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .main-video-wrapper video {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    object-fit: contain; /* Maintain aspect ratio and show full video */
+    border-radius: 8px;
+    /* Ensure video stays within container boundaries */
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); /* Add subtle shadow to video */
 }
 
 .video-placeholder {
@@ -84,6 +228,8 @@
     transform: translate(-50%, -50%);
     color: #666;
     font-size: 1.2em;
+    text-align: center;
+    z-index: 5;
 }
 
 .video-placeholder.small {

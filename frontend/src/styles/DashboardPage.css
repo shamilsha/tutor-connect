@@ -1,11 +1,15 @@
 .dashboard-container {
     min-height: 100vh;
     background-color: #f8f9fa;
+    padding-top: 80px; /* Add space for fixed connection panel */
+    display: flex;
+    flex-direction: column;
 }
 
 .dashboard-header {
     background-color: white;
     padding: 1rem 2rem;
+    margin-bottom: 0;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     display: flex;
     justify-content: space-between;
@@ -52,6 +56,8 @@
     border-radius: 4px;
     text-align: center;
     animation: fadeIn 0.3s ease-in;
+    z-index: 2001; /* Higher than connection panel */
+    position: relative;
 }
 
 @keyframes fadeIn {
@@ -66,11 +72,23 @@
 }
 
 .dashboard-content {
-    padding: 2rem;
+    padding: 2px 5px 2rem 5px;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 2rem;
+    background-color: #e8f4f8; /* Light blue background to visualize the content area */
+    position: relative; /* For debugging */
+    flex: 1; /* Allow content to expand to fill remaining space */
+}
+
+
+
+/* Mobile responsive adjustments */
+@media (max-width: 768px) {
+    .dashboard-container {
+        padding-top: 160px; /* More space for mobile connection panel and controls */
+    }
 }
 
 .media-controls {
@@ -133,4 +151,149 @@
     border-radius: 3px;
     border: 1px solid #dee2e6;
     font-family: 'Courier New', monospace;
+}
+
+/* Debug Icon */
+.debug-icon {
+    background: none;
+    border: none;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 4px;
+    transition: background-color 0.3s;
+    margin-left: 0.5rem;
+}
+
+.debug-icon:hover {
+    background-color: rgba(0, 123, 255, 0.1);
+}
+
+/* Debug Popup */
+.debug-popup-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 10000;
+}
+
+.debug-popup {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    max-width: 95vw;
+    max-height: 95vh;
+    overflow: hidden;
+    min-width: 400px;
+    width: 90vw;
+    height: 90vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.debug-popup-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid #dee2e6;
+    background-color: #f8f9fa;
+    border-radius: 8px 8px 0 0;
+}
+
+.debug-popup-header h3 {
+    margin: 0;
+    color: #333;
+}
+
+.debug-popup-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0.25rem;
+    border-radius: 4px;
+    transition: background-color 0.3s;
+}
+
+.debug-popup-close:hover {
+    background-color: rgba(220, 53, 69, 0.1);
+    color: #dc3545;
+}
+
+.debug-popup-content {
+    padding: 1.5rem;
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: auto;
+}
+
+.debug-section {
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    background-color: #f8f9fa;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.debug-section h4 {
+    margin: 0 0 0.5rem 0;
+    color: #495057;
+    font-size: 1.1rem;
+}
+
+.debug-section p {
+    margin: 0.25rem 0;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+}
+
+.debug-section ul {
+    margin: 0.5rem 0;
+    padding-left: 1.5rem;
+}
+
+.debug-section li {
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+    margin: 0.25rem 0;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+/* Mobile responsive adjustments for debug popup */
+@media (max-width: 768px) {
+    .debug-popup {
+        width: 98vw;
+        height: 98vh;
+        min-width: 300px;
+    }
+    
+    .debug-popup-content {
+        padding: 1rem;
+    }
+    
+    .debug-section {
+        padding: 0.75rem;
+        margin-bottom: 1rem;
+    }
+    
+    .debug-section p {
+        font-size: 0.8rem;
+    }
+    
+    .debug-section li {
+        font-size: 0.8rem;
+    }
 } 

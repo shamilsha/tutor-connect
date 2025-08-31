@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FaVideo, FaVideoSlash, FaMicrophone, FaMicrophoneSlash } from 'react-icons/fa';
+import { FaVideo, FaVideoSlash, FaMicrophone, FaMicrophoneSlash, FaDesktop, FaStop, FaBan } from 'react-icons/fa';
 import ConnectionStatusLight from './ConnectionStatusLight';
 import '../styles/ConnectionPanel.css';
 
@@ -10,12 +10,16 @@ const ConnectionPanel = ({
     isConnecting,
     onConnect,
     onDisconnect,
+    onLogout, // Add logout handler
     peerList = [],
     loginStatus = 'connected', // 'connected' or 'failed'
     isAudioEnabled = false,
     isVideoEnabled = false,
+    isScreenSharing = false,
+    isScreenShareSupported = true,
     onToggleAudio,
-    onToggleVideo
+    onToggleVideo,
+    onToggleScreenShare
 }) => {
     const [isPeerListEnabled, setIsPeerListEnabled] = useState(true);
 
@@ -120,9 +124,21 @@ const ConnectionPanel = ({
     // Reset method available for parent component to call
     // Note: Parent can call this method directly if needed
 
+    // Debug logging for mobile visibility
+    console.log('[ConnectionPanel] Rendering with state:', {
+        isConnected,
+        isAudioEnabled,
+        isVideoEnabled,
+        isScreenSharing,
+        isScreenShareSupported,
+        peerListLength: peerList.length,
+        selectedPeer,
+        buttonState: buttonState.text
+    });
+
     return (
         <div className="connection-panel">
-            {/* Login Status Indicator */}
+            {/* Login Status */}
             <div className="status-section">
                 <ConnectionStatusLight status={loginStatus} />
                 <span className="status-text">
@@ -153,34 +169,66 @@ const ConnectionPanel = ({
                 )}
             </div>
 
-            {/* Connect/Disconnect Button */}
-            <div className="connection-button-section">
-                <button
-                    className={`connection-button ${isConnected ? 'connected' : ''}`}
-                    onClick={handleConnectionClick}
-                    disabled={buttonState.disabled}
-                >
-                    {buttonState.text}
-                </button>
-            </div>
+            {/* Connect Button - Only show when not connected */}
+            {!isConnected && (
+                <div className="connection-button-section">
+                    <button
+                        className="connection-button"
+                        onClick={handleConnectionClick}
+                        disabled={buttonState.disabled}
+                    >
+                        {buttonState.text}
+                    </button>
+                </div>
+            )}
 
-            {/* Media Controls */}
-            <div className="media-controls-section">
-                <button
-                    className={`media-button ${isAudioEnabled ? 'active' : ''}`}
-                    onClick={onToggleAudio}
-                    title={isAudioEnabled ? 'Mute Audio' : 'Unmute Audio'}
-                >
-                    {isAudioEnabled ? <FaMicrophone /> : <FaMicrophoneSlash />}
-                </button>
-                <button
-                    className={`media-button ${isVideoEnabled ? 'active' : ''}`}
-                    onClick={onToggleVideo}
-                    title={isVideoEnabled ? 'Stop Video' : 'Start Video'}
-                >
-                    {isVideoEnabled ? <FaVideo /> : <FaVideoSlash />}
-                </button>
-            </div>
+            {/* Media Controls - Only show when connected */}
+            {isConnected && (
+                <div className="media-controls-section">
+                    <button
+                        className={`media-button ${isConnected ? 'connected' : ''}`}
+                        onClick={handleConnectionClick}
+                        title="Disconnect"
+                    >
+                        Disconnect
+                    </button>
+                    <button
+                        className={`media-button ${isAudioEnabled ? 'active' : ''}`}
+                        onClick={onToggleAudio}
+                        title={isAudioEnabled ? 'Mute Audio' : 'Unmute Audio'}
+                    >
+                        {isAudioEnabled ? <FaMicrophone /> : <FaMicrophoneSlash />}
+                    </button>
+                    <button
+                        className={`media-button ${isVideoEnabled ? 'active' : ''}`}
+                        onClick={onToggleVideo}
+                        title={isVideoEnabled ? 'Stop Video' : 'Start Video'}
+                    >
+                        {isVideoEnabled ? <FaVideo /> : <FaVideoSlash />}
+                    </button>
+                    <button
+                        className={`media-button ${isScreenSharing ? 'active' : ''}`}
+                        onClick={onToggleScreenShare}
+                        disabled={!isScreenShareSupported}
+                        title={
+                            !isScreenShareSupported 
+                                ? 'Screen sharing not supported on this device/browser' 
+                                : (isScreenSharing ? 'Stop Screen Share' : 'Start Screen Share')
+                        }
+                    >
+                        {!isScreenShareSupported ? <FaBan /> : (isScreenSharing ? <FaStop /> : <FaDesktop />)}
+                    </button>
+                    {onLogout && (
+                        <button
+                            className="logout-button"
+                            onClick={onLogout}
+                            title="Logout"
+                        >
+                            Logout
+                        </button>
+                    )}
+                </div>
+            )}
         </div>
     );
 };

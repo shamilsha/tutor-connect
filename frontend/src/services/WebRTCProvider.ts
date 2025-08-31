@@ -61,6 +61,10 @@ export class WebRTCProvider implements IWebRTCProvider {
     private hasRemoteAudio: boolean = false;
     private hasRemoteVideo: boolean = false;
     
+    // Screen sharing state
+    private screenShareStream: MediaStream | null = null;
+    private isScreenSharing: boolean = false;
+    
     // Debug logging state tracking
     private _lastLoggedRemoteVideoState: boolean | undefined;
     private _lastLoggedRemoteStreamState: string | undefined;
@@ -1486,13 +1490,48 @@ export class WebRTCProvider implements IWebRTCProvider {
          * - Used for video chat, screen sharing, etc.
          */
         connection.ontrack = (event) => {
-            console.log(`[WebRTC] 🎥 PEER ${this.userId} RECEIVED ${event.track.kind} TRACK FROM PEER ${peerId}`);
-            console.log(`[WebRTC] Track details:`, {
-                kind: event.track.kind,
-                enabled: event.track.enabled,
-                id: event.track.id,
-                streamId: event.streams?.[0]?.id
+                            console.log(`[WebRTC] 🎥 PEER ${this.userId} RECEIVED ${event.track.kind} TRACK FROM PEER ${peerId}`);
+                console.log(`[WebRTC] Track details:`, {
+                    kind: event.track.kind,
+                    enabled: event.track.enabled,
+                    id: event.track.id,
+                    label: event.track.label,
+                    streamId: event.streams?.[0]?.id
+                });
+            
+            // Check if this is a screen share track
+            // Screen share tracks can be identified by:
+            // 1. Track label containing screen/display/window keywords
+            // 2. Coming from a different stream than the main video stream
+            const trackLabel = event.track.label.toLowerCase();
+            const streamId = event.streams?.[0]?.id;
+            const existingRemoteStream = this.remoteStreams.get(peerId);
+            const isScreenShareTrack = event.track.kind === 'video' && 
+                (trackLabel.includes('screen') || 
+                 trackLabel.includes('display') || 
+                 trackLabel.includes('window') ||
+                 // If this track comes from a different stream than the main remote stream, it's likely screen share
+                 (streamId && existingRemoteStream && streamId !== existingRemoteStream.id));
+            
+            console.log(`[WebRTC] 🔍 Track classification for peer ${peerId}:`, {
+                trackKind: event.track.kind,
+                trackLabel: event.track.label,
+                trackId: event.track.id,
+                isScreenShareTrack,
+                streamId: event.streams?.[0]?.id,
+                existingRemoteStreamId: this.remoteStreams.get(peerId)?.id,
+                trackLabelLower: event.track.label.toLowerCase(),
+                containsScreen: event.track.label.toLowerCase().includes('screen'),
+                containsDisplay: event.track.label.toLowerCase().includes('display'),
+                containsWindow: event.track.label.toLowerCase().includes('window'),
+                streamIdDifferent: streamId && existingRemoteStream ? streamId !== existingRemoteStream.id : false
             });
+            
+            if (isScreenShareTrack) {
+                console.log(`[WebRTC] 🖥️ Detected screen share track from peer ${peerId}`);
+                this.handleScreenShareTrack(event, peerId);
+                return;
+            }
             
             // Check if we should ignore this track based on current media state
             // Only ignore video tracks if we have explicitly received a media state message saying video is off
@@ -1870,19 +1909,24 @@ export class WebRTCProvider implements IWebRTCProvider {
             const connection = peerState.connection;
             
             // Add local tracks only for renegotiation (when user enables media)
-            if (isRenegotiation && this.localStream) {
-                const enabledTracks = this.localStream.getTracks().filter(track => track.enabled);
-                console.log(`[WebRTC] Adding ${enabledTracks.length} enabled local tracks to offer for peer ${peerId} (renegotiation: ${isRenegotiation})`);
+            if (isRenegotiation && (this.localStream || this.screenShareStream)) {
+                // Collect all enabled tracks from both local stream and screen share stream
+                const localTracks = this.localStream ? this.localStream.getTracks().filter(track => track.enabled) : [];
+                const screenShareTracks = this.screenShareStream ? this.screenShareStream.getTracks().filter(track => track.enabled) : [];
+                const allEnabledTracks = [...localTracks, ...screenShareTracks];
+                
+                console.log(`[WebRTC] Adding ${allEnabledTracks.length} enabled tracks to offer for peer ${peerId} (renegotiation: ${isRenegotiation})`);
                 console.log(`[WebRTC] 🔍 Track filtering details:`, {
-                    totalTracks: this.localStream.getTracks().length,
-                    enabledTracks: enabledTracks.length,
-                    allTracks: this.localStream.getTracks().map(t => ({ kind: t.kind, id: t.id, enabled: t.enabled })),
-                    enabledTrackDetails: enabledTracks.map(t => ({ kind: t.kind, id: t.id, enabled: t.enabled }))
+                    localTracks: localTracks.length,
+                    screenShareTracks: screenShareTracks.length,
+                    totalTracks: allEnabledTracks.length,
+                    allTracks: allEnabledTracks.map(t => ({ kind: t.kind, id: t.id, enabled: t.enabled, source: this.localStream?.getTracks().includes(t) ? 'local' : 'screenShare' })),
+                    enabledTrackDetails: allEnabledTracks.map(t => ({ kind: t.kind, id: t.id, enabled: t.enabled, source: this.localStream?.getTracks().includes(t) ? 'local' : 'screenShare' }))
                 });
                 
                 // Double-check that our state variables match the track states
-                const videoTracks = this.localStream.getVideoTracks();
-                const audioTracks = this.localStream.getAudioTracks();
+                const videoTracks = this.localStream?.getVideoTracks() || [];
+                const audioTracks = this.localStream?.getAudioTracks() || [];
                 const enabledVideoTracks = videoTracks.filter(t => t.enabled);
                 const enabledAudioTracks = audioTracks.filter(t => t.enabled);
                 
@@ -1901,7 +1945,7 @@ export class WebRTCProvider implements IWebRTCProvider {
                 const existingSenders = connection.getSenders();
                 const existingTrackIds = new Set(existingSenders.map(s => s.track?.id).filter(id => id));
                 
-                enabledTracks.forEach(track => {
+                allEnabledTracks.forEach(track => {
                     console.log(`[WebRTC] Processing enabled track:`, { kind: track.kind, enabled: track.enabled, id: track.id });
                     
                     // Check if this track is already added
@@ -1911,11 +1955,14 @@ export class WebRTCProvider implements IWebRTCProvider {
                     }
                     
                     try {
-                        const sender = connection.addTrack(track, this.localStream!);
+                        // Determine which stream this track belongs to
+                        const sourceStream = this.localStream?.getTracks().includes(track) ? this.localStream : this.screenShareStream;
+                        const sender = connection.addTrack(track, sourceStream!);
                         console.log(`[WebRTC] Track sender created:`, { 
                             trackId: sender.track?.id, 
                             kind: sender.track?.kind,
-                            enabled: sender.track?.enabled 
+                            enabled: sender.track?.enabled,
+                            source: this.localStream?.getTracks().includes(track) ? 'local' : 'screenShare'
                         });
                         // Track this as a local sender track
                         if (sender.track) {
@@ -2445,6 +2492,20 @@ export class WebRTCProvider implements IWebRTCProvider {
                  // Clean up remote stream for this peer
                     this.remoteStreams.delete(peerId);
                 
+                 // Clean up screen share stream for this peer (if it exists)
+                 const screenShareKey = `${peerId}-screen-share`;
+                 if (this.remoteStreams.has(screenShareKey)) {
+                     console.log(`[WebRTC] 🖥️ Cleaning up screen share stream for peer ${peerId}`);
+                     const screenShareStream = this.remoteStreams.get(screenShareKey);
+                     if (screenShareStream) {
+                         screenShareStream.getTracks().forEach(track => {
+                             track.stop();
+                             console.log(`[WebRTC] 🖥️ Stopped remote screen share track: ${track.id}`);
+                         });
+                     }
+                     this.remoteStreams.delete(screenShareKey);
+                 }
+                
                  console.log(`[WebRTC] Cleaned up connection and remote stream for peer ${peerId}`);
                 
                 // Reset remote state variables if no more remote streams
@@ -2470,10 +2531,19 @@ export class WebRTCProvider implements IWebRTCProvider {
                          // Clean up all remote streams
             this.remoteStreams.clear();
             
-
+            // Clean up screen share streams and state
+            if (this.screenShareStream) {
+                console.log(`[WebRTC] 🖥️ Cleaning up screen share stream during disconnect`);
+                this.screenShareStream.getTracks().forEach(track => {
+                    track.stop();
+                    console.log(`[WebRTC] 🖥️ Stopped screen share track: ${track.id}`);
+                });
+                this.screenShareStream = null;
+                this.isScreenSharing = false;
+            }
              
-             // Reset remote state variables
-             console.log(`[WebRTC] 🔄 All connections cleaned up, resetting remote state variables`);
+            // Reset remote state variables
+            console.log(`[WebRTC] 🔄 All connections cleaned up, resetting remote state variables`);
             this.updateRemoteVideoState(false);
             this.updateRemoteAudioState(false);
             
@@ -2601,6 +2671,22 @@ export class WebRTCProvider implements IWebRTCProvider {
             });
             
             this.localStream = null;
+        }
+        
+        // Stop screen share stream if active
+        if (this.screenShareStream) {
+            console.log(`[WebRTC] 🔄 RESET: Stopping screen share stream`);
+            this.screenShareStream.getTracks().forEach(track => {
+                console.log(`[WebRTC] 🔄 RESET: Stopping screen share track:`, {
+                    kind: track.kind,
+                    id: track.id,
+                    enabled: track.enabled,
+                    readyState: track.readyState
+                });
+                track.stop();
+            });
+            this.screenShareStream = null;
+            this.isScreenSharing = false;
         }
         
         // Reset media state flags
@@ -2834,6 +2920,176 @@ export class WebRTCProvider implements IWebRTCProvider {
         }
     }
 
+    /**
+     * Start screen sharing
+     */
+    public async startScreenShare(): Promise<void> {
+        console.log('[WebRTC] 🖥️ Starting screen share...');
+        
+        try {
+            // Get screen share stream
+            const screenStream = await navigator.mediaDevices.getDisplayMedia({
+                video: true,
+                audio: false // Screen share audio can be added later if needed
+            });
+            
+            console.log('[WebRTC] 🖥️ Screen share stream obtained:', {
+                streamId: screenStream.id,
+                videoTracks: screenStream.getVideoTracks().length,
+                audioTracks: screenStream.getAudioTracks().length
+            });
+            
+            // Store the screen share stream
+            this.screenShareStream = screenStream;
+            this.isScreenSharing = true;
+            
+            // Add screen share tracks to all peer connections
+            for (const [peerId, peerState] of this.connections.entries()) {
+                if (peerState.phase === 'connected') {
+                    console.log(`[WebRTC] 🖥️ Adding screen share tracks to peer ${peerId}`);
+                    
+                    // Add video track from screen share
+                    const videoTrack = screenStream.getVideoTracks()[0];
+                    if (videoTrack) {
+                        const sender = peerState.connection.addTrack(videoTrack, screenStream);
+                        console.log(`[WebRTC] 🖥️ Added screen share video track to peer ${peerId}:`, {
+                            trackId: videoTrack.id
+                        });
+                    }
+                    
+                    // Trigger renegotiation to send the new screen share track to remote peer
+                    console.log(`[WebRTC] 🖥️ Triggering renegotiation for screen share to peer ${peerId}`);
+                    await this.forceRenegotiation(peerId);
+                }
+            }
+            
+            // Handle screen share stream ending (user stops sharing)
+            screenStream.getVideoTracks()[0].onended = () => {
+                console.log('[WebRTC] 🖥️ Screen share stream ended by user');
+                this.stopScreenShare();
+            };
+            
+            // Notify UI of state change
+            this.notifyStateChange();
+            
+            console.log('[WebRTC] ✅ Screen share started successfully');
+            
+        } catch (error) {
+            console.error('[WebRTC] ❌ Failed to start screen share:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Stop screen sharing
+     */
+    public async stopScreenShare(): Promise<void> {
+        console.log('[WebRTC] 🖥️ Stopping screen share...');
+        
+        try {
+            // Stop all tracks in the screen share stream
+            if (this.screenShareStream) {
+                this.screenShareStream.getTracks().forEach(track => {
+                    track.stop();
+                    console.log(`[WebRTC] 🖥️ Stopped screen share track: ${track.id}`);
+                });
+            }
+            
+            // Remove screen share tracks from all peer connections
+            for (const [peerId, peerState] of this.connections.entries()) {
+                if (peerState.phase === 'connected') {
+                    console.log(`[WebRTC] 🖥️ Removing screen share tracks from peer ${peerId}`);
+                    
+                    // Remove all senders that have screen share tracks
+                    const senders = peerState.connection.getSenders();
+                    let removedAnyTrack = false;
+                    senders.forEach(sender => {
+                        if (sender.track && sender.track.kind === 'video' && 
+                            this.screenShareStream && this.screenShareStream.getTracks().includes(sender.track)) {
+                            peerState.connection.removeTrack(sender);
+                            console.log(`[WebRTC] 🖥️ Removed screen share track from peer ${peerId}: ${sender.track.id}`);
+                            removedAnyTrack = true;
+                        }
+                    });
+                    
+                    // Trigger renegotiation if we removed any tracks
+                    if (removedAnyTrack) {
+                        console.log(`[WebRTC] 🖥️ Triggering renegotiation after removing screen share from peer ${peerId}`);
+                        await this.forceRenegotiation(peerId);
+                    }
+                }
+            }
+            
+            // Clear screen share state
+            this.screenShareStream = null;
+            this.isScreenSharing = false;
+            
+            // Notify UI of state change
+            this.notifyStateChange();
+            
+            console.log('[WebRTC] ✅ Screen share stopped successfully');
+            
+        } catch (error) {
+            console.error('[WebRTC] ❌ Failed to stop screen share:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Get screen share stream
+     */
+    public getScreenShareStream(): MediaStream | null {
+        return this.screenShareStream;
+    }
+
+    /**
+     * Get remote screen share stream from a specific peer
+     */
+    public getRemoteScreenShareStream(peerId: string): MediaStream | null {
+        const screenShareKey = `${peerId}-screen-share`;
+        return this.remoteStreams.get(screenShareKey) || null;
+    }
+
+    /**
+     * Check if screen sharing is active
+     */
+    public isScreenSharingActive(): boolean {
+        return this.isScreenSharing;
+    }
+
+    /**
+     * Handle incoming screen share tracks from remote peers
+     */
+    private handleScreenShareTrack(event: RTCTrackEvent, peerId: string): void {
+        console.log(`[WebRTC] 🖥️ Handling screen share track from peer ${peerId}`);
+        
+        // Create a separate stream for screen share if it doesn't exist
+        let screenShareStream = new MediaStream();
+        screenShareStream.addTrack(event.track);
+        
+        // Store the screen share stream separately from regular remote streams
+        // We'll need to modify the VideoChat component to handle this
+        console.log(`[WebRTC] 🖥️ Created screen share stream for peer ${peerId}:`, {
+            streamId: screenShareStream.id,
+            trackId: event.track.id,
+            trackLabel: event.track.label
+        });
+        
+        // For now, we'll store it in the remoteStreams map with a special key
+        const screenShareKey = `${peerId}-screen-share`;
+        this.remoteStreams.set(screenShareKey, screenShareStream);
+        
+        // Handle track ended events
+        event.track.onended = () => {
+            console.log(`[WebRTC] 🖥️ Screen share track ended from peer ${peerId}`);
+            this.remoteStreams.delete(screenShareKey);
+            this.notifyStateChange();
+        };
+        
+        // Notify UI of state change
+        this.notifyStateChange();
+    }
+
     public destroy(): void {
         console.log(`[WebRTC] 🗑️ DESTROY: Starting WebRTCProvider destruction for instance ${this.instanceId}`);
         
@@ -2860,6 +3116,14 @@ export class WebRTCProvider implements IWebRTCProvider {
             if (this.localStream) {
                 this.localStream.getTracks().forEach(track => track.stop());
                 this.localStream = null;
+            }
+            
+            // Clear screen share stream
+            if (this.screenShareStream) {
+                console.log(`[WebRTC] 🗑️ DESTROY: Cleaning up screen share stream`);
+                this.screenShareStream.getTracks().forEach(track => track.stop());
+                this.screenShareStream = null;
+                this.isScreenSharing = false;
             }
             
             // Reset all state variables
