@@ -592,6 +592,23 @@ const VideoChat = ({
     // Prioritize local screen share over remote screen share
     const screenShareStreamForDisplay = screenShareStream || remoteScreenShareStream;
     
+    // 🔍 SCREEN SHARE STREAM ASSIGNMENT LOGGING
+    console.log('[VideoChat] 🖥️ SCREEN SHARE STREAM ASSIGNMENT:', {
+        screenShareStreamForDisplayId: screenShareStreamForDisplay?.id,
+        localScreenShareStreamId: screenShareStream?.id,
+        remoteScreenShareStreamId: remoteScreenShareStream?.id,
+        isLocalScreenShare: !!screenShareStream,
+        isRemoteScreenShare: !!remoteScreenShareStream,
+        finalStreamSource: screenShareStream ? 'LOCAL' : remoteScreenShareStream ? 'REMOTE' : 'NONE',
+        streamTracks: screenShareStreamForDisplay?.getTracks().map(t => ({ 
+            id: t.id, 
+            kind: t.kind, 
+            label: t.label,
+            enabled: t.enabled,
+            readyState: t.readyState
+        })) || []
+    });
+    
     // Computed values - show video panel if any stream is available
     const shouldShowVideo = !!localStream || !!remoteStream || !!screenShareStreamForDisplay;
     
@@ -683,10 +700,23 @@ const VideoChat = ({
                 oldRemoteStreamId: remoteStream?.id
             });
             
+            const newScreenShareStream = provider.getScreenShareStream();
+            const newRemoteScreenShareStream = provider.getRemoteScreenShareStream(selectedPeer);
+            
+            console.log('[VideoChat] 🖥️ SCREEN SHARE STREAM UPDATE:', {
+                oldScreenShareStreamId: screenShareStream?.id,
+                newScreenShareStreamId: newScreenShareStream?.id,
+                oldRemoteScreenShareStreamId: remoteScreenShareStream?.id,
+                newRemoteScreenShareStreamId: newRemoteScreenShareStream?.id,
+                selectedPeer,
+                screenShareStreamChanged: screenShareStream?.id !== newScreenShareStream?.id,
+                remoteScreenShareStreamChanged: remoteScreenShareStream?.id !== newRemoteScreenShareStream?.id
+            });
+            
             setLocalStream(newLocalStream);
             setRemoteStream(newRemoteStream);
-            setScreenShareStream(provider.getScreenShareStream());
-            setRemoteScreenShareStream(provider.getRemoteScreenShareStream(selectedPeer));
+            setScreenShareStream(newScreenShareStream);
+            setRemoteScreenShareStream(newRemoteScreenShareStream);
             setIsAudioEnabled(provider.getLocalAudioState());
             setIsVideoEnabled(provider.getLocalVideoState());
             setIsScreenSharing(provider.isScreenSharingActive());
