@@ -18,8 +18,9 @@ export interface MediaStateData {
 }
 
 export interface StreamEventData {
-    stream: MediaStream;
+    stream: MediaStream | null;
     type: 'local' | 'remote';
+    streamType?: 'audio' | 'video' | 'screen';
 }
 
 export interface ErrorEventData {

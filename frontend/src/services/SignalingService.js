@@ -70,10 +70,12 @@ export class SignalingService {
         // For other signaling messages, use basic format
         let messageId;
         if (message.type === 'offer' || message.type === 'answer') {
-            // Include SDP hash to allow renegotiation offers/answers
+            // For renegotiation offers/answers, include timestamp to ensure uniqueness
+            // This prevents legitimate renegotiation offers from being treated as duplicates
             const sdpHash = message.sdp ? btoa(message.sdp).substring(0, 8) : Date.now();
-            messageId = `${message.type}-${message.from}-${message.to}-${sdpHash}`;
-            console.log(`[SignalingService] 🔍 Generated message ID for ${message.type}: ${messageId} (SDP hash: ${sdpHash})`);
+            const timestamp = Date.now();
+            messageId = `${message.type}-${message.from}-${message.to}-${sdpHash}-${timestamp}`;
+            console.log(`[SignalingService] 🔍 Generated message ID for ${message.type}: ${messageId} (SDP hash: ${sdpHash}, timestamp: ${timestamp})`);
         } else if (message.type === 'media-state') {
             // For media-state messages, include the state content to allow different states
             console.log(`[SignalingService] 🔍 RAW media-state message:`, message);
@@ -103,24 +105,31 @@ export class SignalingService {
         if (!processedHandlers) {
             processedHandlers = new Set();
             this.processedMessages.set(messageId, processedHandlers);
+            console.log(`[SignalingService] 📝 Created new processed handlers set for message ${messageId}`);
+        } else {
+            console.log(`[SignalingService] 📝 Found existing processed handlers for message ${messageId}:`, Array.from(processedHandlers));
         }
+        
+        console.log(`[SignalingService] 📊 Current processed messages cache size: ${this.processedMessages.size}`);
 
         let forwardedCount = 0;
         for (const [handlerId, handler] of handlers) {
             try {
-                // Check if this handler has already processed this message
-                if (!processedHandlers.has(handlerId)) {
-                    // Handle both sync and async handlers
-                    const result = handler(message);
-                    if (result && typeof result.then === 'function') {
-                        // Async handler - wait for it to complete
-                        await result;
-                    }
-                    processedHandlers.add(handlerId);
-                    forwardedCount++;
-                } else {
-                    console.log(`[SignalingService] Handler ${handlerId} already processed message ${messageId}`);
-                }
+                        // Check if this handler has already processed this message
+        if (!processedHandlers.has(handlerId)) {
+            // Handle both sync and async handlers
+            console.log(`[SignalingService] 🔄 Processing message ${messageId} with handler ${handlerId}`);
+            const result = handler(message);
+            if (result && typeof result.then === 'function') {
+                // Async handler - wait for it to complete
+                await result;
+            }
+            processedHandlers.add(handlerId);
+            forwardedCount++;
+            console.log(`[SignalingService] ✅ Message ${messageId} processed by handler ${handlerId}`);
+        } else {
+            console.log(`[SignalingService] ⚠️ Handler ${handlerId} already processed message ${messageId} - skipping`);
+        }
             } catch (error) {
                 console.error('[SignalingService] ❌ Error in message handler:', error);
             }
@@ -134,9 +143,13 @@ export class SignalingService {
         // Clear all processed messages every 10 seconds to prevent memory buildup
         const now = Date.now();
         if (now - this.lastMessageTime > 10000) {
+            const cacheSize = this.processedMessages.size;
             this.processedMessages.clear();
-            console.log('[SignalingService] 🧹 Cleaned up processed messages cache');
+            console.log(`[SignalingService] 🧹 Cleaned up processed messages cache (cleared ${cacheSize} entries)`);
         }
+        
+        // Update last message time
+        this.lastMessageTime = now;
     }
 
     // Socket message handler

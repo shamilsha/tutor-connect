@@ -45,7 +45,8 @@
     
     .video-container:not(.screen-share-active) {
         width: calc(100vw - 10px); /* Match dashboard-content width (5px padding on each side) */
-        height: calc((100vw - 10px) * 0.5625); /* 16:9 aspect ratio (0.5625 = 9/16) */
+        min-height: 300px !important; /* Ensure minimum height even on mobile */
+        height: 300px !important; /* Force height to be 300px on mobile too */
         max-height: calc(50vh - 10px); /* Don't exceed 50% of viewport height */
         display: flex;
         align-items: center;
@@ -148,20 +149,21 @@
 
 /* When no screen sharing, position video container within video-chat */
 .video-container:not(.screen-share-active) {
-    position: relative; /* Changed from fixed to relative to stay within video-chat */
-    width: 100%; /* Use full width of video-chat container */
-    height: calc(100% * 0.5625); /* 16:9 aspect ratio based on width (0.5625 = 9/16) */
-    max-height: calc(50vh - 40px); /* Don't exceed 1/2 of viewport height */
-    margin: 0; /* No margin to use full width */
-    z-index: 2001; /* Higher than connection panel */
-    background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 50%, #1a1a1a 100%);
-    border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border: 3px solid #4ecdc4; /* Teal border for main video window */
-    box-sizing: border-box;
+    position: relative !important; /* Changed from fixed to relative to stay within video-chat */
+    width: 100% !important; /* Use full width of video-chat container */
+    min-height: 300px !important; /* Set minimum height to ensure video container is visible - use !important to override mobile rules */
+    height: 300px !important; /* Force height to be 300px to ensure video is visible - use !important to override mobile rules */
+    max-height: calc(50vh - 40px) !important; /* Don't exceed 1/2 of viewport height */
+    margin: 0 !important; /* No margin to use full width */
+    z-index: 2001 !important; /* Higher than connection panel */
+    background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 50%, #1a1a1a 100%) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border: 3px solid #4ecdc4 !important; /* Teal border for main video window */
+    box-sizing: border-box !important;
 }
 
 .video-container {
@@ -174,8 +176,15 @@
 
 /* When no screen sharing, ensure video is at the top */
 .video-container:not(.screen-share-active) {
-    margin-top: 0;
-    height: auto; /* Let content determine height */
+    margin-top: 0 !important;
+    height: 300px !important; /* Force height to be 300px */
+}
+
+/* Additional rule to ensure video container height on all devices */
+.video-container:not(.screen-share-active) {
+    height: 300px !important;
+    min-height: 300px !important;
+    max-height: none !important;
 }
 
 /* When screen sharing is active, position main video container inside screen share window */

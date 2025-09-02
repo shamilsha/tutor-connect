@@ -159,6 +159,7 @@ wss.on('connection', (ws) => {
                             type: data.type,
                             from: data.from,
                             to: data.to,
+                            sdp: data.sdp,
                             data: data.data,
                             candidate: data.candidate
                         }));

@@ -10,6 +10,31 @@ import { useCommunication } from '../context/CommunicationContext';
 import { WebSocketProvider } from '../services/WebSocketProvider';
 import { getBuildDisplay } from '../utils/buildVersion';
 
+// Utility function to properly log objects with fallbacks
+const safeLog = (label, obj, fallback = 'No data') => {
+    try {
+        if (obj === null) {
+            console.log(label, 'null');
+        } else if (obj === undefined) {
+            console.log(label, 'undefined');
+        } else if (typeof obj === 'object') {
+            // Try to stringify the object to see its contents
+            const stringified = JSON.stringify(obj, null, 2);
+            console.log(label, {
+                type: typeof obj,
+                constructor: obj.constructor?.name || 'Unknown',
+                keys: Object.keys(obj),
+                stringified: stringified,
+                raw: obj
+            });
+        } else {
+            console.log(label, obj);
+        }
+    } catch (error) {
+        console.log(label, `[Error logging object: ${error.message}]`, obj);
+    }
+};
+
 const DashboardPage = () => {
     const [isWebSocketConnected, setIsWebSocketConnected] = useState(false);
     const [isPeerConnected, setIsPeerConnected] = useState(false);
@@ -72,7 +97,7 @@ const DashboardPage = () => {
         return () => {
             if (provider) {
                 console.log('[DashboardPage] 🧹 Cleaning up WebRTC provider on provider change');
-                WebRTCProvider.clearActiveInstance();
+                WebRTCProvider.clearAllInstances();
             }
         };
     }, [provider]);
@@ -645,7 +670,34 @@ const DashboardPage = () => {
         });
 
         rtcProvider.addEventListener('message', (event) => {
-            console.log('[DashboardPage] Received message from peer:', event.data);
+            // Enhanced debugging to identify message structure issues
+            console.group('[DashboardPage] 🔍 Message Event Debug');
+            safeLog('Event type:', event.type);
+            safeLog('Event peerId:', event.peerId);
+            safeLog('Event data type:', typeof event.data);
+            safeLog('Event data:', event.data);
+            
+            // Try to show the actual message content
+            if (event.data) {
+                safeLog('Data keys:', Object.keys(event.data));
+                safeLog('Data content:', event.data);
+                
+                // Try to stringify the data to see its actual content
+                try {
+                    safeLog('Stringified data:', JSON.stringify(event.data, null, 2));
+                } catch (e) {
+                    safeLog('Could not stringify data:', e);
+                }
+            } else {
+                console.log('No data in event');
+            }
+            
+            // Log the full event object structure
+            safeLog('Full event object:', event);
+            safeLog('Event constructor:', event.constructor.name);
+            safeLog('Event prototype chain:', Object.getPrototypeOf(event));
+            console.groupEnd();
+            
             try {
                 const messageData = event.data;
                 setReceivedMessages(prev => [...prev, {
@@ -909,6 +961,16 @@ const DashboardPage = () => {
 
     const handleSendMessage = async (message) => {
         if (!provider || !selectedPeer) return;
+        
+        // Debug: Log what message is being sent
+        console.group('[DashboardPage] 📤 Sending Message Debug');
+        safeLog('Message object:', message);
+        safeLog('Message type:', typeof message);
+        safeLog('Message keys:', message ? Object.keys(message) : 'no message');
+        safeLog('Message content:', message);
+        safeLog('Selected peer:', selectedPeer);
+        safeLog('Provider exists:', !!provider);
+        console.groupEnd();
         
         try {
             await provider.sendMessage(selectedPeer, message);
