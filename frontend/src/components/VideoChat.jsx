@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import '../styles/VideoChat.css';
 import ChatPanel from './ChatPanel';
 
@@ -27,7 +27,7 @@ const safeLog = (label, obj, fallback = 'No data') => {
     }
 };
 
-const VideoDisplay = React.memo(({ mainStream, pipStream, isScreenSharing, windowPosition, isDragging, onMouseDown, onTouchStart }) => {
+const VideoDisplay = React.memo(({ mainStream, pipStream, isScreenSharing, windowPosition, isDragging, onMouseDown, onTouchStart, containerDimensions, setContainerDimensions, hasBeenManuallyResized, setHasBeenManuallyResized }) => {
     const mainVideoRef = React.useRef(null);
     const pipVideoRef = React.useRef(null);
 
@@ -38,9 +38,23 @@ const VideoDisplay = React.memo(({ mainStream, pipStream, isScreenSharing, windo
         isScreenSharing
     });
 
-    // Simple stream assignment to video elements
-    useEffect(() => {
-        console.log('[VideoDisplay] Main stream effect triggered:', mainStream ? 'Has stream' : 'No stream');
+         // Ensure DOM dimensions stay in sync with React state when manually resized
+     useLayoutEffect(() => {
+         if (hasBeenManuallyResized && mainVideoRef.current) {
+             const container = mainVideoRef.current.closest('.video-container');
+             if (container) {
+                 console.log('[VideoDisplay] 🔧 Syncing DOM with manual resize state:', containerDimensions);
+                 container.style.setProperty('width', `${containerDimensions.width}px`, 'important');
+                 container.style.setProperty('height', `${containerDimensions.height}px`, 'important');
+                 // Force reflow to ensure immediate update
+                 container.offsetHeight;
+             }
+         }
+     }, [hasBeenManuallyResized, containerDimensions]);
+     
+     // Simple stream assignment to video elements
+     useEffect(() => {
+         console.log('[VideoDisplay] Main stream effect triggered:', mainStream ? 'Has stream' : 'No stream');
         if (mainVideoRef.current) {
             if (mainStream) {
                 console.log('[VideoDisplay] Setting main video srcObject');
@@ -85,82 +99,341 @@ const VideoDisplay = React.memo(({ mainStream, pipStream, isScreenSharing, windo
         }
     }, [pipStream]);
 
+        console.log('[VideoDisplay] 🔧 Rendering VideoDisplay component with resize handle');
+    
     return (
-        <div 
-            className={`video-container ${isScreenSharing ? 'screen-share-active' : ''}`}
-                         style={{ 
-                 border: '1px solid #ccc',
-                 borderRadius: '4px',
-                 margin: '8px',
-                 padding: '8px',
-                 position: 'fixed',
-                 top: `${windowPosition.y}px`,
-                 left: `${windowPosition.x}px`,
-                 zIndex: 2000,
-                 background: 'white',
-                 boxShadow: '0 10px 30px rgba(0, 0, 0, 0.3)',
-                 cursor: isDragging ? 'grabbing' : 'grab',
-                 userSelect: 'none'
+                           <div 
+              className={`video-container ${isScreenSharing ? 'screen-share-active' : ''}`}
+                                                     style={{ 
+                  border: '1px solid #ccc',
+                  borderRadius: '4px',
+                  margin: '8px',
+                  padding: '8px',
+                  position: 'fixed',
+                  top: `${windowPosition.y}px`,
+                  left: `${windowPosition.x}px`,
+                  zIndex: 2000,
+                  background: 'white',
+                  boxShadow: '0 10px 30px rgba(0, 0, 0, 0.3)',
+                  cursor: isDragging ? 'grabbing' : 'grab',
+                  userSelect: 'none',
+                  width: `${containerDimensions.width}px !important`,
+                  height: `${containerDimensions.height}px !important`,
+                  minWidth: '300px',
+                  maxWidth: '800px',
+                  minHeight: '350px',
+                  maxHeight: '600px',
+                  overflow: 'hidden'
+              }}
+                                                       onMouseDown={onMouseDown}
+               onTouchStart={onTouchStart}
+             ref={(el) => {
+                 if (el) {
+                     // Force sync DOM dimensions with React state when component mounts/re-renders
+                     if (hasBeenManuallyResized) {
+                         console.log('[VideoDisplay] 🔧 Forcing DOM sync with manual resize dimensions:', containerDimensions);
+                         el.style.setProperty('width', `${containerDimensions.width}px`, 'important');
+                         el.style.setProperty('height', `${containerDimensions.height}px`, 'important');
+                         // Force reflow to ensure immediate update
+                         el.offsetHeight;
+                     }
+                     
+                     safeLog('[VideoDisplay] Video container dimensions:', {
+                         offsetWidth: el.offsetWidth,
+                         offsetHeight: el.offsetHeight,
+                         clientWidth: el.clientWidth,
+                         clientHeight: el.clientHeight,
+                         scrollWidth: el.scrollWidth,
+                         scrollHeight: el.scrollHeight,
+                         hasBeenManuallyResized,
+                         containerDimensions
+                     });
+                 }
              }}
-                           onMouseDown={onMouseDown}
-              onTouchStart={onTouchStart}
-            ref={(el) => {
-                if (el) {
-                    safeLog('[VideoDisplay] Video container dimensions:', {
-                        offsetWidth: el.offsetWidth,
-                        offsetHeight: el.offsetHeight,
-                        clientWidth: el.clientWidth,
-                        clientHeight: el.clientHeight,
-                        scrollWidth: el.scrollWidth,
-                        scrollHeight: el.scrollHeight
-                    });
-                }
-            }}
             
         >
-            {/* Drag indicator */}
-            <div style={{
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                color: 'white',
-                padding: '4px 8px',
-                borderRadius: '4px 4px 0 0',
-                fontSize: '12px',
-                fontWeight: 'bold',
-                textAlign: 'center',
-                margin: '-8px -8px 8px -8px',
-                cursor: 'grab'
-            }}>
-                🖱️ Drag to move video window
-            </div>
-            <div className="main-video-wrapper">
-                <video
-                    ref={mainVideoRef}
-                    autoPlay
-                    playsInline
-                    muted={false}
-                    controls={false}
-                    style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover',
-                        border: '2px solid red', // Add visible border for debugging
-                        backgroundColor: 'black' // Add background color for debugging
-                    }}
-                    onLoadedMetadata={() => {
-                        if (mainVideoRef.current) {
-                            const videoElement = mainVideoRef.current;
-                            safeLog('[VideoDisplay] Video metadata loaded:', {
-                                videoWidth: videoElement.videoWidth,
-                                videoHeight: videoElement.videoHeight,
-                                duration: videoElement.duration,
-                                readyState: videoElement.readyState,
-                                paused: videoElement.paused,
-                                currentTime: videoElement.currentTime,
-                                srcObject: videoElement.srcObject ? 'Has Stream' : 'No Stream',
-                                streamId: videoElement.srcObject?.id || 'No ID'
+                                                   {/* Resize handle indicator */}
+              <div 
+                  style={{
+                      position: 'absolute',
+                      bottom: '4px',
+                      right: '4px',
+                      width: '20px',
+                      height: '20px',
+                      background: 'linear-gradient(-45deg, transparent 30%, #ff0000 30%, #ff0000 70%, transparent 70%)',
+                      cursor: 'nw-resize',
+                      zIndex: 1001,
+                      border: '2px solid #ff0000',
+                      borderRadius: '3px',
+                      boxShadow: '0 2px 6px rgba(255,0,0,0.5)'
+                  }}
+                  title="Drag to resize video window (RED HANDLE)"
+                  onClick={() => console.log('[VideoDisplay] 🔧 Resize handle clicked (not dragged)')}
+                                     onMouseDown={(e) => {
+                       console.log('[VideoDisplay] 🔧 Resize handle mouse down triggered');
+                       e.stopPropagation(); // Prevent drag when resizing
+                       e.preventDefault();
+                       
+                       const container = e.currentTarget.parentElement;
+                       if (!container) {
+                           console.log('[VideoDisplay] ❌ Resize failed: No container found');
+                           return;
+                       }
+                       
+                       console.log('[VideoDisplay] 🔧 Resize started:', {
+                           startX: e.clientX,
+                           startY: e.clientY,
+                           startWidth: container.offsetWidth,
+                           startHeight: container.offsetHeight,
+                           containerElement: container.tagName,
+                           containerId: container.id || 'no-id'
+                       });
+                       
+                       const startX = e.clientX;
+                       const startY = e.clientY;
+                       const startWidth = container.offsetWidth;
+                       const startHeight = container.offsetHeight;
+                       
+                                               const handleMouseMove = (moveEvent) => {
+                            if (!container) {
+                                console.log('[VideoDisplay] ❌ Resize move failed: Container lost');
+                                return;
+                            }
+                            
+                            const deltaX = moveEvent.clientX - startX;
+                            const deltaY = moveEvent.clientY - startY;
+                            
+                            const newWidth = Math.max(300, Math.min(600, startWidth + deltaX));
+                            const newHeight = Math.max(200, Math.min(600, startHeight + deltaY)); // Allow height to change more freely
+                            
+                            // SMOOTH RESIZE: Only update DOM during resize, not React state
+                            container.style.setProperty('width', `${newWidth}px`, 'important');
+                            container.style.setProperty('height', `${newHeight}px`, 'important');
+                            
+                            // Force a reflow to ensure the DOM updates immediately
+                            container.offsetHeight; // This triggers a reflow
+                            
+                            console.log('[VideoDisplay] 🔧 Resize move:', {
+                                deltaX,
+                                deltaY,
+                                newWidth,
+                                newHeight,
+                                offsetWidth: container.offsetWidth,
+                                offsetHeight: container.offsetHeight
                             });
-                        }
-                    }}
+                        };
+                       
+                                               const handleMouseUp = () => {
+                            console.log('[VideoDisplay] 🔧 Resize mouse up, cleaning up event listeners');
+                            
+                            // Mark that manual resize has occurred
+                            setHasBeenManuallyResized(true);
+                            
+                            // SYNC STATE: Update React state with final dimensions after resize is complete
+                            if (container) {
+                                const finalWidth = container.offsetWidth;
+                                const finalHeight = container.offsetHeight;
+                                
+                                // Update the parent's state to ensure consistency
+                                setContainerDimensions({
+                                    width: finalWidth,
+                                    height: finalHeight
+                                });
+                                
+                                console.log('[VideoDisplay] ✅ Resize complete, state synced:', {
+                                    finalWidth,
+                                    finalHeight,
+                                    stateWidth: finalWidth,
+                                    stateHeight: finalHeight
+                                });
+                            }
+                            
+                            document.removeEventListener('mousemove', handleMouseMove);
+                            document.removeEventListener('mouseup', handleMouseUp);
+                        };
+                       
+                                               // Immediately mark as manually resized to prevent any automatic sizing interference
+                        setHasBeenManuallyResized(true);
+                        
+                        console.log('[VideoDisplay] 🔧 Adding resize event listeners');
+                        document.addEventListener('mousemove', handleMouseMove);
+                        document.addEventListener('mouseup', handleMouseUp);
+                   }}
+                  onTouchStart={(e) => {
+                      e.stopPropagation(); // Prevent drag when resizing
+                      e.preventDefault();
+                      
+                      const container = e.currentTarget.parentElement;
+                      if (!container) return;
+                      
+                      const touch = e.touches[0];
+                      const startX = touch.clientX;
+                      const startY = touch.clientY;
+                      const startWidth = container.offsetWidth;
+                      const startHeight = container.offsetHeight;
+                      
+                                                                     const handleTouchMove = (moveEvent) => {
+                            if (!container) return;
+                            
+                            const touch = moveEvent.touches[0];
+                            const deltaX = touch.clientX - startX;
+                            const deltaY = touch.clientY - startY;
+                            
+                            const newWidth = Math.max(300, Math.min(600, startWidth + deltaX));
+                            const newHeight = Math.max(200, Math.min(600, startHeight + deltaY)); // Allow height to change more freely
+                           
+                           // SMOOTH RESIZE: Only update DOM during resize, not React state
+                           container.style.setProperty('width', `${newWidth}px`, 'important');
+                           container.style.setProperty('height', `${newHeight}px`, 'important');
+                           
+                           // Force a reflow to ensure the DOM updates immediately
+                           container.offsetHeight; // This triggers a reflow
+                       };
+                      
+                                                                                           const handleTouchEnd = () => {
+                            // Mark that manual resize has occurred
+                            setHasBeenManuallyResized(true);
+                            
+                            // SYNC STATE: Update React state with final dimensions after touch resize is complete
+                            if (container) {
+                                const finalWidth = container.offsetWidth;
+                                const finalHeight = container.offsetHeight;
+                                
+                                // Update the parent's state to ensure consistency
+                                setContainerDimensions({
+                                    width: finalWidth,
+                                    height: finalHeight
+                                });
+                                
+                                console.log('[VideoDisplay] ✅ Touch resize complete, state synced:', {
+                                    finalWidth,
+                                    finalHeight
+                                });
+                            }
+                           
+                           document.removeEventListener('touchmove', handleTouchMove, { passive: false });
+                           document.removeEventListener('touchend', handleTouchEnd);
+                       };
+                      
+                      // Immediately mark as manually resized to prevent any automatic sizing interference
+                      setHasBeenManuallyResized(true);
+                      
+                      document.addEventListener('touchmove', handleTouchMove, { passive: false });
+                      document.addEventListener('touchend', handleTouchEnd);
+                  }}
+              />
+             
+                          <div className="main-video-wrapper" style={{
+                 width: 'calc(100% - 140px)', // Account for PIP space (120px + 20px margin)
+                 height: 'calc(100% - 50px)', // Account for PIP space (90px + 20px margin)
+                 overflow: 'hidden',
+                 position: 'relative',
+                 backgroundColor: '#f0f8ff', // Light blue background for container
+                 display: 'flex',
+                 alignItems: 'center',
+                 justifyContent: 'center'
+             }}>
+                 <video
+                     ref={mainVideoRef}
+                     autoPlay
+                     playsInline
+                     muted={false}
+                     controls={false}
+                     style={{
+                         maxWidth: '100%',
+                         maxHeight: '100%',
+                         width: 'auto',
+                         height: 'auto',
+                         objectFit: 'contain',
+                         border: '2px solid red',
+                         backgroundColor: 'black'
+                     }}
+                                         onLoadedMetadata={() => {
+                         if (mainVideoRef.current) {
+                             const videoElement = mainVideoRef.current;
+                             const videoWidth = videoElement.videoWidth;
+                             const videoHeight = videoElement.videoHeight;
+                             
+                             safeLog('[VideoDisplay] Video metadata loaded:', {
+                                 videoWidth: videoWidth,
+                                 videoHeight: videoHeight,
+                                 duration: videoElement.duration,
+                                 readyState: videoElement.readyState,
+                                 paused: videoElement.paused,
+                                 currentTime: videoElement.currentTime,
+                                 srcObject: videoElement.srcObject ? 'Has Stream' : 'No Stream',
+                                 streamId: videoElement.srcObject?.id || 'No ID'
+                             });
+                             
+                                                           // NEVER calculate dimensions if container has been manually resized
+                             if (hasBeenManuallyResized) {
+                                 console.log('[VideoDisplay] Skipping automatic sizing - container has been manually resized (flag set)');
+                                 return;
+                             }
+                             
+                             // Check if current dimensions are close to initial/default dimensions
+                             const currentWidth = containerDimensions.width;
+                             const currentHeight = containerDimensions.height;
+                             
+                             // More robust check: if dimensions are significantly different from initial, skip auto-sizing
+                             const initialWidth = 400;
+                             const initialHeight = 300;
+                             const tolerance = 100; // Increased tolerance to prevent override
+                             const isInitialSize = Math.abs(currentWidth - initialWidth) < tolerance && Math.abs(currentHeight - initialHeight) < tolerance;
+                             
+                             if (isInitialSize && videoWidth > 0 && videoHeight > 0) {
+                                 const videoAspectRatio = videoWidth / videoHeight;
+                                 
+                                 // Calculate container dimensions to perfectly fit the video
+                                 // Account for PIP space (120px width + 20px margin) and container padding (16px total)
+                                 const pipSpace = 140; // 120px PIP width + 20px margin
+                                 const containerPadding = 16; // 8px padding on each side
+                                 
+                                 // More conservative base dimensions to prevent oversized containers
+                                 const maxVideoHeight = 350; // Reduced from 400 to keep container smaller
+                                 const maxVideoWidth = 500; // Reduced from 800 to keep container smaller
+                                 
+                                 let baseHeight = Math.min(maxVideoHeight, 400);
+                                 let calculatedWidth = (baseHeight * videoAspectRatio) + pipSpace + containerPadding;
+                                 
+                                 // If the calculated width is too large, recalculate based on max width
+                                 if (calculatedWidth > maxVideoWidth) {
+                                     calculatedWidth = maxVideoWidth;
+                                     baseHeight = (maxVideoWidth - pipSpace - containerPadding) / videoAspectRatio;
+                                 }
+                                 
+                                 // Ensure height doesn't exceed reasonable limits
+                                 const maxContainerHeight = 450; // Reduced from 600
+                                 if (baseHeight > maxContainerHeight - 50) { // Leave some space for PIP
+                                     baseHeight = maxContainerHeight - 50;
+                                     calculatedWidth = (baseHeight * videoAspectRatio) + pipSpace + containerPadding;
+                                 }
+                                 
+                                 // Ensure minimum dimensions
+                                 const finalWidth = Math.max(300, Math.min(calculatedWidth, 600)); // Reduced max from 800 to 600
+                                 const finalHeight = Math.max(350, Math.min(baseHeight + 50, maxContainerHeight)); // +50 for PIP space
+                                 
+                                 setContainerDimensions({
+                                     width: finalWidth,
+                                     height: finalHeight
+                                 });
+                                 
+                                 console.log('[VideoDisplay] Calculated optimal container dimensions:', {
+                                     videoAspectRatio: videoAspectRatio.toFixed(2),
+                                     videoDimensions: `${videoWidth}x${videoHeight}`,
+                                     containerDimensions: `${finalWidth}x${finalHeight}`,
+                                     mainVideoArea: `${finalWidth - pipSpace - containerPadding}x${baseHeight}`,
+                                     constraints: `Max: 600x450, Video area: ${finalWidth - pipSpace - containerPadding}x${baseHeight}`
+                                 });
+                             } else {
+                                 console.log('[VideoDisplay] Skipping automatic sizing - container has been manually resized:', {
+                                     currentDimensions: `${currentWidth}x${currentHeight}`,
+                                     isInitialSize,
+                                     videoDimensions: `${videoWidth}x${videoHeight}`
+                                 });
+                             }
+                         }
+                     }}
                     onCanPlay={() => {
                         console.log('[VideoDisplay] Video can play');
                     }}
@@ -174,21 +447,43 @@ const VideoDisplay = React.memo(({ mainStream, pipStream, isScreenSharing, windo
                     </div>
                 )}
                 
-                {/* PiP window - only show when pipStream exists */}
-                {pipStream && (
-                    <div className="pip-video-wrapper">
-                        <video
-                            ref={pipVideoRef}
-                            autoPlay
-                            playsInline
-                                muted
-                                controls={false}
-                                style={{
-                                    width: '100%',
-                                    height: '100%',
-                                objectFit: 'cover'
-                            }}
-                        />
+                                 {/* PiP window - only show when pipStream exists */}
+                 {pipStream && (
+                                          <div className="pip-video-wrapper" style={{
+                         position: 'absolute',
+                         top: '10px',
+                         right: '10px',
+                         width: '120px',
+                         height: '90px',
+                         zIndex: 10,
+                         border: '2px solid #fff',
+                         borderRadius: '4px',
+                         overflow: 'hidden',
+                         backgroundColor: '#f0f8ff' // Light blue background for container
+                     }}>
+                                                   <video
+                              ref={pipVideoRef}
+                              autoPlay
+                              playsInline
+                              muted
+                              controls={false}
+                              style={{
+                                  maxWidth: '100%',
+                                  maxHeight: '100%',
+                                  width: 'auto',
+                                  height: 'auto',
+                                  objectFit: 'contain'
+                              }}
+                             onLoadedMetadata={() => {
+                                 if (pipVideoRef.current) {
+                                     const videoElement = pipVideoRef.current;
+                                     console.log('[VideoDisplay] PIP video metadata loaded:', {
+                                         videoWidth: videoElement.videoWidth,
+                                         videoHeight: videoElement.videoHeight
+                                     });
+                                 }
+                             }}
+                         />
                             </div>
                         )}
             </div>
@@ -220,6 +515,15 @@ const VideoChat = ({
     const [windowPosition, setWindowPosition] = useState({ x: 0, y: 0 });
     const [isDragging, setIsDragging] = useState(false);
     const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+    
+    // Container dimensions state for resize functionality
+    const [containerDimensions, setContainerDimensions] = useState({
+        width: 400,
+        height: 300
+    });
+    
+    // Flag to track if container has been manually resized (persistent across re-renders)
+    const [hasBeenManuallyResized, setHasBeenManuallyResized] = useState(false);
 
     // Listen to WebRTC provider stream changes to trigger re-renders
     useEffect(() => {
@@ -316,27 +620,27 @@ const VideoChat = ({
             providerExists: !!provider
         });
 
-        // VIDEO STREAM ASSIGNMENT - No priority, clear rules
-        let mainStream = null;
-        let pipStream = null;
-        // Rule 1: If only one video stream exists, it goes to main window
-        if (localVideoStream && !remoteVideoStream) {
-            mainStream = localVideoStream;
-            pipStream = null;
-        } else if (remoteVideoStream && !localVideoStream) {
-            mainStream = remoteVideoStream;
-            pipStream = null;
-        }
-        // Rule 2: If both video streams exist, local goes to main, remote goes to PIP
-        else if (localVideoStream && remoteVideoStream) {
-            mainStream = localVideoStream;
-            pipStream = remoteVideoStream;
-        }
-        // Rule 3: If no video streams exist, both are null
-        else {
-            mainStream = null;
-            pipStream = null;
-        }
+                 // VIDEO STREAM ASSIGNMENT - Remote video gets priority for main window
+         let mainStream = null;
+         let pipStream = null;
+         // Rule 1: If only one video stream exists, it goes to main window
+         if (localVideoStream && !remoteVideoStream) {
+             mainStream = localVideoStream;
+             pipStream = null;
+         } else if (remoteVideoStream && !localVideoStream) {
+             mainStream = remoteVideoStream;
+             pipStream = null;
+         }
+         // Rule 2: If both video streams exist, REMOTE goes to main, LOCAL goes to PIP
+         else if (localVideoStream && remoteVideoStream) {
+             mainStream = remoteVideoStream;  // Remote video in main window
+             pipStream = localVideoStream;    // Local video in PIP window
+         }
+         // Rule 3: If no video streams exist, both are null
+         else {
+             mainStream = null;
+             pipStream = null;
+         }
         
         // Debug stream assignment logic
         console.log('[VideoChat] 🔍 Stream assignment logic debug:', {
@@ -352,15 +656,15 @@ const VideoChat = ({
             remoteAudioExists: !!remoteAudioStream
         });
         
-        console.log('[VideoChat] Final stream assignment:', {
-            mainStream: mainStream ? `Has stream (${mainStream.id})` : 'No stream',
-            pipStream: pipStream ? `Has stream (${pipStream.id})` : 'No stream',
-            screenShareStream: screenShareStream ? `Has stream (${screenShareStream.id})` : 'No stream',
-            localAudioStream: localAudioStream ? `Has stream (${localAudioStream.id})` : 'No stream',
-            remoteAudioStream: remoteAudioStream ? `Has stream (${remoteAudioStream.id})` : 'No stream',
-            isScreenSharing: !!screenShareStream,
-            note: 'Audio streams are handled separately, video streams follow clear assignment rules'
-        });
+                 console.log('[VideoChat] Final stream assignment:', {
+             mainStream: mainStream ? `Has stream (${mainStream.id})` : 'No stream',
+             pipStream: pipStream ? `Has stream (${pipStream.id})` : 'No stream',
+             screenShareStream: screenShareStream ? `Has stream (${screenShareStream.id})` : 'No stream',
+             localAudioStream: localAudioStream ? `Has stream (${localAudioStream.id})` : 'No stream',
+             remoteAudioStream: remoteAudioStream ? `Has stream (${remoteAudioStream.id})` : 'No stream',
+             isScreenSharing: !!screenShareStream,
+             note: 'Audio streams are handled separately, video streams: REMOTE gets main window, LOCAL gets PIP when both exist'
+         });
         
         return {
             mainStream: mainStream,
@@ -664,18 +968,22 @@ const VideoChat = ({
                 </div>
             )}
             
-                         {/* Main Video Display - Only for video streams */}
-             {(streams.mainStream || streams.pipStream) && (
-                                  <VideoDisplay
-                      mainStream={streams.mainStream}
-                      pipStream={streams.pipStream}
-                      isScreenSharing={!!streams.screenShareStream}
-                      windowPosition={windowPosition}
-                      isDragging={isDragging}
-                      onMouseDown={handleMouseDown}
-                      onTouchStart={handleTouchStart}
-                  />
-             )}
+                                                   {/* Main Video Display - Only for video streams */}
+              {(streams.mainStream || streams.pipStream) && (
+                                                                      <VideoDisplay
+                        mainStream={streams.mainStream}
+                        pipStream={streams.pipStream}
+                        isScreenSharing={!!streams.screenShareStream}
+                        windowPosition={windowPosition}
+                        isDragging={isDragging}
+                        onMouseDown={handleMouseDown}
+                        onTouchStart={handleTouchStart}
+                        containerDimensions={containerDimensions}
+                        setContainerDimensions={setContainerDimensions}
+                        hasBeenManuallyResized={hasBeenManuallyResized}
+                        setHasBeenManuallyResized={setHasBeenManuallyResized}
+                    />
+              )}
 
             {/* Media controls are handled by ConnectionPanel - no duplicate buttons here */}
 
