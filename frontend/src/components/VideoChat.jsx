@@ -27,7 +27,7 @@ const safeLog = (label, obj, fallback = 'No data') => {
     }
 };
 
-const VideoDisplay = React.memo(({ mainStream, pipStream, isScreenSharing }) => {
+const VideoDisplay = React.memo(({ mainStream, pipStream, isScreenSharing, windowPosition, isDragging, onMouseDown, onTouchStart }) => {
     const mainVideoRef = React.useRef(null);
     const pipVideoRef = React.useRef(null);
 
@@ -88,6 +88,22 @@ const VideoDisplay = React.memo(({ mainStream, pipStream, isScreenSharing }) => 
     return (
         <div 
             className={`video-container ${isScreenSharing ? 'screen-share-active' : ''}`}
+                         style={{ 
+                 border: '1px solid #ccc',
+                 borderRadius: '4px',
+                 margin: '8px',
+                 padding: '8px',
+                 position: 'fixed',
+                 top: `${windowPosition.y}px`,
+                 left: `${windowPosition.x}px`,
+                 zIndex: 2000,
+                 background: 'white',
+                 boxShadow: '0 10px 30px rgba(0, 0, 0, 0.3)',
+                 cursor: isDragging ? 'grabbing' : 'grab',
+                 userSelect: 'none'
+             }}
+                           onMouseDown={onMouseDown}
+              onTouchStart={onTouchStart}
             ref={(el) => {
                 if (el) {
                     safeLog('[VideoDisplay] Video container dimensions:', {
@@ -100,7 +116,22 @@ const VideoDisplay = React.memo(({ mainStream, pipStream, isScreenSharing }) => 
                     });
                 }
             }}
+            
         >
+            {/* Drag indicator */}
+            <div style={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                color: 'white',
+                padding: '4px 8px',
+                borderRadius: '4px 4px 0 0',
+                fontSize: '12px',
+                fontWeight: 'bold',
+                textAlign: 'center',
+                margin: '-8px -8px 8px -8px',
+                cursor: 'grab'
+            }}>
+                🖱️ Drag to move video window
+            </div>
             <div className="main-video-wrapper">
                 <video
                     ref={mainVideoRef}
@@ -184,6 +215,11 @@ const VideoChat = ({
 }) => {
     // State to trigger re-renders when streams change
     const [streamUpdateTrigger, setStreamUpdateTrigger] = useState(0);
+    
+    // Draggable window state
+    const [windowPosition, setWindowPosition] = useState({ x: 0, y: 0 });
+    const [isDragging, setIsDragging] = useState(false);
+    const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
 
     // Listen to WebRTC provider stream changes to trigger re-renders
     useEffect(() => {
@@ -389,6 +425,104 @@ const VideoChat = ({
 
     // Video element ref for screen share
     const screenShareVideoRef = useRef(null);
+    
+    // Drag and drop handlers
+    const handleMouseDown = (e) => {
+        // Allow dragging from anywhere in the video-chat window
+        // Only prevent dragging if clicking on interactive elements like buttons
+        if (e.target.tagName === 'BUTTON' || e.target.closest('button')) {
+            return;
+        }
+        
+        setIsDragging(true);
+        // Calculate offset from current window position to mouse position
+        setDragOffset({
+            x: e.clientX - windowPosition.x,
+            y: e.clientY - windowPosition.y
+        });
+    };
+    
+    const handleTouchStart = (e) => {
+        // Prevent default touch behavior
+        e.preventDefault();
+        
+        // Allow dragging from anywhere in the video-chat window
+        // Only prevent dragging if clicking on interactive elements like buttons
+        if (e.target.tagName === 'BUTTON' || e.target.closest('button')) {
+            return;
+        }
+        
+        setIsDragging(true);
+        const touch = e.touches[0];
+        // Calculate offset from current window position to touch position
+        setDragOffset({
+            x: touch.clientX - windowPosition.x,
+            y: touch.clientY - windowPosition.y
+        });
+    };
+    
+    const handleMouseMove = (e) => {
+        if (!isDragging) return;
+        
+        // Calculate new position based on current mouse position minus the offset
+        const newX = e.clientX - dragOffset.x;
+        const newY = e.clientY - dragOffset.y;
+        
+        // Keep window within viewport bounds
+        const maxX = window.innerWidth - 400; // Approximate video window width
+        const maxY = window.innerHeight - 300; // Approximate video window height
+        
+        setWindowPosition({
+            x: Math.max(0, Math.min(newX, maxX)),
+            y: Math.max(0, Math.min(newY, maxY))
+        });
+    };
+    
+    const handleTouchMove = (e) => {
+        if (!isDragging) return;
+        
+        // Prevent default to avoid scrolling while dragging
+        e.preventDefault();
+        
+        const touch = e.touches[0];
+        // Calculate new position based on current touch position minus the offset
+        const newX = touch.clientX - dragOffset.x;
+        const newY = touch.clientY - dragOffset.y;
+        
+        // Keep window within viewport bounds
+        const maxX = window.innerWidth - 400; // Approximate video window width
+        const maxY = window.innerHeight - 300; // Approximate video window height
+        
+        setWindowPosition({
+            x: Math.max(0, Math.min(newX, maxX)),
+            y: Math.max(0, Math.min(newY, maxY))
+        });
+    };
+    
+    const handleMouseUp = () => {
+        setIsDragging(false);
+    };
+    
+    const handleTouchEnd = () => {
+        setIsDragging(false);
+    };
+    
+    // Add global mouse and touch event listeners
+    useEffect(() => {
+        if (isDragging) {
+            document.addEventListener('mousemove', handleMouseMove);
+            document.addEventListener('mouseup', handleMouseUp);
+            document.addEventListener('touchmove', handleTouchMove, { passive: false });
+            document.addEventListener('touchend', handleTouchEnd);
+            
+            return () => {
+                document.removeEventListener('mousemove', handleMouseMove);
+                document.removeEventListener('mouseup', handleMouseUp);
+                document.removeEventListener('touchmove', handleTouchMove);
+                document.removeEventListener('touchend', handleTouchEnd);
+            };
+        }
+    }, [isDragging, dragOffset]);
 
     // Ensure video element gets the stream and plays
     useEffect(() => {
@@ -412,7 +546,6 @@ const VideoChat = ({
 
             return (
         <div className="video-chat">
-            {/* Screen Share Window - Dedicated UI for screen sharing */}
             {streams.screenShareStream ? (() => {
                 console.log('[VideoChat] 🖥️ Rendering screen share window with stream:', streams.screenShareStream.id);
                 return (
@@ -531,14 +664,18 @@ const VideoChat = ({
                 </div>
             )}
             
-            {/* Main Video Display - Only for video streams */}
-            {(streams.mainStream || streams.pipStream) && (
-                <VideoDisplay
-                    mainStream={streams.mainStream}
-                    pipStream={streams.pipStream}
-                    isScreenSharing={!!streams.screenShareStream}
-                />
-            )}
+                         {/* Main Video Display - Only for video streams */}
+             {(streams.mainStream || streams.pipStream) && (
+                                  <VideoDisplay
+                      mainStream={streams.mainStream}
+                      pipStream={streams.pipStream}
+                      isScreenSharing={!!streams.screenShareStream}
+                      windowPosition={windowPosition}
+                      isDragging={isDragging}
+                      onMouseDown={handleMouseDown}
+                      onTouchStart={handleTouchStart}
+                  />
+             )}
 
             {/* Media controls are handled by ConnectionPanel - no duplicate buttons here */}
 
