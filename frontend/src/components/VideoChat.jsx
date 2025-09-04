@@ -108,9 +108,7 @@ const VideoDisplay = React.memo(({ mainStream, pipStream, isScreenSharing, windo
                   borderRadius: '4px',
                   margin: '8px',
                   padding: '8px',
-                  position: 'fixed',
-                  top: `${windowPosition.y}px`,
-                  left: `${windowPosition.x}px`,
+                  position: 'relative',
                   zIndex: 2000,
                   background: 'white',
                   boxShadow: '0 10px 30px rgba(0, 0, 0, 0.3)',
@@ -511,7 +509,7 @@ const VideoChat = ({
     const [streamUpdateTrigger, setStreamUpdateTrigger] = useState(0);
     
     // Draggable window state
-    const [windowPosition, setWindowPosition] = useState({ x: 0, y: 0 });
+    const [windowPosition, setWindowPosition] = useState({ x: 20, y: 80 });
     const [isDragging, setIsDragging] = useState(false);
     const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
     
@@ -523,6 +521,62 @@ const VideoChat = ({
     
     // Flag to track if container has been manually resized (persistent across re-renders)
     const [hasBeenManuallyResized, setHasBeenManuallyResized] = useState(false);
+
+    // Simple dragging handlers
+    const handleMouseDown = (e) => {
+        // Don't drag if clicking on buttons
+        if (e.target.tagName === 'BUTTON' || e.target.closest('button')) {
+            return;
+        }
+        
+        setIsDragging(true);
+        setDragOffset({
+            x: e.clientX - windowPosition.x,
+            y: e.clientY - windowPosition.y
+        });
+    };
+
+    const handleMouseMove = (e) => {
+        if (!isDragging) return;
+        
+        setWindowPosition({
+            x: e.clientX - dragOffset.x,
+            y: e.clientY - dragOffset.y
+        });
+    };
+
+    const handleMouseUp = () => {
+        setIsDragging(false);
+    };
+
+    const handleTouchStart = (e) => {
+        // Don't drag if touching buttons
+        if (e.target.tagName === 'BUTTON' || e.target.closest('button')) {
+            return;
+        }
+        
+        setIsDragging(true);
+        const touch = e.touches[0];
+        setDragOffset({
+            x: touch.clientX - windowPosition.x,
+            y: touch.clientY - windowPosition.y
+        });
+    };
+
+    const handleTouchMove = (e) => {
+        if (!isDragging) return;
+        
+        e.preventDefault();
+        const touch = e.touches[0];
+        setWindowPosition({
+            x: touch.clientX - dragOffset.x,
+            y: touch.clientY - dragOffset.y
+        });
+    };
+
+    const handleTouchEnd = () => {
+        setIsDragging(false);
+    };
 
     // Listen to WebRTC provider stream changes to trigger re-renders
     useEffect(() => {
@@ -694,115 +748,9 @@ const VideoChat = ({
         }
     }, [streams.remoteAudioStream]);
 
-
-    
-    // Drag and drop handlers
-    const handleMouseDown = (e) => {
-        // Allow dragging from anywhere in the video-chat window
-        // Only prevent dragging if clicking on interactive elements like buttons
-        if (e.target.tagName === 'BUTTON' || e.target.closest('button')) {
-            return;
-        }
-        
-        setIsDragging(true);
-        // Calculate offset from current window position to mouse position
-        setDragOffset({
-            x: e.clientX - windowPosition.x,
-            y: e.clientY - windowPosition.y
-        });
-    };
-    
-    const handleTouchStart = (e) => {
-        // Prevent default touch behavior
-        e.preventDefault();
-        
-        // Allow dragging from anywhere in the video-chat window
-        // Only prevent dragging if clicking on interactive elements like buttons
-        if (e.target.tagName === 'BUTTON' || e.target.closest('button')) {
-            return;
-        }
-        
-        setIsDragging(true);
-        const touch = e.touches[0];
-        // Calculate offset from current window position to touch position
-        setDragOffset({
-            x: touch.clientX - windowPosition.x,
-            y: touch.clientY - windowPosition.y
-        });
-    };
-    
-    const handleMouseMove = (e) => {
-        if (!isDragging) return;
-        
-        // Calculate new position based on current mouse position minus the offset
-        const newX = e.clientX - dragOffset.x;
-        const newY = e.clientY - dragOffset.y;
-        
-        // Keep window within viewport bounds
-        const maxX = window.innerWidth - 400; // Approximate video window width
-        const maxY = window.innerHeight - 300; // Approximate video window height
-        
-        setWindowPosition({
-            x: Math.max(0, Math.min(newX, maxX)),
-            y: Math.max(0, Math.min(newY, maxY))
-        });
-    };
-    
-    const handleTouchMove = (e) => {
-        if (!isDragging) return;
-        
-        // Prevent default to avoid scrolling while dragging
-        e.preventDefault();
-        
-        const touch = e.touches[0];
-        // Calculate new position based on current touch position minus the offset
-        const newX = touch.clientX - dragOffset.x;
-        const newY = touch.clientY - dragOffset.y;
-        
-        // Keep window within viewport bounds
-        const maxX = window.innerWidth - 400; // Approximate video window width
-        const maxY = window.innerHeight - 300; // Approximate video window height
-        
-        setWindowPosition({
-            x: Math.max(0, Math.min(newX, maxX)),
-            y: Math.max(0, Math.min(newY, maxY))
-        });
-    };
-    
-    const handleMouseUp = () => {
-        setIsDragging(false);
-    };
-    
-    const handleTouchEnd = () => {
-        setIsDragging(false);
-    };
-    
-    // Add global mouse and touch event listeners
-    useEffect(() => {
-        if (isDragging) {
-            document.addEventListener('mousemove', handleMouseMove);
-            document.addEventListener('mouseup', handleMouseUp);
-            document.addEventListener('touchmove', handleTouchMove, { passive: false });
-            document.addEventListener('touchend', handleTouchEnd);
-            
-            return () => {
-                document.removeEventListener('mousemove', handleMouseMove);
-                document.removeEventListener('mouseup', handleMouseUp);
-                document.removeEventListener('touchmove', handleTouchMove);
-                document.removeEventListener('touchend', handleTouchEnd);
-            };
-        }
-    }, [isDragging, dragOffset]);
-
-
-
-            return (
-        <div className="video-chat">
-
-
-
-            
-            {/* Hidden Audio Element - Only for remote audio streams */}
+    return (
+        <>
+            {/* Audio Elements - Always render when audio streams exist, regardless of video */}
             {streams.remoteAudioStream && (
                 <audio
                     ref={(el) => {
@@ -823,29 +771,49 @@ const VideoChat = ({
                 />
             )}
             
-            {/* Audio Stream Debug Info */}
-            {(streams.localAudioStream || streams.remoteAudioStream) && (
-                <div style={{ 
-                    position: 'fixed', 
-                    top: '10px', 
-                    left: '10px', 
-                    background: 'rgba(0,0,255,0.8)', 
-                    color: 'white', 
-                    padding: '10px', 
-                    fontSize: '12px', 
-                    zIndex: 1000,
-                    borderRadius: '5px'
-                }}>
-                    🔊 Audio Streams: 
-                    {streams.localAudioStream && ` Local(${streams.localAudioStream.id})`}
-                    {streams.remoteAudioStream && ` Remote(${streams.remoteAudioStream.id})`}
-                </div>
-            )}
+            {/* Audio Stream Debug Info - Always show for debugging */}
+            <div style={{ 
+                position: 'fixed', 
+                top: '10px', 
+                right: '10px', 
+                background: 'rgba(0,0,255,0.8)', 
+                color: 'white', 
+                padding: '10px', 
+                fontSize: '12px', 
+                zIndex: 1000,
+                borderRadius: '5px'
+            }}>
+                🔊 Audio Debug: 
+                {streams.localAudioStream ? ` Local(${streams.localAudioStream.id})` : 'No Local'}
+                {streams.remoteAudioStream ? ` Remote(${streams.remoteAudioStream.id})` : 'No Remote'}
+                <br />
+                <small>Provider: {provider ? 'Yes' : 'No'}</small>
+            </div>
             
-                                                   {/* Main Video Display - Only for video streams */}
-              {(streams.mainStream || streams.pipStream) && (
-                                                                      <VideoDisplay
-                                                mainStream={streams.mainStream}
+            {/* Video Window - Only show when there are video streams */}
+            {(streams.mainStream || streams.pipStream) && (
+                <div 
+                    className="video-chat"
+                    style={{
+                        position: 'fixed',
+                        top: `${windowPosition.y}px`,
+                        left: `${windowPosition.x}px`,
+                        zIndex: 9999,
+                        cursor: 'grab',
+                        width: '400px',
+                        height: '300px',
+                        touchAction: 'none'
+                    }}
+                    onMouseDown={handleMouseDown}
+                    onTouchStart={handleTouchStart}
+                    onMouseMove={handleMouseMove}
+                    onTouchMove={handleTouchMove}
+                    onMouseUp={handleMouseUp}
+                    onTouchEnd={handleTouchEnd}
+                >
+                    {/* Main Video Display */}
+                    <VideoDisplay
+                        mainStream={streams.mainStream}
                         pipStream={streams.pipStream}
                         isScreenSharing={false}
                         windowPosition={windowPosition}
@@ -857,28 +825,27 @@ const VideoChat = ({
                         hasBeenManuallyResized={hasBeenManuallyResized}
                         setHasBeenManuallyResized={setHasBeenManuallyResized}
                     />
-              )}
 
-            {/* Media controls are handled by ConnectionPanel - no duplicate buttons here */}
-
-            {/* Error Display */}
-            {error && (
-                <div className="error-message">
-                    <div className="error-content">
-                        <span>{error}</span>
-                        {error.includes('failed') || error.includes('lost') ? (
-                            <button 
-                                className="retry-button" 
-                                onClick={onConnect}
-                                disabled={isConnecting}
-                            >
-                                {isConnecting ? 'Retrying...' : 'Retry Connection'}
-                            </button>
-                        ) : null}
-                    </div>
+                    {/* Error Display */}
+                    {error && (
+                        <div className="error-message">
+                            <div className="error-content">
+                                <span>{error}</span>
+                                {error.includes('failed') || error.includes('lost') ? (
+                                    <button 
+                                        className="retry-button" 
+                                        onClick={onConnect}
+                                        disabled={isConnecting}
+                                    >
+                                        {isConnecting ? 'Retrying...' : 'Retry Connection'}
+                                    </button>
+                                ) : null}
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
-        </div>
+        </>
     );
 };
 
