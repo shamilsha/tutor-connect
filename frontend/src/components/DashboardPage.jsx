@@ -5,6 +5,7 @@ import VideoChat from './VideoChat';
 import ConnectionPanel from './ConnectionPanel';
 import ChatPanel from './ChatPanel';
 import ConnectionStatusLight from './ConnectionStatusLight';
+import ScreenShareWindow from './ScreenShareWindow';
 import '../styles/DashboardPage.css';
 import { useCommunication } from '../context/CommunicationContext';
 import { WebSocketProvider } from '../services/WebSocketProvider';
@@ -60,6 +61,11 @@ const DashboardPage = () => {
     const [isVideoEnabled, setIsVideoEnabled] = useState(false);
     const [isScreenSharing, setIsScreenSharing] = useState(false);
     const [isScreenShareSupported, setIsScreenShareSupported] = useState(true);
+    
+    // Force re-render when streams change
+    const [streamRevision, setStreamRevision] = useState(0);
+    
+
     
     // Chat state
     const [receivedMessages, setReceivedMessages] = useState([]);
@@ -413,6 +419,8 @@ const DashboardPage = () => {
         };
     }, [signalingService]);
 
+
+
     // Sync media state with WebRTC provider state
     useEffect(() => {
         if (!provider) return;
@@ -426,7 +434,14 @@ const DashboardPage = () => {
             setIsScreenSharing(provider.isScreenSharingActive());
         };
 
+        const handleStreamChange = (event) => {
+            console.log('[DashboardPage] 🔄 Received stream event from provider:', event.data);
+            // Force re-render of components that depend on streams
+            setStreamRevision(prev => prev + 1);
+        };
+
         provider.addEventListener('stateChange', handleStateChange);
+        provider.addEventListener('stream', handleStreamChange);
         
         // Also update initial state
         setIsAudioEnabled(provider.getLocalAudioState());
@@ -435,6 +450,7 @@ const DashboardPage = () => {
 
         return () => {
             provider.removeEventListener('stateChange', handleStateChange);
+            provider.removeEventListener('stream', handleStreamChange);
         };
     }, [provider]);
 
@@ -1306,43 +1322,79 @@ const DashboardPage = () => {
                     <span className="build-version">{getBuildDisplay()}</span>
                 </div>
             </div>
+            {/* Video Chat - Movable, outside dashboard-content */}
+            <VideoChat
+                key={videoChatKey} // Force re-render when key changes
+                selectedPeer={selectedPeer}
+                onPeerSelect={setSelectedPeer}
+                isConnected={isPeerConnected}
+                isConnecting={isConnecting}
+                onConnect={handleConnect}
+                onDisconnect={handleDisconnect}
+                onLogout={handleLogout}
+                peerList={peerList}
+                loginStatus={isWebSocketConnected ? 'connected' : 'failed'}
+                showChat={showChat}
+                onSendMessage={handleSendMessage}
+                receivedMessages={receivedMessages}
+                error={error}
+                user={userRef.current}
+                provider={provider}
+            />
+            
             {error && (
                 <div className="error-message">
                     {error}
                 </div>
             )}
+            
             <div className="dashboard-content">
-                {/* Video Chat */}
-                <VideoChat
-                    key={videoChatKey} // Force re-render when key changes
-                    selectedPeer={selectedPeer}
-                    onPeerSelect={setSelectedPeer}
-                    isConnected={isPeerConnected}
-                    isConnecting={isConnecting}
-                    onConnect={handleConnect}
-                    onDisconnect={handleDisconnect}
-                    onLogout={handleLogout}
-                    peerList={peerList}
-                    loginStatus={isWebSocketConnected ? 'connected' : 'failed'}
-                    showChat={showChat}
-                    onSendMessage={handleSendMessage}
-                    receivedMessages={receivedMessages}
-                    error={error}
+                {/* Debug info for screen share */}
+                {provider && (
+                    <div style={{ 
+                        position: 'absolute', 
+                        top: '10px', 
+                        left: '10px', 
+                        background: 'rgba(0,0,0,0.8)', 
+                        color: 'white', 
+                        padding: '10px', 
+                        fontSize: '12px', 
+                        zIndex: 1000,
+                        maxWidth: '300px'
+                    }}>
+                        <div>🖥️ Screen Share Debug:</div>
+                        <div>Local: {provider.getScreenShareStream()?.id || 'None'}</div>
+                        <div>Remote: {provider.getRemoteScreen(selectedPeer)?.id || 'None'}</div>
+                        <div>Selected Peer: {selectedPeer}</div>
+                        <div>Is Screen Sharing: {isScreenSharing ? 'Yes' : 'No'}</div>
+                        <div>Stream Revision: {streamRevision}</div>
+                    </div>
+                )}
+                
+                {/* Screen Share Window - Inside dashboard-content */}
+                <ScreenShareWindow
+                    key={`screen-share-${streamRevision}`}
+                    screenShareStream={provider?.getScreenShareStream() || provider?.getRemoteScreen(selectedPeer)}
+                    isVisible={isScreenSharing || !!(provider?.getScreenShareStream() || provider?.getRemoteScreen(selectedPeer))}
+                    position={{ top: '0', left: '0' }}
+                    size={{ width: '100%', height: '100%' }}
+                    onStreamChange={(stream) => {
+                        console.log('[DashboardPage] 🖥️ Screen share stream change notified:', stream?.id);
+                    }}
+                    debugMode={true}
+                    useRelativePositioning={true}
+                />
+            </div>
+            
+            {/* Chat Panel - Below everything */}
+            {showChat && (
+                <ChatPanel
                     user={userRef.current}
                     provider={provider}
+                    onSendMessage={handleSendMessage}
+                    receivedMessages={receivedMessages}
                 />
-                
-                {/* Chat Panel - Independent of Video Chat */}
-                {showChat && (
-                    <ChatPanel
-                        user={userRef.current}
-                        provider={provider}
-                        peers={[selectedPeer]}
-                        onSendMessage={handleSendMessage}
-                        receivedMessages={receivedMessages}
-                    />
-                )}
-            </div>
+            )}
             
             {/* Debug Popup */}
             {showDebugPopup && (

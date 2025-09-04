@@ -1,0 +1,50 @@
+/* Screen Share Window Styles */
+.screen-share-window {
+    position: fixed; /* Default to fixed */
+    background: #000;
+    z-index: 100; /* Lower z-index so it doesn't cover button panels */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 3px solid #ff6b6b;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+/* When used inside dashboard-content with relative positioning */
+.screen-share-window[style*="position: relative"] {
+    position: relative !important;
+    z-index: 1 !important;
+    border-width: 2px;
+    border-color: #ff6b6b;
+}
+
+.screen-share-window video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #000;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .screen-share-window {
+        border-width: 2px;
+    }
+}
+
+/* Animation for screen share appearance */
+.screen-share-window {
+    animation: screenShareFadeIn 0.3s ease-in-out;
+}
+
+@keyframes screenShareFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}

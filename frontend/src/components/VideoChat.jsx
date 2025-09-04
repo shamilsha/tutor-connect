@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import '../styles/VideoChat.css';
-import ChatPanel from './ChatPanel';
 
 // Utility function to properly log objects with fallbacks
 const safeLog = (label, obj, fallback = 'No data') => {
@@ -582,13 +581,11 @@ const VideoChat = ({
         if (!provider) return { 
             mainStream: null, 
             pipStream: null, 
-            screenShareStream: null,
             localAudioStream: null,
             remoteAudioStream: null
         };
 
         // Get streams using available methods
-        const screenShareStream = provider.getScreenShareStream() || provider.getRemoteScreen(selectedPeer);
         const localStream = provider.getLocalStream();
         const remoteStream = provider.getRemoteStream(selectedPeer);
         const remoteVideoStream = provider.getRemoteVideo(selectedPeer);
@@ -597,19 +594,9 @@ const VideoChat = ({
         // Extract local video and audio from combined stream
         const localVideoStream = localStream ? localStream.getVideoTracks().length > 0 ? localStream : null : null;
         const localAudioStream = localStream ? localStream.getAudioTracks().length > 0 ? localStream : null : null;
-        
-        // Debug screen share detection
-        console.log('[VideoChat] 🔍 Screen share detection debug:', {
-            providerGetScreenShareStream: provider.getScreenShareStream() ? 'Has local screen share' : 'No local screen share',
-            providerGetRemoteScreen: provider.getRemoteScreen(selectedPeer) ? 'Has remote screen share' : 'No remote screen share',
-            finalScreenShareStream: screenShareStream ? `Has screen share (${screenShareStream.id})` : 'No screen share',
-            selectedPeer,
-            hasRemoteScreen: provider.hasRemoteScreen ? provider.hasRemoteScreen(selectedPeer) : 'Method not available'
-        });
 
         // Debug logging
         console.log('[VideoChat] Stream assignment debug:', {
-            screenShareStream: screenShareStream ? `Has stream (${screenShareStream.id})` : 'No stream',
             localStream: localStream ? `Has stream (${localStream.id})` : 'No stream',
             remoteStream: remoteStream ? `Has stream (${remoteStream.id})` : 'No stream',
             localVideoStream: localVideoStream ? `Has stream (${localVideoStream.id})` : 'No stream',
@@ -646,12 +633,10 @@ const VideoChat = ({
         console.log('[VideoChat] 🔍 Stream assignment logic debug:', {
             localVideoExists: !!localVideoStream,
             remoteVideoExists: !!remoteVideoStream,
-            screenShareStreamExists: !!screenShareStream,
             mainStreamAssigned: !!mainStream,
             pipStreamAssigned: !!pipStream,
             mainStreamId: mainStream?.id || 'No main stream',
             pipStreamId: pipStream?.id || 'No PIP stream',
-            screenShareStreamId: screenShareStream?.id || 'No screen share stream',
             localAudioExists: !!localAudioStream,
             remoteAudioExists: !!remoteAudioStream
         });
@@ -659,17 +644,14 @@ const VideoChat = ({
                  console.log('[VideoChat] Final stream assignment:', {
              mainStream: mainStream ? `Has stream (${mainStream.id})` : 'No stream',
              pipStream: pipStream ? `Has stream (${pipStream.id})` : 'No stream',
-             screenShareStream: screenShareStream ? `Has stream (${screenShareStream.id})` : 'No stream',
              localAudioStream: localAudioStream ? `Has stream (${localAudioStream.id})` : 'No stream',
              remoteAudioStream: remoteAudioStream ? `Has stream (${remoteAudioStream.id})` : 'No stream',
-             isScreenSharing: !!screenShareStream,
              note: 'Audio streams are handled separately, video streams: REMOTE gets main window, LOCAL gets PIP when both exist'
          });
         
         return {
             mainStream: mainStream,
             pipStream: pipStream,
-            screenShareStream: screenShareStream,
             localAudioStream: localAudioStream,
             remoteAudioStream: remoteAudioStream
         };
@@ -679,12 +661,6 @@ const VideoChat = ({
     const streams = useMemo(() => {
         console.log('[VideoChat] 🔄 Re-evaluating streams (trigger:', streamUpdateTrigger, ')');
         const result = getStreams();
-        
-        // Debug screen share rendering
-        if (result.screenShareStream) {
-            console.log('[VideoChat] 🖥️ Screen share stream detected, will show in dedicated screen share window:', result.screenShareStream.id);
-        }
-        
         return result;
     }, [streamUpdateTrigger, selectedPeer, provider]);
 
@@ -695,16 +671,7 @@ const VideoChat = ({
 
     // Screen sharing cleanup is handled by ConnectionPanel
 
-    // Monitor screen share stream changes
-    useEffect(() => {
-        if (streams.screenShareStream) {
-            console.log('[VideoChat] 🖥️ Screen share stream changed:', {
-                id: streams.screenShareStream.id,
-                active: streams.screenShareStream.active,
-                trackCount: streams.screenShareStream.getTracks().length
-            });
-        }
-    }, [streams.screenShareStream]);
+
 
     // Monitor audio stream changes
     useEffect(() => {
@@ -727,8 +694,7 @@ const VideoChat = ({
         }
     }, [streams.remoteAudioStream]);
 
-    // Video element ref for screen share
-    const screenShareVideoRef = useRef(null);
+
     
     // Drag and drop handlers
     const handleMouseDown = (e) => {
@@ -828,105 +794,13 @@ const VideoChat = ({
         }
     }, [isDragging, dragOffset]);
 
-    // Ensure video element gets the stream and plays
-    useEffect(() => {
-        if (screenShareVideoRef.current) {
-            if (streams.screenShareStream) {
-                console.log('[VideoChat] 🖥️ Setting screen share video srcObject and playing');
-                screenShareVideoRef.current.srcObject = streams.screenShareStream;
-                screenShareVideoRef.current.play().catch(error => {
-                    console.error('[VideoChat] 🖥️ Error playing screen share video:', error);
-                });
-            } else {
-                // Clear screen share video when stream is removed to prevent still image
-                console.log('[VideoChat] 🖥️ Clearing screen share video srcObject');
-                screenShareVideoRef.current.srcObject = null;
-                screenShareVideoRef.current.pause();
-                screenShareVideoRef.current.currentTime = 0;
-                screenShareVideoRef.current.load(); // Force reload to clear any cached frames
-            }
-        }
-    }, [streams.screenShareStream]);
+
 
             return (
         <div className="video-chat">
-            {streams.screenShareStream ? (() => {
-                console.log('[VideoChat] 🖥️ Rendering screen share window with stream:', streams.screenShareStream.id);
-                return (
-                <div 
-                    className="screen-share-window"
-                    style={{ 
-                        position: 'fixed',
-                        top: '144px',
-                        left: '0',
-                        width: '100vw',
-                        height: 'calc(100vh - 144px)',
-                        background: '#000',
-                        zIndex: 2000,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        border: '3px solid #ff6b6b',
-                        boxSizing: 'border-box'
-                    }}
-                >
-                    <video
-                        ref={(el) => {
-                            screenShareVideoRef.current = el;
-                            if (el) {
-                                console.log('[VideoChat] 🖥️ Screen share video element ref set:', el);
-                                console.log('[VideoChat] 🖥️ Screen share video srcObject:', el.srcObject);
-                                console.log('[VideoChat] 🖥️ Screen share video readyState:', el.readyState);
-                                
-                                // Check stream details
-                                if (streams.screenShareStream) {
-                                    console.log('[VideoChat] 🖥️ Screen share stream details:', {
-                                        id: streams.screenShareStream.id,
-                                        active: streams.screenShareStream.active,
-                                        tracks: streams.screenShareStream.getTracks().map(track => ({
-                                            id: track.id,
-                                            kind: track.kind,
-                                            enabled: track.enabled,
-                                            readyState: track.readyState
-                                        }))
-                                    });
-                                }
-                            }
-                        }}
-                        autoPlay
-                        playsInline
-                        muted
-                        style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                        onLoadedMetadata={() => console.log('[VideoChat] 🖥️ Screen share video loaded metadata')}
-                        onCanPlay={() => console.log('[VideoChat] 🖥️ Screen share video can play')}
-                        onError={(e) => console.error('[VideoChat] 🖥️ Screen share video error:', e)}
-                        onLoadStart={() => console.log('[VideoChat] 🖥️ Screen share video load start')}
-                        onLoadedData={() => console.log('[VideoChat] 🖥️ Screen share video loaded data')}
-                    />
-                    {/* Debug info */}
-                    <div style={{ position: 'absolute', top: '10px', left: '10px', background: 'rgba(255,0,0,0.9)', color: 'white', padding: '10px', fontSize: '16px', zIndex: 1001, fontWeight: 'bold' }}>
-                        🖥️ SCREEN SHARE ACTIVE: {streams.screenShareStream.id}
-                    </div>
-                    <div style={{ position: 'absolute', top: '50px', left: '10px', background: 'rgba(0,255,0,0.9)', color: 'black', padding: '10px', fontSize: '14px', zIndex: 1001 }}>
-                        If you can see this, the screen share window is visible!
-                    </div>
-                </div>
-                );
-            })() : (
-                <div style={{ 
-                    position: 'fixed', 
-                    top: '10px', 
-                    right: '10px', 
-                    background: 'rgba(0,0,0,0.8)', 
-                    color: 'white', 
-                    padding: '10px', 
-                    fontSize: '12px', 
-                    zIndex: 1000,
-                    borderRadius: '5px'
-                }}>
-                    No screen share stream detected
-                </div>
-            )}
+
+
+
             
             {/* Hidden Audio Element - Only for remote audio streams */}
             {streams.remoteAudioStream && (
@@ -971,9 +845,9 @@ const VideoChat = ({
                                                    {/* Main Video Display - Only for video streams */}
               {(streams.mainStream || streams.pipStream) && (
                                                                       <VideoDisplay
-                        mainStream={streams.mainStream}
+                                                mainStream={streams.mainStream}
                         pipStream={streams.pipStream}
-                        isScreenSharing={!!streams.screenShareStream}
+                        isScreenSharing={false}
                         windowPosition={windowPosition}
                         isDragging={isDragging}
                         onMouseDown={handleMouseDown}
