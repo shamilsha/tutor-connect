@@ -195,8 +195,13 @@ const DashboardPage = () => {
                 setError('Lost connection to server. Please check your internet connection.');
             });
 
-            // Connect WebSocket if not already connected
-            if (!wsProvider.isConnected) {
+            // Check if WebSocket is already connected and set status accordingly
+            if (wsProvider.isConnected) {
+                console.log('[DashboardPage] WebSocket is already connected, setting status to connected');
+                setIsWebSocketConnected(true);
+                setError(null);
+            } else {
+                // Connect WebSocket if not already connected
                 wsProvider.connect().catch(error => {
                     console.error('[DashboardPage] Failed to connect to WebSocket:', error);
                     setError('Failed to connect to server. Please try again later.');
