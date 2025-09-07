@@ -4,6 +4,7 @@ export class SignalingService {
         this.wsProvider = null;
         this.onPeerListUpdate = null;
         this.onIncomingConnection = null; // Callback for incoming connection attempts
+        this.onDisconnectMessage = null; // Callback for disconnect messages
         this.messageHandlers = new Map();
         this.isConnected = false;
         this.registeredPeers = new Set();
@@ -178,14 +179,34 @@ export class SignalingService {
                 case 'ice-candidate':
                 case 'initiate':
                 case 'initiate-ack':
-                case 'disconnect':
-                case 'media-state':
                     console.log(`[SignalingService] 📨 Received ${message.type} from peer ${message.from} to ${message.to} (self: ${this.userId})`);
                     
                     // Notify about incoming connection attempts
-                    if (['initiate', 'offer'].includes(message.type) && this.onIncomingConnection) {
+                    // Only trigger for 'initiate' messages, not 'offer' messages
+                    // 'offer' messages should be handled by existing providers for renegotiation
+                    if (message.type === 'initiate' && this.onIncomingConnection) {
                         this.onIncomingConnection(message);
                     }
+                    
+                    await this.forwardMessage(message);
+                    break;
+                    
+                case 'disconnect':
+                    console.log(`[SignalingService] 📨 Received ${message.type} from peer ${message.from} to ${message.to} (self: ${this.userId})`);
+                    
+                    // Notify DashboardPage about disconnect message
+                    if (this.onDisconnectMessage) {
+                        console.log(`[SignalingService] 📨 Calling onDisconnectMessage handler (DashboardPage will handle disconnect)`);
+                        this.onDisconnectMessage(message);
+                        // Don't forward to WebRTC provider - DashboardPage will handle the disconnect process
+                    } else {
+                        console.log(`[SignalingService] 📨 No onDisconnectMessage handler, forwarding to WebRTC provider`);
+                        await this.forwardMessage(message);
+                    }
+                    break;
+                    
+                case 'media-state':
+                    console.log(`[SignalingService] 📨 Received ${message.type} from peer ${message.from} to ${message.to} (self: ${this.userId})`);
                     
                     await this.forwardMessage(message);
                     break;
@@ -369,9 +390,17 @@ export class SignalingService {
         }
         
         try {
-            console.log(`[SignalingService] 📤 Sending ${message.type} from ${message.from} to ${message.to}`);
+            if (message.type === 'disconnect') {
+                console.log(`[SignalingService] 🔴 SENDING DISCONNECT from ${message.from} to ${message.to} (initiator side)`);
+            } else {
+                console.log(`[SignalingService] 📤 Sending ${message.type} from ${message.from} to ${message.to}`);
+            }
             this.wsProvider.publish('signaling', message);
-            console.log(`[SignalingService] ✅ Sent ${message.type} to peer ${message.to}`);
+            if (message.type === 'disconnect') {
+                console.log(`[SignalingService] ✅ DISCONNECT SENT to peer ${message.to}`);
+            } else {
+                console.log(`[SignalingService] ✅ Sent ${message.type} to peer ${message.to}`);
+            }
         } catch (error) {
             console.error('[SignalingService] Failed to send message:', error);
         }
@@ -454,6 +483,7 @@ export class SignalingService {
         // Clear event handler callbacks
         this.onPeerListUpdate = null;
         this.onIncomingConnection = null;
+        this.onDisconnectMessage = null;
         this.onConnectionStatusChange = null;
         
         console.log(`[SignalingService] 🔄 RESET: Event handlers reset completed`);

@@ -103,12 +103,20 @@ export class WebRTCProvider implements IWebRTCProvider {
 
     // Public static method to clear all instances (used by DashboardPage)
     public static clearAllInstances(): void {
+        console.log(`%c[WebRTC] 🧹 CLEARING ALL WEBRTC INSTANCES`, 'font-weight: bold; color: orange; font-size: 14px;');
         if (WebRTCProvider.activeInstance) {
             WebRTCProvider.activeInstance.destroy();
-            WebRTCProvider.activeInstance = null;
+            // DashboardPage will set activeInstance to null, not here
         }
         WebRTCProvider.instanceId = 0;
         console.log('[WebRTC] All instances cleared');
+    }
+
+     // Method for DashboardPage to clear the active instance reference
+    public static clearActiveInstance(): void {
+        console.log(`%c[WebRTC] 🧹 CLEARING ACTIVE INSTANCE REFERENCE`, 'font-weight: bold; color: orange; font-size: 14px;');
+        WebRTCProvider.activeInstance = null;
+        console.log('[WebRTC] Active instance reference cleared');
     }
 
     // Instance properties
@@ -116,6 +124,7 @@ export class WebRTCProvider implements IWebRTCProvider {
     private readonly instanceId: number;
 
     private isDestroyed = false;
+    private isGracefulDisconnect = false;
 
 
 
@@ -380,6 +389,7 @@ export class WebRTCProvider implements IWebRTCProvider {
 
         
 
+        console.log(`%c[WebRTC] 🚀 WEBRTC PROVIDER CREATED - Instance ${this.instanceId} for user ${this.userId}`, 'font-weight: bold; color: green; font-size: 14px;');
         console.log(`[WebRTC] WebRTCProvider instance ${this.instanceId} created for user ${this.userId}`);
 
         
@@ -776,33 +786,25 @@ export class WebRTCProvider implements IWebRTCProvider {
     // Configuration
 
     public setSignalingService(service: ISignalingService): void {
-
-        // Only clean up if we're changing signaling services
-
+        // Only clean up connections if we're changing signaling services
         if (this.signalingService !== service) {
-
             console.log(`[WebRTC] Changing signaling service, cleaning up old connections`);
-
-        this.cleanup();
-
-        
-
-        if (this.messageHandlerId !== null && this.signalingService) {
-
-            this.signalingService.removeMessageHandler(this.messageHandlerId);
-
-            }
-
+            this.cleanup();
         }
 
-
-
         this.signalingService = service;
-
         this.messageHandlerId = service.addMessageHandler(this.handleSignalingMessage.bind(this));
+        console.log(`%c[WebRTC] 🚀 NEW HANDLER CREATED with ID: ${this.messageHandlerId}`, 'font-weight: bold; color: green; font-size: 14px;');
+    }
 
-        console.log(`[WebRTC] Signaling service configured with handler ID: ${this.messageHandlerId}`);
+    // Method for DashboardPage to get the handler ID for cleanup
+    public getMessageHandlerId(): number | null {
+        return this.messageHandlerId;
+    }
 
+    public setGracefulDisconnect(isGraceful: boolean): void {
+        this.isGracefulDisconnect = isGraceful;
+        console.log(`%c[WebRTC] 🏷️ GRACEFUL DISCONNECT FLAG SET TO: ${isGraceful}`, 'font-weight: bold; color: purple;');
     }
 
 
@@ -921,9 +923,10 @@ export class WebRTCProvider implements IWebRTCProvider {
 
 
 
-    public async disconnect(peerId: string): Promise<void> {
+    public async disconnect(peerId: string, isInitiator: boolean = true): Promise<void> {
 
-        console.log(`[WebRTC] Disconnecting from peer ${peerId}`);
+        const disconnectType = isInitiator ? 'initiator' : 'responder';
+        console.log(`[WebRTC] 🔴 DISCONNECT CLEANUP for peer ${peerId} (${disconnectType} side)`);
 
 
 
@@ -933,35 +936,14 @@ export class WebRTCProvider implements IWebRTCProvider {
 
 
 
-        // Send disconnect notification
-
-        if (this.signalingService) {
-
-            try {
-
-                this.signalingService.send({
-
-                    type: 'disconnect',
-
-                    from: this.userId,
-
-                    to: peerId,
-
-                    data: { timestamp: Date.now() }
-
-                });
-
-            } catch (error) {
-
-                console.warn('[WebRTC] Failed to send disconnect message:', error);
-
-            }
-
+        if (isInitiator) {
+            // Initiator side: Close the connection and clean up resources
+            this.cleanup(peerId);
+        } else {
+            // Responder side: Only clean up local resources, don't close connection
+            // (Connection will be closed by initiator automatically)
+            this.cleanupLocalResources(peerId);
         }
-
-
-
-        this.cleanup(peerId);
 
     }
 
@@ -1024,11 +1006,14 @@ export class WebRTCProvider implements IWebRTCProvider {
                         this.streamManager.setLocalAudio(newAudioStream);
                         this.updateLocalAudioState(true);
                         
-                        // Add track to all connected peers
+                        // Add track to all connected or connecting peers
                         for (const [peerId, peerState] of this.connections.entries()) {
-                            if (peerState.connection?.connectionState === 'connected') {
+                            if (peerState.connection && (peerState.connection.connectionState === 'connected' || peerState.connection.connectionState === 'connecting')) {
+                                console.log(`[WebRTC] 🔊 Adding audio track to peer ${peerId} (state: ${peerState.connection.connectionState})`);
                                 peerState.connection.addTrack(newAudioTrack, newAudioStream);
                                 peersNeedingRenegotiation.push(peerId);
+                            } else {
+                                console.log(`[WebRTC] ⚠️ Cannot add audio track to peer ${peerId} - connection state: ${peerState.connection?.connectionState || 'no connection'}`);
                             }
                         }
                         
@@ -1047,20 +1032,20 @@ export class WebRTCProvider implements IWebRTCProvider {
                 if (localAudio) {
                     const audioTrack = localAudio.getAudioTracks()[0];
                     if (audioTrack) {
-                        // Remove track from all connected peers
+                        // Remove track from all connected or connecting peers
                         for (const [peerId, peerState] of this.connections.entries()) {
-                            if (peerState.connection?.connectionState === 'connected') {
+                            if (peerState.connection && (peerState.connection.connectionState === 'connected' || peerState.connection.connectionState === 'connecting')) {
                                 const senders = peerState.connection.getSenders();
                                 const audioSender = senders.find(s => s.track?.id === audioTrack.id);
                                 if (audioSender) {
+                                    console.log(`[WebRTC] 🔇 Removing audio track from peer ${peerId} (state: ${peerState.connection.connectionState})`);
                                     peerState.connection.removeTrack(audioSender);
                                     peersNeedingRenegotiation.push(peerId);
                                 }
                             }
                         }
                         
-                        // Stop and remove track
-                        audioTrack.stop();
+                        // Remove track (StreamManager will stop it)
                         this.streamManager.setLocalAudio(null);
                         this.updateLocalAudioState(false);
                         
@@ -1093,11 +1078,14 @@ export class WebRTCProvider implements IWebRTCProvider {
                         this.streamManager.setLocalVideo(newVideoStream);
                         this.updateLocalVideoState(true);
                         
-                        // Add track to all connected peers
+                        // Add track to all connected or connecting peers
                         for (const [peerId, peerState] of this.connections.entries()) {
-                            if (peerState.connection?.connectionState === 'connected') {
+                            if (peerState.connection && (peerState.connection.connectionState === 'connected' || peerState.connection.connectionState === 'connecting')) {
+                                console.log(`[WebRTC] 📹 Adding video track to peer ${peerId} (state: ${peerState.connection.connectionState})`);
                                 peerState.connection.addTrack(newVideoTrack, newVideoStream);
                                 peersNeedingRenegotiation.push(peerId);
+                            } else {
+                                console.log(`[WebRTC] ⚠️ Cannot add video track to peer ${peerId} - connection state: ${peerState.connection?.connectionState || 'no connection'}`);
                             }
                         }
                         
@@ -1116,20 +1104,20 @@ export class WebRTCProvider implements IWebRTCProvider {
                 if (localVideo) {
                     const videoTrack = localVideo.getVideoTracks()[0];
                     if (videoTrack) {
-                        // Remove track from all connected peers
+                        // Remove track from all connected or connecting peers
                         for (const [peerId, peerState] of this.connections.entries()) {
-                            if (peerState.connection?.connectionState === 'connected') {
+                            if (peerState.connection && (peerState.connection.connectionState === 'connected' || peerState.connection.connectionState === 'connecting')) {
                                 const senders = peerState.connection.getSenders();
                                 const videoSender = senders.find(s => s.track?.id === videoTrack.id);
                                 if (videoSender) {
+                                    console.log(`[WebRTC] 📹 Removing video track from peer ${peerId} (state: ${peerState.connection.connectionState})`);
                                     peerState.connection.removeTrack(videoSender);
                                     peersNeedingRenegotiation.push(peerId);
                                 }
                             }
                         }
                         
-                        // Stop and remove track
-                        videoTrack.stop();
+                        // Remove track (StreamManager will stop it)
                         this.streamManager.setLocalVideo(null);
                         this.updateLocalVideoState(false);
                         
@@ -1583,6 +1571,18 @@ export class WebRTCProvider implements IWebRTCProvider {
         setLocalAudio: (stream: MediaStream | null) => {
             const localAudioMap = this.streamManager.streams.get('local')?.get('audio');
             if (localAudioMap) {
+                // If setting to null, stop all tracks in the current stream first
+                if (!stream) {
+                    const currentStream = localAudioMap.get('local');
+                    if (currentStream) {
+                        console.log('[StreamManager] 🛑 Stopping all audio tracks before clearing stream');
+                        currentStream.getAudioTracks().forEach(track => {
+                            console.log(`[StreamManager] 🛑 Stopping audio track: ${track.id}`);
+                            track.stop();
+                        });
+                    }
+                }
+                
                 localAudioMap.set('local', stream);
                 console.log('[StreamManager] 🗂️ Local audio stream updated:', stream?.id || 'null');
                 
@@ -1607,6 +1607,18 @@ export class WebRTCProvider implements IWebRTCProvider {
         setLocalVideo: (stream: MediaStream | null) => {
             const localVideoMap = this.streamManager.streams.get('local')?.get('video');
             if (localVideoMap) {
+                // If setting to null, stop all tracks in the current stream first
+                if (!stream) {
+                    const currentStream = localVideoMap.get('local');
+                    if (currentStream) {
+                        console.log('[StreamManager] 🛑 Stopping all video tracks before clearing stream');
+                        currentStream.getVideoTracks().forEach(track => {
+                            console.log(`[StreamManager] 🛑 Stopping video track: ${track.id}`);
+                            track.stop();
+                        });
+                    }
+                }
+                
                 localVideoMap.set('local', stream);
                 console.log('[StreamManager] 🗂️ Local video stream updated:', stream?.id || 'null');
                 
@@ -1633,6 +1645,18 @@ export class WebRTCProvider implements IWebRTCProvider {
         setLocalScreen: (stream: MediaStream | null) => {
             const localScreenMap = this.streamManager.streams.get('local')?.get('screen');
             if (localScreenMap) {
+                // If setting to null, stop all tracks in the current stream first
+                if (!stream) {
+                    const currentStream = localScreenMap.get('local');
+                    if (currentStream) {
+                        console.log('[StreamManager] 🛑 Stopping all screen share tracks before clearing stream');
+                        currentStream.getVideoTracks().forEach(track => {
+                            console.log(`[StreamManager] 🛑 Stopping screen share track: ${track.id}`);
+                            track.stop();
+                        });
+                    }
+                }
+                
                 localScreenMap.set('local', stream);
                 console.log('[StreamManager] 🗂️ Local screen share stream updated:', stream?.id || 'null');
                 
@@ -1838,6 +1862,36 @@ export class WebRTCProvider implements IWebRTCProvider {
         },
         
         clearAllStreams: () => {
+            // Stop all local tracks before clearing
+            console.log('[StreamManager] 🛑 Stopping all local tracks before clearing all streams');
+            
+            // Stop local audio tracks
+            const localAudio = this.streamManager.getLocalAudio();
+            if (localAudio) {
+                localAudio.getAudioTracks().forEach(track => {
+                    console.log(`[StreamManager] 🛑 Stopping local audio track: ${track.id}`);
+                    track.stop();
+                });
+            }
+            
+            // Stop local video tracks
+            const localVideo = this.streamManager.getLocalVideo();
+            if (localVideo) {
+                localVideo.getVideoTracks().forEach(track => {
+                    console.log(`[StreamManager] 🛑 Stopping local video track: ${track.id}`);
+                    track.stop();
+                });
+            }
+            
+            // Stop local screen share tracks
+            const localScreen = this.streamManager.getLocalScreen();
+            if (localScreen) {
+                localScreen.getVideoTracks().forEach(track => {
+                    console.log(`[StreamManager] 🛑 Stopping local screen share track: ${track.id}`);
+                    track.stop();
+                });
+            }
+            
             this.streamManager.setLocalAudio(null);
             this.streamManager.setLocalVideo(null);
             this.streamManager.setLocalScreen(null);
@@ -3391,14 +3445,8 @@ private detectTrackRemoval(peerId: string, changeType: 'sender' | 'receiver') {
         console.log('[WebRTC] 🖥️ Stopping screen share...');
         
         try {
-            // Stop all tracks in the screen share stream
+            // Get the screen share stream (StreamManager will stop tracks when clearing)
             const screenShareStream = this.streamManager.getLocalScreen();
-            if (screenShareStream) {
-                screenShareStream.getTracks().forEach((track: MediaStreamTrack) => {
-                    track.stop();
-                    console.log(`[WebRTC] 🖥️ Stopped screen share track: ${track.id}`);
-                });
-            }
             
             // Store the screen share track ID BEFORE clearing the stream
             const screenShareTrackId = screenShareStream?.getVideoTracks()[0]?.id;
@@ -3475,6 +3523,13 @@ private detectTrackRemoval(peerId: string, changeType: 'sender' | 'receiver') {
      * This provides IMMEDIATE feedback for UI updates, faster than SDP renegotiation
      */
     private handleMediaStateMessage(peerId: string, message: any): void {
+        // Bold logging for media state changes received from peer
+        if (message.audio !== undefined) {
+            console.log(`%c[WebRTC] 🔊 AUDIO STATE RECEIVED from peer (responder side):`, 'font-weight: bold; color: blue;', peerId, message.audio ? 'ENABLED' : 'DISABLED');
+        }
+        if (message.video !== undefined) {
+            console.log(`%c[WebRTC] 📹 VIDEO STATE RECEIVED from peer (responder side):`, 'font-weight: bold; color: purple;', peerId, message.video ? 'ENABLED' : 'DISABLED');
+        }
         console.log(`[WebRTC] 📱 Received media state message from peer ${peerId}:`, message);
         
         // Update the peer's media state to track what we've been told
@@ -3536,6 +3591,12 @@ private detectTrackRemoval(peerId: string, changeType: 'sender' | 'receiver') {
             return;
         }
         
+        // Bold logging for screen share signals received from peer
+        if (message.screenId) {
+            console.log(`%c[WebRTC] 🖥️ SCREEN SHARE STARTED RECEIVED from peer (responder side):`, 'font-weight: bold; color: orange;', peerId);
+        } else {
+            console.log(`%c[WebRTC] 🖥️ SCREEN SHARE STOPPED RECEIVED from peer (responder side):`, 'font-weight: bold; color: orange;', peerId);
+        }
         console.log(`[WebRTC] 🖥️ Received screen share signal from peer ${peerId}:`, message);
         
         if (message.screenId) {
@@ -3568,6 +3629,13 @@ private detectTrackRemoval(peerId: string, changeType: 'sender' | 'receiver') {
         
         try {
             peerState.dataChannel.send(JSON.stringify(message));
+            
+            // Bold logging for screen share signals sent to peer
+            if (screenId) {
+                console.log(`%c[WebRTC] 🖥️ SCREEN SHARE STARTED SENT to peer (initiator side):`, 'font-weight: bold; color: orange;', peerId);
+            } else {
+                console.log(`%c[WebRTC] 🖥️ SCREEN SHARE STOPPED SENT to peer (initiator side):`, 'font-weight: bold; color: orange;', peerId);
+            }
             console.log(`[WebRTC] 🖥️ Sent screen share signal to peer ${peerId}:`, message);
         } catch (error) {
             console.error(`[WebRTC] Failed to send screen share signal to peer ${peerId}:`, error);
@@ -3591,9 +3659,15 @@ private detectTrackRemoval(peerId: string, changeType: 'sender' | 'receiver') {
     }
 
     public destroy(): void {
+        console.log(`%c[WebRTC] 💥 WEBRTC PROVIDER DESTROYED - Instance ${this.instanceId} for user ${this.userId}`, 'font-weight: bold; color: red; font-size: 14px;');
         this.isDestroyed = true;
+        
+        // Note: Message handler cleanup is now handled by DashboardPage
+        // DashboardPage will call signalingService.removeMessageHandler() before calling destroy()
+        
         this.disconnectAll();
-        WebRTCProvider.activeInstance = null;
+        // Note: WebRTCProvider.activeInstance should be set to null by DashboardPage, not here
+        console.log(`[WebRTC] WebRTCProvider instance ${this.instanceId} destroyed`);
     }
 
     // Missing internal methods
@@ -3602,7 +3676,14 @@ private detectTrackRemoval(peerId: string, changeType: 'sender' | 'receiver') {
             const peerState = this.connections.get(peerId);
             if (peerState) {
                 if (peerState.connection) {
-                    peerState.connection.close();
+                    // Check if connection is already closed to avoid errors
+                    const currentState = peerState.connection.connectionState;
+                    if (currentState !== 'closed') {
+                        console.log(`[WebRTC] Closing connection for peer ${peerId} (current state: ${currentState})`);
+                        peerState.connection.close();
+                    } else {
+                        console.log(`[WebRTC] Connection for peer ${peerId} is already closed, skipping close()`);
+                    }
                 }
                 if (peerState.connectionTimeout) {
                     clearTimeout(peerState.connectionTimeout);
@@ -3616,7 +3697,14 @@ private detectTrackRemoval(peerId: string, changeType: 'sender' | 'receiver') {
             // Clean up all connections
             for (const [id, peerState] of this.connections.entries()) {
                 if (peerState.connection) {
-                    peerState.connection.close();
+                    // Check if connection is already closed to avoid errors
+                    const currentState = peerState.connection.connectionState;
+                    if (currentState !== 'closed') {
+                        console.log(`[WebRTC] Closing connection for peer ${id} (current state: ${currentState})`);
+                        peerState.connection.close();
+                    } else {
+                        console.log(`[WebRTC] Connection for peer ${id} is already closed, skipping close()`);
+                    }
                 }
                 if (peerState.connectionTimeout) {
                     clearTimeout(peerState.connectionTimeout);
@@ -3626,6 +3714,28 @@ private detectTrackRemoval(peerId: string, changeType: 'sender' | 'receiver') {
             // Clean up all streams
             this.streamManager.clearAllStreams();
             console.log('[WebRTC] Cleaned up all connections and streams');
+        }
+    }
+
+    private cleanupLocalResources(peerId: string): void {
+        console.log(`[WebRTC] 🔄 Cleaning up local resources for peer ${peerId} (responder side)`);
+        
+        const peerState = this.connections.get(peerId);
+        if (peerState) {
+            // Clear timeouts
+            if (peerState.connectionTimeout) {
+                clearTimeout(peerState.connectionTimeout);
+            }
+            
+            // Remove from connections map
+            this.connections.delete(peerId);
+            
+            // Clean up streams for this peer (local streams only)
+            this.streamManager.clearPeerStreams(peerId);
+            
+            console.log(`[WebRTC] ✅ Local resources cleaned up for peer ${peerId} (connection left for initiator to close)`);
+        } else {
+            console.log(`[WebRTC] ⚠️ No peer state found for ${peerId} during local resource cleanup`);
         }
     }
 
@@ -3673,6 +3783,10 @@ private detectTrackRemoval(peerId: string, changeType: 'sender' | 'receiver') {
                 case 'ice-complete-ack':
                     console.log(`[WebRTC] ✅ Processing ICE-COMPLETE-ACK from peer ${message.from}`);
                     await this.handleIceCompleteAck(message.from, message.data);
+                    break;
+                case 'disconnect':
+                    console.log(`[WebRTC] 🔴 DISCONNECT RECEIVED from peer ${message.from} (responder side)`);
+                    await this.handleDisconnectMessage(message.from, message.data);
                     break;
                 default:
                     console.log(`[WebRTC] 📥 Unknown message type: ${message.type}`);
@@ -3908,6 +4022,14 @@ private detectTrackRemoval(peerId: string, changeType: 'sender' | 'receiver') {
             };
             
             peerState.dataChannel.send(JSON.stringify(message));
+            
+            // Bold logging for media state changes sent to peer
+            if (state.audio !== undefined) {
+                console.log(`%c[WebRTC] 🔊 AUDIO STATE SENT to peer (initiator side):`, 'font-weight: bold; color: blue;', peerId, state.audio ? 'ENABLED' : 'DISABLED');
+            }
+            if (state.video !== undefined) {
+                console.log(`%c[WebRTC] 📹 VIDEO STATE SENT to peer (initiator side):`, 'font-weight: bold; color: purple;', peerId, state.video ? 'ENABLED' : 'DISABLED');
+            }
             console.log(`[WebRTC] 📤 Media state sent to peer ${peerId}:`, message);
         } catch (error) {
             console.error(`[WebRTC] ❌ Failed to send media state to peer ${peerId}:`, error);
@@ -4507,6 +4629,41 @@ private detectTrackRemoval(peerId: string, changeType: 'sender' | 'receiver') {
         console.log(`[WebRTC] ✅ ICE completion acknowledged by peer ${fromPeerId}`);
         peerState.waitingForAck = false;
         peerState.pendingAction = null;
+    }
+
+    /**
+     * Handle disconnect message from peer
+     */
+    private async handleDisconnectMessage(fromPeerId: string, data: any): Promise<void> {
+        console.log(`[WebRTC] 🔴 Handling disconnect message from peer ${fromPeerId}`);
+        
+        const peerState = this.connections.get(fromPeerId);
+        if (peerState && peerState.connection) {
+            const currentState = peerState.connection.connectionState;
+            console.log(`[WebRTC] 🔍 Current connection state for peer ${fromPeerId}: ${currentState}`);
+            
+            // Check if connection is already disconnected/closed
+            if (currentState === 'disconnected' || currentState === 'closed' || currentState === 'failed') {
+                console.log(`[WebRTC] ⚠️ Connection for peer ${fromPeerId} is already ${currentState}, cleaning up resources only`);
+            } else {
+                console.log(`[WebRTC] 🔄 Connection for peer ${fromPeerId} is still active (${currentState}), proceeding with disconnect`);
+            }
+        } else {
+            console.log(`[WebRTC] ⚠️ No active connection found for peer ${fromPeerId}, cleaning up resources only`);
+        }
+        
+        // Clean up local resources only (responder side should not close connection)
+        // The initiator will close the connection automatically
+        this.cleanupLocalResources(fromPeerId);
+        
+        // Notify UI of disconnection
+        this.dispatchEvent({
+            type: 'connection',
+            peerId: fromPeerId,
+            data: { state: 'disconnected', connected: false }
+        });
+        
+        console.log(`[WebRTC] ✅ Disconnect handling completed for peer ${fromPeerId}`);
     }
 }
     

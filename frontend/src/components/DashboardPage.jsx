@@ -55,6 +55,7 @@ const DashboardPage = () => {
     // UI state - minimal state, get everything else from WebRTCProvider
     const [showChat, setShowChat] = useState(false);
     const [error, setError] = useState(null);
+    const [isGracefulDisconnect, setIsGracefulDisconnect] = useState(false);
     
     // Media state for ConnectionPanel
     const [isAudioEnabled, setIsAudioEnabled] = useState(false);
@@ -104,6 +105,7 @@ const DashboardPage = () => {
             if (provider) {
                 console.log('[DashboardPage] 🧹 Cleaning up WebRTC provider on provider change');
                 WebRTCProvider.clearAllInstances();
+                WebRTCProvider.clearActiveInstance(); // Clear the active instance reference
             }
         };
     }, [provider]);
@@ -298,6 +300,7 @@ const DashboardPage = () => {
             
             // Set up incoming connection handler
             signalingService.onIncomingConnection = async (message) => {
+                console.log('%c[DashboardPage] 🟢 CONNECT RECEIVED from peer (responder side):', 'font-weight: bold; color: green;', message.from);
                 console.log('[DashboardPage] 🔄 Incoming connection detected:', message.type, 'from peer', message.from);
                 
                 // Always create a fresh WebRTC provider for incoming connections
@@ -315,10 +318,22 @@ const DashboardPage = () => {
                         setIsConnecting(true);
                         setError(null);
                         setIsCreatingProvider(true);
+                        setIsGracefulDisconnect(false); // Reset graceful disconnect flag for new connection
                         
                         // Destroy any existing provider first to ensure clean state
                         if (provider) {
                             console.log('[DashboardPage] 🔄 Destroying existing provider before creating new one for incoming connection');
+                            
+                            // Clean up message handler before destroying provider
+                            if (signalingService) {
+                                const handlerId = provider.getMessageHandlerId();
+                                if (handlerId !== null) {
+                                    console.log(`%c[DashboardPage] 🧹 REMOVING EXISTING HANDLER ${handlerId} before creating new provider for incoming connection`, 'font-weight: bold; color: orange; font-size: 14px;');
+                                    const removed = signalingService.removeMessageHandler(handlerId);
+                                    console.log(`%c[DashboardPage] 🧹 EXISTING HANDLER REMOVAL RESULT: ${removed}`, 'font-weight: bold; color: orange; font-size: 14px;');
+                                }
+                            }
+                            
                             try {
                                 provider.destroy();
                                 // Add a small delay to ensure the destroy operation completes
@@ -328,6 +343,7 @@ const DashboardPage = () => {
                             }
                         }
                         
+                        console.log('%c[DashboardPage] 🚀 CREATING WEBRTC PROVIDER for incoming connection', 'font-weight: bold; color: green; font-size: 14px;');
                         const rtcProvider = new WebRTCProvider({
                             userId: user.id,
                             iceServers: [
@@ -358,6 +374,16 @@ const DashboardPage = () => {
                 }
             };
             
+            // Set up disconnect message handler
+            signalingService.onDisconnectMessage = async (message) => {
+                console.log('%c[DashboardPage] 🔴 DISCONNECT RECEIVED from peer (responder side):', 'font-weight: bold; color: red;', message.from, 'reason:', message.reason);
+                console.log('[DashboardPage] 📥 DISCONNECT RECEIVED from peer (responder side):', message.from, 'reason:', message.reason);
+                
+                // Responder side - received disconnect message from peer
+                // Don't send disconnect message back, just clean up local resources
+                await performDisconnect(false);
+            };
+            
             // Request initial peer list
             signalingService.wsProvider?.publish('get_peers', {
                 type: 'get_peers',
@@ -372,6 +398,7 @@ const DashboardPage = () => {
             if (signalingService) {
                 signalingService.onPeerListUpdate = null;
                 signalingService.onIncomingConnection = null;
+                signalingService.onDisconnectMessage = null;
             }
         };
     }, [signalingService]); // Only depend on signalingService
@@ -393,6 +420,17 @@ const DashboardPage = () => {
         return () => {
             if (provider) {
                 console.log('[DashboardPage] 🔄 Cleaning up WebRTC provider on unmount/change');
+                
+                // Clean up message handler before destroying provider
+                if (signalingService) {
+                    const handlerId = provider.getMessageHandlerId();
+                    if (handlerId !== null) {
+                        console.log(`%c[DashboardPage] 🧹 REMOVING HANDLER ${handlerId} during cleanup`, 'font-weight: bold; color: orange; font-size: 14px;');
+                        const removed = signalingService.removeMessageHandler(handlerId);
+                        console.log(`%c[DashboardPage] 🧹 CLEANUP HANDLER REMOVAL RESULT: ${removed}`, 'font-weight: bold; color: orange; font-size: 14px;');
+                    }
+                }
+                
                 try {
                     provider.destroy();
                 } catch (error) {
@@ -641,10 +679,12 @@ const DashboardPage = () => {
                 setIsConnecting(false);
                 setShowChat(true);
                 setError(null);
+                setIsGracefulDisconnect(false); // Reset graceful disconnect flag on successful connection
             } else if (state === 'connecting') {
                 setIsConnecting(true);
                 setIsPeerConnected(false);
                 setShowChat(false);
+                // Don't reset graceful disconnect flag here - let it persist until we know the final state
             } else if (state === 'disconnected' || state === 'failed') {
                 setIsPeerConnected(false);
                 setIsConnecting(false);
@@ -661,12 +701,23 @@ const DashboardPage = () => {
                     console.log(`[DashboardPage] Connection ${state} - destroying provider for retry`);
                     setProvider(null); // Set provider to null to trigger cleanup
                     
-                    // For failed connections, show a retry message with more specific guidance
-                    if (state === 'failed') {
-                        setError('Connection failed. This may be due to network issues or firewall restrictions. Please try reconnecting.');
-                    } else {
-                        setError('Connection lost. Please try reconnecting.');
-                    }
+                // Only show error message for unexpected disconnections
+                console.log(`%c[DashboardPage] 🔍 CONNECTION STATE CHANGE: ${state}, isGracefulDisconnect: ${isGracefulDisconnect}`, 'font-weight: bold; color: blue;');
+                console.log(`%c[DashboardPage] 🔍 DISCONNECT FLAG DEBUG: flag=${isGracefulDisconnect}, state=${state}`, 'font-weight: bold; color: purple;');
+                
+                if (state === 'failed') {
+                    // Failed connections are always unexpected
+                    console.log('[DashboardPage] Failed connection - showing error message');
+                    setError('Connection failed. This may be due to network issues or firewall restrictions. Please try reconnecting.');
+                } else if (state === 'disconnected' && !isGracefulDisconnect) {
+                    // Only show "Connection lost" for unexpected disconnections
+                    console.log('%c[DashboardPage] ❌ Unexpected disconnect - showing error message', 'font-weight: bold; color: red;');
+                    setError('Connection lost. Please try reconnecting.');
+                } else if (state === 'disconnected' && isGracefulDisconnect) {
+                    // Graceful disconnect - clear any existing error and don't show new error
+                    console.log('%c[DashboardPage] ✅ Graceful disconnect detected - not showing error message', 'font-weight: bold; color: green;');
+                    setError(null);
+                }
                 }
             }
         });
@@ -743,10 +794,22 @@ const DashboardPage = () => {
             setIsCreatingProvider(true);
             setIsConnecting(true);
             setError(null);
+            setIsGracefulDisconnect(false); // Reset graceful disconnect flag for new connection
 
             // Destroy any existing provider first to ensure clean state
             if (provider) {
                 console.log('[DashboardPage] 🔄 Destroying existing provider before creating new one');
+                
+                // Clean up message handler before destroying provider
+                if (signalingService) {
+                    const handlerId = provider.getMessageHandlerId();
+                    if (handlerId !== null) {
+                        console.log(`%c[DashboardPage] 🧹 REMOVING EXISTING HANDLER ${handlerId} before creating new provider`, 'font-weight: bold; color: orange; font-size: 14px;');
+                        const removed = signalingService.removeMessageHandler(handlerId);
+                        console.log(`%c[DashboardPage] 🧹 EXISTING HANDLER REMOVAL RESULT: ${removed}`, 'font-weight: bold; color: orange; font-size: 14px;');
+                    }
+                }
+                
                 try {
                     provider.destroy();
                     // Add a small delay to ensure the destroy operation completes
@@ -786,10 +849,22 @@ const DashboardPage = () => {
                                 setIsConnecting(true);
                                 setError(null);
                                 setIsCreatingProvider(true);
+                                setIsGracefulDisconnect(false); // Reset graceful disconnect flag for new connection
                                 
                                 // Destroy any existing provider first to ensure clean state
                                 if (provider) {
                                     console.log('[DashboardPage] 🔄 Destroying existing provider before creating new one for incoming connection after reset');
+                                    
+                                    // Clean up message handler before destroying provider
+                                    if (signalingService) {
+                                        const handlerId = provider.getMessageHandlerId();
+                                        if (handlerId !== null) {
+                                            console.log(`%c[DashboardPage] 🧹 REMOVING EXISTING HANDLER ${handlerId} before creating new provider for incoming connection after reset`, 'font-weight: bold; color: orange; font-size: 14px;');
+                                            const removed = signalingService.removeMessageHandler(handlerId);
+                                            console.log(`%c[DashboardPage] 🧹 EXISTING HANDLER REMOVAL RESULT: ${removed}`, 'font-weight: bold; color: orange; font-size: 14px;');
+                                        }
+                                    }
+                                    
                                     try {
                                         provider.destroy();
                                         // Add a small delay to ensure the destroy operation completes
@@ -799,6 +874,7 @@ const DashboardPage = () => {
                                     }
                                 }
                                 
+                                console.log('%c[DashboardPage] 🚀 CREATING WEBRTC PROVIDER for incoming connection after reset', 'font-weight: bold; color: green; font-size: 14px;');
                                 const rtcProvider = new WebRTCProvider({
                                     userId: user.id,
                                     iceServers: [
@@ -843,6 +919,7 @@ const DashboardPage = () => {
             const currentTimestamp = Date.now();
             setActiveProviderTimestamp(currentTimestamp);
             
+            console.log('%c[DashboardPage] 🚀 CREATING WEBRTC PROVIDER for connect button', 'font-weight: bold; color: green; font-size: 14px;');
             const rtcProvider = new WebRTCProvider({
                 userId: user.id,
                 iceServers: [
@@ -877,54 +954,112 @@ const DashboardPage = () => {
         }
     };
 
-    const handleDisconnect = async () => {
+    // Extracted disconnect logic that can be used by both initiator and responder
+    const performDisconnect = async (isInitiator = true) => {
         try {
-            console.log('[DashboardPage] 🔄 Starting disconnect process');
+            const disconnectType = isInitiator ? 'initiator side' : 'responder side';
+            if (isInitiator) {
+                console.log('%c[DashboardPage] 🔴 DISCONNECT STARTED from initiator side', 'font-weight: bold; color: red;');
+            } else {
+                console.log('%c[DashboardPage] 🔴 DISCONNECT STARTED from responder side', 'font-weight: bold; color: red;');
+            }
+            console.log(`[DashboardPage] 🔴 DISCONNECT STARTED from ${disconnectType}`);
             
-            // Disconnect from the specific peer
-            await provider.disconnect(selectedPeer);
+            // Mark this as a graceful disconnect (peer initiated)
+            console.log(`%c[DashboardPage] 🏷️ SETTING GRACEFUL DISCONNECT FLAG: ${isInitiator ? 'initiator' : 'responder'}`, 'font-weight: bold; color: purple;');
+            setIsGracefulDisconnect(true);
+            console.log(`%c[DashboardPage] 🏷️ GRACEFUL DISCONNECT FLAG SET TO: true`, 'font-weight: bold; color: purple;');
             
-            // Reset the WebRTC provider to ensure clean state
-            console.log('[DashboardPage] 🔄 Resetting WebRTC provider for clean reconnection');
-            await provider.reset();
+            // CRITICAL: Wait for the state update to be applied before proceeding
+            // This ensures the connection state change handler sees the correct flag value
+            await new Promise(resolve => setTimeout(resolve, 0));
             
-            // Reset signaling service to clear message handlers
-            console.log('[DashboardPage] 🔄 Resetting signaling service for clean reconnection');
-            if (signalingService) {
-                signalingService.reset();
-                
-                // Add a small delay to ensure all messages are cleared
-                await new Promise(resolve => setTimeout(resolve, 100));
-                
-                // Re-register peer list handler after reset
-                console.log('[DashboardPage] 🔄 Re-registering peer list handler after signaling service reset');
-                const user = userRef.current;
-                if (user) {
-                    signalingService.onPeerListUpdate = handlePeerListUpdate;
-                    
-                    // Request initial peer list
-                    signalingService.wsProvider?.publish('get_peers', {
-                        type: 'get_peers',
-                        userId: user.id
+            // Send disconnect message to peer (only if initiator)
+            if (isInitiator && signalingService && selectedPeer) {
+                try {
+                    console.log(`[DashboardPage] 📤 Sending disconnect message to peer ${selectedPeer}`);
+                    signalingService.send({
+                        type: 'disconnect',
+                        from: userRef.current?.id,
+                        to: selectedPeer,
+                        data: { timestamp: Date.now() }
                     });
+                    console.log(`[DashboardPage] ✅ Disconnect message sent to peer ${selectedPeer}`);
+                } catch (error) {
+                    console.warn('[DashboardPage] Failed to send disconnect message:', error);
+                }
+            } else if (!isInitiator) {
+                console.log(`[DashboardPage] 🔄 Responder side - not sending disconnect message to peer ${selectedPeer}`);
+            }
+            
+            // STEP 1: Stop all media resources BEFORE disconnecting
+            console.log('%c[DashboardPage] 🛑 STOPPING ALL MEDIA RESOURCES before disconnect', 'font-weight: bold; color: orange; font-size: 14px;');
+            
+            // Stop screen share before disconnect if it's active
+            if (isScreenSharing && provider) {
+                console.log('[DashboardPage] 🖥️ Stopping screen share before disconnect');
+                try {
+                    await provider.stopScreenShare();
+                    setIsScreenSharing(false);
+                } catch (error) {
+                    console.warn('[DashboardPage] Failed to stop screen share during disconnect:', error);
                 }
             }
             
-            // Reset dashboard state
+            // STEP 2: Disconnect from the specific peer - this will:
+            // 1. Clear all audio, video, screen resources
+            // 2. Reset remote resources (remote peer will clear its resources)
+            if (provider) {
+                console.log('%c[DashboardPage] 🔌 DISCONNECTING WEBRTC from peer', 'font-weight: bold; color: orange; font-size: 14px;');
+                await provider.disconnect(selectedPeer, isInitiator);
+            } else {
+                console.log(`[DashboardPage] ⚠️ No WebRTC provider available for disconnect (${disconnectType})`);
+            }
+            
+            // STEP 3: Reset dashboard state to go back to logged in page
+            console.log('[DashboardPage] 🔄 Resetting dashboard state after disconnect');
             reset();
             
-            // Destroy the provider to properly clean up message handlers before creating fresh instance
-            console.log('[DashboardPage] 🔄 Destroying WebRTC provider for fresh reconnection');
-            setProvider(null); // Set provider to null to trigger cleanup
+            // STEP 4: Clean up message handler before destroying provider
+            console.log('%c[DashboardPage] 🧹 CLEANING UP MESSAGE HANDLER before provider destroy', 'font-weight: bold; color: orange; font-size: 14px;');
+            if (provider && signalingService) {
+                const handlerId = provider.getMessageHandlerId();
+                if (handlerId !== null) {
+                    console.log(`%c[DashboardPage] 🧹 REMOVING MESSAGE HANDLER ${handlerId} from signaling service`, 'font-weight: bold; color: orange; font-size: 14px;');
+                    const removed = signalingService.removeMessageHandler(handlerId);
+                    console.log(`%c[DashboardPage] 🧹 HANDLER REMOVAL RESULT: ${removed}`, 'font-weight: bold; color: orange; font-size: 14px;');
+                } else {
+                    console.log(`%c[DashboardPage] ⚠️ NO HANDLER ID TO REMOVE`, 'font-weight: bold; color: yellow; font-size: 14px;');
+                }
+            }
             
-            // Add a small delay to ensure everything is properly reset before allowing reconnection
-            await new Promise(resolve => setTimeout(resolve, 200));
+            // STEP 5: Destroy the provider to clean up WebRTC resources
+            console.log('%c[DashboardPage] 💥 DESTROYING WEBRTC PROVIDER after disconnect', 'font-weight: bold; color: red; font-size: 14px;');
+            console.log('[DashboardPage] 🔄 Destroying WebRTC provider after disconnect');
+            if (provider) {
+                // Clean up the provider before setting to null
+                try {
+                    provider.destroy();
+                } catch (error) {
+                    console.warn('[DashboardPage] Error during provider destroy:', error);
+                }
+            }
             
-            console.log('[DashboardPage] 🔄 Disconnect process completed');
+            // STEP 6: Clear all WebRTC instances and set provider to null
+            WebRTCProvider.clearAllInstances();
+            WebRTCProvider.clearActiveInstance(); // Clear the active instance reference
+            setProvider(null); // DashboardPage sets provider to null
+            
+            console.log(`[DashboardPage] ✅ Disconnect process completed - user remains logged in (${disconnectType})`);
         } catch (error) {
             console.error('[DashboardPage] Disconnect error:', error);
             setError(error.message);
         }
+    };
+
+    const handleDisconnect = async () => {
+        // Initiator side - user clicked disconnect button
+        await performDisconnect(true);
     };
 
     const handleLogout = async () => {
@@ -999,6 +1134,7 @@ const DashboardPage = () => {
     // Media toggle handlers for ConnectionPanel
     const handleToggleAudio = async () => {
         const newAudioState = !isAudioEnabled;
+        console.log('%c[DashboardPage] 🔊 AUDIO TOGGLE STARTED (initiator side):', 'font-weight: bold; color: blue;', newAudioState ? 'ENABLE' : 'DISABLE');
         console.log('[DashboardPage] 🔊 Toggle audio requested:', newAudioState);
         
         try {
@@ -1071,6 +1207,7 @@ const DashboardPage = () => {
 
     const handleToggleVideo = async () => {
         const newVideoState = !isVideoEnabled;
+        console.log('%c[DashboardPage] 📹 VIDEO TOGGLE STARTED (initiator side):', 'font-weight: bold; color: purple;', newVideoState ? 'ENABLE' : 'DISABLE');
         console.log('[DashboardPage] 📹 Toggle video requested:', newVideoState);
         
         try {
@@ -1143,6 +1280,7 @@ const DashboardPage = () => {
 
     const handleToggleScreenShare = async () => {
         const newScreenShareState = !isScreenSharing;
+        console.log('%c[DashboardPage] 🖥️ SCREEN SHARE TOGGLE STARTED (initiator side):', 'font-weight: bold; color: orange;', newScreenShareState ? 'ENABLE' : 'DISABLE');
         console.log('[DashboardPage] 🖥️ Toggle screen share requested:', newScreenShareState);
         
         try {
@@ -1249,6 +1387,14 @@ const DashboardPage = () => {
         setShowChat(false);
         setError(null);
         setReceivedMessages([]);
+        
+        // Reset media states to initial values
+        setIsAudioEnabled(false);
+        setIsVideoEnabled(false);
+        setIsScreenSharing(false);
+        
+        // Don't reset isGracefulDisconnect here - let it persist for connection state handler
+        // It will be reset when starting a new connection
         
         console.log('[DashboardPage] 🔄 RESET: UI state reset completed');
     };

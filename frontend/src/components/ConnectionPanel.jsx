@@ -37,8 +37,10 @@ const ConnectionPanel = ({
 
     const handleConnectionClick = () => {
         if (isConnected) {
+            console.log('%c[ConnectionPanel] 🔴 DISCONNECT STARTED from button click (initiator side)', 'font-weight: bold; color: red;');
             onDisconnect();
         } else if (!isConnecting && selectedPeer) {
+            console.log('%c[ConnectionPanel] 🟢 CONNECT STARTED from button click (initiator side)', 'font-weight: bold; color: green;');
             onConnect();
         }
     };
