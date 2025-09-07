@@ -1011,6 +1011,8 @@ const DashboardPage = () => {
             // 2. Reset remote resources (remote peer will clear its resources)
             if (provider) {
                 console.log('%c[DashboardPage] 🔌 DISCONNECTING WEBRTC from peer', 'font-weight: bold; color: orange; font-size: 14px;');
+                // Set graceful disconnect flag on WebRTC provider to prevent connection state events
+                provider.setGracefulDisconnect(true);
                 await provider.disconnect(selectedPeer, isInitiator);
             } else {
                 console.log(`[DashboardPage] ⚠️ No WebRTC provider available for disconnect (${disconnectType})`);

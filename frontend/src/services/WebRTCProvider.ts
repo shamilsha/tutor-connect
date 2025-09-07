@@ -2095,7 +2095,11 @@ export class WebRTCProvider implements IWebRTCProvider {
 
             console.log(`[WebRTC] Connection state for peer ${peerId}: ${state}`);
 
-            
+            // Check if this is a graceful disconnect - if so, don't dispatch connection events
+            if (this.isGracefulDisconnect && (state === 'disconnected' || state === 'closed')) {
+                console.log(`%c[WebRTC] 🏷️ GRACEFUL DISCONNECT - NOT DISPATCHING CONNECTION EVENT for ${state}`, 'font-weight: bold; color: purple;');
+                return;
+            }
 
             const peerState = this.connections.get(peerId);
 
