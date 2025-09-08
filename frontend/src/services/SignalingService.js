@@ -292,15 +292,6 @@ export class SignalingService {
                 // Start connection monitoring to detect disconnections and reconnections
                 this.startConnectionMonitoring();
                 
-                // Request updated peer list after successful registration
-                // This helps detect peers that may have logged out while we were disconnected
-                setTimeout(() => {
-                    console.log('[SignalingService] 🔄 Requesting updated peer list after registration');
-                    this.wsProvider.publish('get_peers', {
-                        type: 'get_peers',
-                        userId: this.userId
-                    });
-                }, 1000); // Small delay to ensure registration is fully processed
                 
                 resolve(true);
             });
@@ -362,14 +353,6 @@ export class SignalingService {
                 this.handleConnectionLoss();
             } else if (isCurrentlyConnected && !wasConnected) {
                 console.log('[SignalingService] 🔄 Connection monitor detected reconnection');
-                // Request updated peer list after reconnection to detect any peers that logged out
-                setTimeout(() => {
-                    console.log('[SignalingService] 🔄 Requesting updated peer list after reconnection');
-                    this.wsProvider.publish('get_peers', {
-                        type: 'get_peers',
-                        userId: this.userId
-                    });
-                }, 1000); // Small delay to ensure connection is stable
             }
             
             wasConnected = isCurrentlyConnected;

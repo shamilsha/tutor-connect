@@ -389,11 +389,6 @@ const DashboardPage = () => {
                 await performDisconnect(false);
             };
             
-            // Request initial peer list
-            signalingService.wsProvider?.publish('get_peers', {
-                type: 'get_peers',
-                userId: user.id
-            });
         } else {
             console.warn('[DashboardPage] No signaling service available for peer list updates');
         }
@@ -445,22 +440,6 @@ const DashboardPage = () => {
         };
     }, [provider]); // This effect runs when provider changes or component unmounts
 
-    // Periodic peer list refresh to handle unexpected disconnections
-    useEffect(() => {
-        if (!signalingService || !userRef.current) return;
-
-        const refreshInterval = setInterval(() => {
-            console.log('[DashboardPage] 🔄 Periodic peer list refresh');
-            signalingService.wsProvider?.publish('get_peers', {
-                type: 'get_peers',
-                userId: userRef.current.id
-            });
-        }, 30000); // Refresh every 30 seconds
-
-        return () => {
-            clearInterval(refreshInterval);
-        };
-    }, [signalingService]);
 
 
 
@@ -910,11 +889,6 @@ const DashboardPage = () => {
                         }
                     };
                     
-                    // Request initial peer list
-                    signalingService.wsProvider?.publish('get_peers', {
-                        type: 'get_peers',
-                        userId: user.id
-                    });
                 }
             }
 
