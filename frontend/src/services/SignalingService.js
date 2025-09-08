@@ -54,7 +54,13 @@ export class SignalingService {
         
         // Don't log for heartbeat messages
         if (message.type !== 'heartbeat') {
-            console.log(`[SignalingService] 📨 Forwarding ${message.type} message to ${handlerCount} handler${handlerCount !== 1 ? 's' : ''}`);
+            console.log(`%c[SignalingService] 📨 FORWARDING MESSAGE:`, 'font-weight: bold; color: blue;', {
+                type: message.type,
+                from: message.from,
+                to: message.to,
+                handlerCount: handlerCount,
+                timestamp: new Date().toISOString()
+            });
         }
         
         // If no handlers, don't process the message
@@ -168,9 +174,18 @@ export class SignalingService {
                     
                 case 'peer_list':
                     const peers = message.peers.filter(peerId => peerId !== this.userId);
-                    console.log('[SignalingService] 👥 Received peer list:', peers);
+                    console.log(`%c[SignalingService] 👥 PEER LIST RECEIVED:`, 'font-weight: bold; color: blue; font-size: 14px;', {
+                        rawPeers: message.peers,
+                        filteredPeers: peers,
+                        currentUserId: this.userId,
+                        timestamp: new Date().toISOString(),
+                        handlerExists: !!this.onPeerListUpdate
+                    });
                     if (this.onPeerListUpdate) {
+                        console.log('%c[SignalingService] 👥 CALLING onPeerListUpdate handler:', 'font-weight: bold; color: green;');
                         this.onPeerListUpdate(peers);
+                    } else {
+                        console.log('%c[SignalingService] ⚠️ NO onPeerListUpdate handler registered:', 'font-weight: bold; color: yellow;');
                     }
                     break;
                     
@@ -239,17 +254,20 @@ export class SignalingService {
             const data = await response.json();
             this.userId = data.id.toString();
             
-            console.log('[SignalingService] Login successful, userId:', this.userId);
+            console.log('[SignalingService] ✅ LOGIN SUCCESS: Login successful, userId:', this.userId);
             localStorage.setItem('user', JSON.stringify({
                 id: data.id,
                 email: data.email
             }));
 
             // After successful login, establish WebSocket connection
+            console.log('[SignalingService] 🔌 LOGIN FLOW: Starting WebSocket establishment after successful login');
             await this.establishWebSocket();
+            console.log('[SignalingService] ✅ LOGIN FLOW: WebSocket establishment completed successfully');
             return true;
         } catch (error) {
-            console.error('[SignalingService] Login error:', error);
+            console.error('[SignalingService] ❌ LOGIN ERROR:', error);
+            console.error('[SignalingService] ❌ LOGIN ERROR: Source - SignalingService.login() method');
             this.cleanup();
             throw error; // Re-throw to let UI handle the error
         }
@@ -258,34 +276,45 @@ export class SignalingService {
     async establishWebSocket() {
         // If already connected and registered, just return
         if (this.wsProvider?.isConnected && this.isConnected) {
-            console.log('[SignalingService] Already connected and registered');
+            console.log('[SignalingService] ⚠️ ALREADY CONNECTED: WebSocket connection already established');
+            console.log('[SignalingService] ⚠️ ALREADY CONNECTED: State check:', {
+                wsProviderExists: !!this.wsProvider,
+                wsProviderConnected: this.wsProvider?.isConnected,
+                isConnected: this.isConnected,
+                userId: this.userId
+            });
             return Promise.resolve(true);
         }
 
-        console.log('[SignalingService] Establishing WebSocket connection');
+        console.log('[SignalingService] 🔌 WEBSOCKET: Establishing WebSocket connection for userId:', this.userId);
         
         // Get or create WebSocketProvider instance
         const { WebSocketProvider } = await import('./WebSocketProvider');
         this.wsProvider = WebSocketProvider.getInstance(this.userId);
+        console.log('[SignalingService] 🔌 WEBSOCKET: WebSocketProvider instance created/retrieved');
 
         return new Promise((resolve, reject) => {
             const registrationTimeout = setTimeout(() => {
-                console.error('[SignalingService] Registration timeout');
+                console.error('[SignalingService] ⏰ LOGIN TIMEOUT: WebSocket registration failed after 5 seconds');
+                console.error('[SignalingService] ⏰ LOGIN TIMEOUT: Source - SignalingService.establishWebSocket() timeout');
                 this.cleanup();
-                reject(new Error('Registration timeout'));
+                reject(new Error('Login timeout'));
             }, 5000);
 
             // Set up message handling for all message types
             this.wsProvider.subscribe('*', (message) => {
                 this.handleSocketMessage(message);
             });
+            console.log('[SignalingService] 🔌 WEBSOCKET: Message handlers subscribed');
 
             // Set up specific handler for registration
             this.wsProvider.subscribe('registered', (message) => {
-                console.log('[SignalingService] Registration confirmed:', message);
+                console.log('[SignalingService] ✅ REGISTRATION: Registration confirmed:', message);
                 clearTimeout(registrationTimeout);
                 this.isConnected = true;
+                console.log('[SignalingService] ✅ REGISTRATION: Connection status set to true');
                 if (this.onConnectionStatusChange) {
+                    console.log('[SignalingService] ✅ REGISTRATION: Calling onConnectionStatusChange(true)');
                     this.onConnectionStatusChange(true);
                 }
                 
@@ -297,16 +326,19 @@ export class SignalingService {
             });
 
             // Connect and register
+            console.log('[SignalingService] 🔌 WEBSOCKET: Attempting to connect to WebSocket server...');
             this.wsProvider.connect()
                 .then(async () => {
-                    console.log('[SignalingService] Connected to WebSocket server');
+                    console.log('[SignalingService] ✅ WEBSOCKET: Connected to WebSocket server successfully');
+                    console.log('[SignalingService] 📤 REGISTER: Sending registration message for userId:', this.userId);
                     this.wsProvider.publish('register', {
                         type: 'register',
                         userId: this.userId
                     });
                 })
                 .catch(error => {
-                    console.error('[SignalingService] Connection error:', error);
+                    console.error('[SignalingService] ❌ WEBSOCKET ERROR: Connection failed:', error);
+                    console.error('[SignalingService] ❌ WEBSOCKET ERROR: Source - WebSocket connection attempt');
                     clearTimeout(registrationTimeout);
                     this.cleanup();
                     reject(error);
@@ -315,10 +347,21 @@ export class SignalingService {
     }
 
     cleanup() {
+        console.log('[SignalingService] 🧹 CLEANUP: Starting signaling service cleanup');
+        console.log('[SignalingService] 🧹 CLEANUP: Current state before cleanup:', {
+            userId: this.userId,
+            isConnected: this.isConnected,
+            wsProviderExists: !!this.wsProvider,
+            wsProviderConnected: this.wsProvider?.isConnected,
+            registeredPeersCount: this.registeredPeers.size,
+            messageHandlersCount: this.messageHandlers.size
+        });
+        
         // Stop connection monitoring
         this.stopConnectionMonitoring();
         
         if (this.wsProvider) {
+            console.log('[SignalingService] 🧹 CLEANUP: Disconnecting WebSocket provider');
             this.wsProvider.disconnect();
         }
         this.userId = null;
@@ -326,6 +369,15 @@ export class SignalingService {
         localStorage.removeItem('user');
         this.registeredPeers.clear();
         this.messageHandlers.clear();
+        
+        console.log('[SignalingService] 🧹 CLEANUP: Signaling service cleanup completed');
+        console.log('[SignalingService] 🧹 CLEANUP: State after cleanup:', {
+            userId: this.userId,
+            isConnected: this.isConnected,
+            wsProviderExists: !!this.wsProvider,
+            registeredPeersCount: this.registeredPeers.size,
+            messageHandlersCount: this.messageHandlers.size
+        });
     }
 
     handleConnectionLoss() {
@@ -390,10 +442,27 @@ export class SignalingService {
     }
 
     sendLogout() {
+        console.log('%c[SignalingService] 👋 SEND LOGOUT INITIATED:', 'font-weight: bold; color: red; font-size: 14px;', {
+            userId: this.userId,
+            wsProviderExists: !!this.wsProvider,
+            isConnected: this.wsProvider?.isConnected,
+            timestamp: new Date().toISOString()
+        });
+        
         if (this.userId && this.wsProvider?.isConnected) {
-            this.wsProvider.publish('signaling', {
+            const logoutMessage = {
                 type: 'logout',
                 userId: this.userId
+            };
+            
+            console.log('%c[SignalingService] 👋 SENDING LOGOUT MESSAGE:', 'font-weight: bold; color: orange;', logoutMessage);
+            this.wsProvider.publish('signaling', logoutMessage);
+            console.log('%c[SignalingService] 👋 ✅ LOGOUT MESSAGE SENT TO SERVER', 'font-weight: bold; color: green;');
+        } else {
+            console.log('%c[SignalingService] ⚠️ CANNOT SEND LOGOUT - Missing requirements:', 'font-weight: bold; color: yellow;', {
+                hasUserId: !!this.userId,
+                hasWsProvider: !!this.wsProvider,
+                isConnected: this.wsProvider?.isConnected
             });
         }
     }

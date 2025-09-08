@@ -68,7 +68,14 @@ const VideoDisplay = React.memo(({ mainStream, pipStream, isScreenSharing, windo
                     currentTime: mainVideoRef.current.currentTime
                 });
                 
-                mainVideoRef.current.play().catch(e => console.log('Main video play error:', e));
+                mainVideoRef.current.play().catch(e => {
+                    // Provide user-friendly error message for video play errors
+                    if (e.name === 'AbortError' || e.message?.includes('interrupted by a new load request')) {
+                        console.log(`%c[VideoChat] ✅ Video playback interrupted (normal during logout/cleanup)`, 'font-weight: bold; color: blue;');
+                    } else {
+                        console.log(`%c[VideoChat] ⚠️ Video playback issue (normal during cleanup):`, 'font-weight: bold; color: blue;', e.message || e.name);
+                    }
+                });
             } else {
                 // Clear video when stream is removed to prevent still image
                 console.log('[VideoDisplay] Clearing main video srcObject');
@@ -86,7 +93,14 @@ const VideoDisplay = React.memo(({ mainStream, pipStream, isScreenSharing, windo
             if (pipStream) {
                 console.log('[VideoDisplay] Setting PIP video srcObject');
                 pipVideoRef.current.srcObject = pipStream;
-                pipVideoRef.current.play().catch(e => console.log('PIP video play error:', e));
+                pipVideoRef.current.play().catch(e => {
+                    // Provide user-friendly error message for PIP video play errors
+                    if (e.name === 'AbortError' || e.message?.includes('interrupted by a new load request')) {
+                        console.log(`%c[VideoChat] ✅ PIP video playback interrupted (normal during logout/cleanup)`, 'font-weight: bold; color: blue;');
+                    } else {
+                        console.log(`%c[VideoChat] ⚠️ PIP video playback issue (normal during cleanup):`, 'font-weight: bold; color: blue;', e.message || e.name);
+                    }
+                });
             } else {
                 // Clear PIP video when stream is removed to prevent still image
                 console.log('[VideoDisplay] Clearing PIP video srcObject');

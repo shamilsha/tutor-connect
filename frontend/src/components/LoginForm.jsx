@@ -45,8 +45,10 @@ export default function LoginForm() {
 
                 // Set timeout for registration
                 registrationTimeout = setTimeout(() => {
+                    console.error('[LoginForm] ⏰ LOGIN TIMEOUT: Login process failed after 5 seconds');
+                    console.error('[LoginForm] ⏰ LOGIN TIMEOUT: Source - LoginForm.jsx registration timeout');
                     signalingService.onConnectionStatusChange = null;
-                    reject(new Error('Registration timeout'));
+                    reject(new Error('Login timeout'));
                 }, 5000);
 
                 // Attempt to login and connect

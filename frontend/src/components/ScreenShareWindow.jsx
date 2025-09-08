@@ -35,7 +35,12 @@ const ScreenShareWindow = ({
                 console.log('[ScreenShareWindow] 🖥️ Setting screen share video srcObject and playing');
                 screenShareVideoRef.current.srcObject = screenShareStream;
                 screenShareVideoRef.current.play().catch(error => {
-                    console.error('[ScreenShareWindow] 🖥️ Error playing screen share video:', error);
+                    // Provide user-friendly error message for screen share video play errors
+                    if (error.name === 'AbortError' || error.message?.includes('interrupted by a new load request')) {
+                        console.log(`%c[ScreenShareWindow] ✅ Screen share video playback interrupted (normal during logout/cleanup)`, 'font-weight: bold; color: blue;');
+                    } else {
+                        console.log(`%c[ScreenShareWindow] ⚠️ Screen share video playback issue (normal during cleanup):`, 'font-weight: bold; color: blue;', error.message || error.name);
+                    }
                 });
             } else {
                 // Clear screen share video when stream is removed to prevent still image

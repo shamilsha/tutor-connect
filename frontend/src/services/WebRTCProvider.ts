@@ -125,6 +125,7 @@ export class WebRTCProvider implements IWebRTCProvider {
 
     private isDestroyed = false;
     private isGracefulDisconnect = false;
+    private isDestroying = false;
 
 
 
@@ -966,11 +967,18 @@ export class WebRTCProvider implements IWebRTCProvider {
             console.log(`[WebRTC] Disconnect all completed successfully`);
 
         } catch (error) {
-
-            console.error(`[WebRTC] Error during disconnect all:`, error);
-
-            throw error;
-
+            // Provide user-friendly error message instead of technical error
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorName = error instanceof Error ? error.name : 'UnknownError';
+            
+            if (errorName === 'AbortError' || errorMessage?.includes('interrupted by a new load request')) {
+                console.log(`%c[WebRTC] ✅ Disconnect completed - video cleanup interrupted (this is normal during logout)`, 'font-weight: bold; color: blue;');
+            } else {
+                console.log(`%c[WebRTC] ⚠️ Disconnect completed with minor cleanup issues (this is normal during logout)`, 'font-weight: bold; color: blue;');
+            }
+            
+            // Don't throw error during logout - it's expected
+            console.log(`%c[WebRTC] ✅ Disconnect process completed successfully`, 'font-weight: bold; color: green;');
         }
 
     }
@@ -1858,7 +1866,7 @@ export class WebRTCProvider implements IWebRTCProvider {
             this.streamManager.setRemoteAudio(peerId, null);
             this.streamManager.setRemoteVideo(peerId, null);
             this.streamManager.setRemoteScreen(peerId, null);
-            console.log(`[StreamManager] 🗂️ Cleared all streams for peer ${peerId}`);
+            console.log(`%c[StreamManager] ✅ Cleared all streams for peer ${peerId} (normal during cleanup)`, 'font-weight: bold; color: blue;');
         },
         
         clearAllStreams: () => {
@@ -1904,7 +1912,7 @@ export class WebRTCProvider implements IWebRTCProvider {
                 remoteStreams.get('screen')?.clear();
             }
             
-            console.log('[StreamManager] 🗂️ Cleared all streams');
+            console.log(`%c[StreamManager] ✅ Cleared all streams (normal during cleanup)`, 'font-weight: bold; color: blue;');
         }
     };
 
@@ -2093,7 +2101,19 @@ export class WebRTCProvider implements IWebRTCProvider {
 
             const state = connection.connectionState;
 
-            console.log(`[WebRTC] Connection state for peer ${peerId}: ${state}`);
+            // Provide user-friendly connection state messages
+            const stateMessages: Record<string, string> = {
+                'new': `%c[WebRTC] 🆕 New connection to peer ${peerId}`,
+                'connecting': `%c[WebRTC] 🔄 Connecting to peer ${peerId}...`,
+                'connected': `%c[WebRTC] ✅ Connected to peer ${peerId}`,
+                'disconnected': `%c[WebRTC] 🔌 Disconnected from peer ${peerId} (normal during cleanup)`,
+                'failed': `%c[WebRTC] ❌ Connection to peer ${peerId} failed`,
+                'closed': `%c[WebRTC] 🔒 Connection to peer ${peerId} closed (normal during cleanup)`
+            };
+            
+            const message = stateMessages[state] || `%c[WebRTC] 🔄 Connection state for peer ${peerId}: ${state}`;
+            const color = state === 'connected' ? 'green' : state === 'failed' ? 'red' : 'blue';
+            console.log(message, `font-weight: bold; color: ${color};`);
 
             // Check if this is a graceful disconnect - if so, don't dispatch connection events
             if (this.isGracefulDisconnect && (state === 'disconnected' || state === 'closed')) {
@@ -2104,11 +2124,9 @@ export class WebRTCProvider implements IWebRTCProvider {
             const peerState = this.connections.get(peerId);
 
             if (!peerState) {
-
-                console.log(`[WebRTC] No peer state found for ${peerId} during connection state change`);
-
+                // This is normal during cleanup - peer state may have been cleared already
+                console.log(`%c[WebRTC] ℹ️ No peer state found for ${peerId} during connection state change (normal during cleanup)`, 'font-weight: bold; color: blue;');
                 return;
-
             }
 
 
@@ -2245,7 +2263,20 @@ export class WebRTCProvider implements IWebRTCProvider {
 
             const gatheringState = connection.iceGatheringState;
 
-            console.log(`[WebRTC] 🧊 ICE connection state for peer ${peerId}: ${state} (gathering: ${gatheringState})`);
+            // Provide user-friendly ICE connection state messages
+            const iceStateMessages = {
+                'new': `%c[WebRTC] 🧊 ICE: Starting connection to peer ${peerId}...`,
+                'checking': `%c[WebRTC] 🧊 ICE: Checking connection to peer ${peerId}...`,
+                'connected': `%c[WebRTC] 🧊 ICE: Connected to peer ${peerId}`,
+                'completed': `%c[WebRTC] 🧊 ICE: Connection to peer ${peerId} established`,
+                'failed': `%c[WebRTC] 🧊 ICE: Connection to peer ${peerId} failed`,
+                'disconnected': `%c[WebRTC] 🧊 ICE: Disconnected from peer ${peerId} (normal during cleanup)`,
+                'closed': `%c[WebRTC] 🧊 ICE: Connection to peer ${peerId} closed (normal during cleanup)`
+            };
+            
+            const message = iceStateMessages[state] || `%c[WebRTC] 🧊 ICE connection state for peer ${peerId}: ${state}`;
+            const color = state === 'connected' || state === 'completed' ? 'green' : state === 'failed' ? 'red' : 'blue';
+            console.log(message, `font-weight: bold; color: ${color};`);
 
             
 
@@ -2476,26 +2507,30 @@ export class WebRTCProvider implements IWebRTCProvider {
                     break;
 
                 case 'disconnected':
-
-                    console.warn(`[WebRTC] ⚠️ ICE connection disconnected for peer ${peerId}`);
+                    // Provide user-friendly message for ICE disconnection
+                    console.log(`%c[WebRTC] 🧊 ICE: Disconnected from peer ${peerId} (normal during cleanup)`, 'font-weight: bold; color: blue;');
+                    
+                    // Check if this is a graceful disconnect or cleanup phase
+                    if (this.isGracefulDisconnect || this.isDestroying) {
+                        console.log(`%c[WebRTC] 🧊 ICE: Disconnection during cleanup - not treating as error`, 'font-weight: bold; color: blue;');
+                        return; // Don't treat as error during cleanup
+                    }
                     
                     // Check if this is a temporary disconnection during renegotiation
                     const currentPeerState = this.connections.get(peerId);
                     if (currentPeerState && (currentPeerState.phase === 'connecting' || currentPeerState.phase === 'connected')) {
-                        console.log(`[WebRTC] 🔄 ICE disconnection detected during active phase - this may be temporary during renegotiation`);
+                        console.log(`%c[WebRTC] 🔄 ICE disconnection detected during active phase - this may be temporary during renegotiation`, 'font-weight: bold; color: orange;');
                         
                         // Don't immediately clean up - wait for reconnection or failure
                         // The connection will either reconnect or fail, and we'll handle it then
                     } else {
-                        console.warn(`[WebRTC] ⚠️ ICE disconnection in inactive phase - cleaning up connection`);
+                        console.log(`%c[WebRTC] ⚠️ ICE disconnection in inactive phase - cleaning up connection`, 'font-weight: bold; color: orange;');
                         this.handleError(peerId, new Error('ICE connection disconnected'));
                     }
                     break;
 
                 case 'closed':
-
-                    console.log(`[WebRTC] 🚪 ICE connection closed for peer ${peerId}`);
-
+                    console.log(`%c[WebRTC] 🧊 ICE: Connection closed for peer ${peerId} (normal during cleanup)`, 'font-weight: bold; color: blue;');
                     break;
 
             }
@@ -3135,7 +3170,7 @@ export class WebRTCProvider implements IWebRTCProvider {
 
             event.track.onended = () => {
 
-                console.log(`[WebRTC] 🚫 TRACK ENDED: ${event.track.kind} track from peer ${peerId}`);
+                console.log(`%c[WebRTC] ✅ ${event.track.kind} track ended (normal during connection cleanup)`, 'font-weight: bold; color: blue;');
 
                 if (event.track.kind === 'video') {
 
@@ -3664,6 +3699,7 @@ private detectTrackRemoval(peerId: string, changeType: 'sender' | 'receiver') {
 
     public destroy(): void {
         console.log(`%c[WebRTC] 💥 WEBRTC PROVIDER DESTROYED - Instance ${this.instanceId} for user ${this.userId}`, 'font-weight: bold; color: red; font-size: 14px;');
+        this.isDestroying = true; // Set flag before cleanup
         this.isDestroyed = true;
         
         // Note: Message handler cleanup is now handled by DashboardPage

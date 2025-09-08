@@ -74,7 +74,211 @@ const DashboardPage = () => {
     // Store user data and message handler IDs in ref
     const userRef = useRef(null);
     const messageHandlerRef = useRef(null);
+    
+    // Store WebRTC event handlers for cleanup
+    const webRTCEventHandlersRef = useRef({
+        connection: null,
+        error: null,
+        message: null,
+        stream: null,
+        stateChange: null,
+        track: null
+    });
+    
+    // Save connected peer with timestamp when connection is lost to detect logout vs disconnect
+    const disconnectedPeerRef = useRef(null); // { peerId, timestamp }
+    
+    // Track which peers have had their logout handled to prevent duplicate cleanup
+    const handledLogoutPeersRef = useRef(new Set()); // Set of peer IDs that have had logout handled
+    
+    // Function to clear selectedPeer with automatic timestamp saving for logout detection
+    const clearSelectedPeer = (reason = 'unknown') => {
+        if (selectedPeer) {
+            console.log(`%c[DashboardPage] 🧹 CLEARING SELECTED PEER: ${selectedPeer} (reason: ${reason})`, 'font-weight: bold; color: orange;');
+            // Save selectedPeer with timestamp before clearing it for logout detection
+            disconnectedPeerRef.current = {
+                peerId: selectedPeer,
+                timestamp: Date.now()
+            };
+            setSelectedPeer('');
+            console.log(`%c[DashboardPage] 🧹 SELECTED PEER SAVED FOR LOGOUT DETECTION:`, 'font-weight: bold; color: blue;', disconnectedPeerRef.current);
+        }
+    };
 
+    // Function to properly clean up streams before setting provider to null
+    const cleanupStreamsAndSetProviderNull = (reason = 'unknown') => {
+        const userFriendlyReason = getLogoutReasonMessage(reason);
+        console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: ${userFriendlyReason}`, 'font-weight: bold; color: orange;');
+        
+        try {
+            // Check if provider exists and has streams
+            if (provider) {
+                console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Provider exists, checking for streams`, 'font-weight: bold; color: blue;');
+                
+                // Try to get local streams from provider if possible
+                try {
+                    const localVideoStream = provider.getLocalVideoStream();
+                    const localAudioStream = provider.getLocalAudioStream();
+                    const localScreenStream = provider.getLocalScreenStream();
+                    
+                    if (localVideoStream) {
+                        console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Stopping local video stream`, 'font-weight: bold; color: orange;');
+                        localVideoStream.getTracks().forEach(track => {
+                            try {
+                                track.stop();
+                                console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Stopped local video track`, 'font-weight: bold; color: orange;');
+                            } catch (trackError) {
+                                console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Video track already stopped (normal during ${userFriendlyReason.toLowerCase()})`, 'font-weight: bold; color: blue;');
+                            }
+                        });
+                    }
+                    
+                    if (localAudioStream) {
+                        console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Stopping local audio stream`, 'font-weight: bold; color: orange;');
+                        localAudioStream.getTracks().forEach(track => {
+                            try {
+                                track.stop();
+                                console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Stopped local audio track`, 'font-weight: bold; color: orange;');
+                            } catch (trackError) {
+                                console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Audio track already stopped (normal during ${userFriendlyReason.toLowerCase()})`, 'font-weight: bold; color: blue;');
+                            }
+                        });
+                    }
+                    
+                    if (localScreenStream) {
+                        console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Stopping local screen stream`, 'font-weight: bold; color: orange;');
+                        localScreenStream.getTracks().forEach(track => {
+                            try {
+                                track.stop();
+                                console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Stopped local screen track`, 'font-weight: bold; color: orange;');
+                            } catch (trackError) {
+                                console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Screen track already stopped (normal during ${userFriendlyReason.toLowerCase()})`, 'font-weight: bold; color: blue;');
+                            }
+                        });
+                    }
+                } catch (error) {
+                    console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Provider streams already cleaned up (normal during ${userFriendlyReason.toLowerCase()})`, 'font-weight: bold; color: blue;');
+                }
+            }
+            
+            // Clean up all video elements
+            try {
+                const videoElements = document.querySelectorAll('video');
+                videoElements.forEach((video, index) => {
+                    if (video.srcObject) {
+                        console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Clearing video element ${index}`, 'font-weight: bold; color: orange;');
+                        try {
+                            const stream = video.srcObject;
+                            if (stream && stream.getTracks) {
+                                stream.getTracks().forEach(track => {
+                                    try {
+                                        track.stop();
+                                        console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Stopped track: ${track.kind}`, 'font-weight: bold; color: orange;');
+                                    } catch (trackError) {
+                                        console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Track already stopped (normal during ${userFriendlyReason.toLowerCase()})`, 'font-weight: bold; color: blue;');
+                                    }
+                                });
+                            }
+                            video.srcObject = null;
+                        } catch (videoError) {
+                            console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Video element already cleared (normal during ${userFriendlyReason.toLowerCase()})`, 'font-weight: bold; color: blue;');
+                        }
+                    }
+                });
+            } catch (videoCleanupError) {
+                console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Video elements already cleaned up (normal during ${userFriendlyReason.toLowerCase()})`, 'font-weight: bold; color: blue;');
+            }
+            
+            console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: ${userFriendlyReason} completed successfully`, 'font-weight: bold; color: green;');
+            setProvider(null);
+            
+        } catch (error) {
+            console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: ${userFriendlyReason} completed with minor cleanup issues (this is normal)`, 'font-weight: bold; color: blue;');
+            // Still set provider to null even if cleanup fails
+            setProvider(null);
+        }
+    };
+
+    // Helper function to provide user-friendly logout reason messages
+    const getLogoutReasonMessage = (reason) => {
+        const reasonMessages = {
+            'user_logout': 'User logout - cleaning up streams',
+            'logout_disconnect': 'Peer logout detected - cleaning up streams',
+            'disconnect_responder_no_provider': 'Peer disconnected - cleaning up streams',
+            'disconnect_initiator_no_provider': 'Disconnecting - cleaning up streams',
+            'disconnect_responder_with_provider': 'Peer disconnected - cleaning up streams',
+            'disconnect_initiator_with_provider': 'Disconnecting - cleaning up streams',
+            'connection_disconnected': 'Connection lost - cleaning up streams',
+            'connection_failed': 'Connection failed - cleaning up streams',
+            'connection_state_reset': 'Resetting connection - cleaning up streams'
+        };
+        return reasonMessages[reason] || `Cleaning up streams (${reason})`;
+    };
+
+    // Simple logout detection function
+    const handlePeerLogout = async (loggedOutPeerId) => {
+        console.log(`%c[DashboardPage] 👋 PEER LOGOUT DETECTED: ${loggedOutPeerId}`, 'font-weight: bold; color: orange; font-size: 14px;');
+        
+        // Clear the saved peer since we've detected and handled the logout
+        disconnectedPeerRef.current = null;
+        handledLogoutPeersRef.current.add(loggedOutPeerId);
+        console.log(`%c[DashboardPage] 👋 CLEARED SAVED PEER after logout detection`, 'font-weight: bold; color: blue;');
+        console.log(`%c[DashboardPage] 👋 MARKED PEER ${loggedOutPeerId} as logout handled`, 'font-weight: bold; color: blue;');
+        
+        // Debug: Check provider state
+        console.log(`%c[DashboardPage] 👋 DEBUG: Provider state during logout:`, 'font-weight: bold; color: purple;', {
+            provider: provider,
+            providerExists: !!provider,
+            providerType: typeof provider
+        });
+        
+        // Disconnect gracefully from the logged out peer
+        if (provider) {
+            console.log(`%c[DashboardPage] 👋 Disconnecting from logged out peer: ${loggedOutPeerId}`, 'font-weight: bold; color: blue;');
+            
+            // Use existing disconnect logic but don't send disconnect message
+            // The other peer already logged out, so no need to notify them
+            try {
+                provider.destroy();
+                cleanupStreamsAndSetProviderNull('logout_disconnect');
+                reset();
+                console.log(`%c[DashboardPage] 👋 ✅ Graceful disconnect from logged out peer completed`, 'font-weight: bold; color: green;');
+            } catch (error) {
+                console.warn('[DashboardPage] Error during logout disconnect:', error);
+                // Still reset the UI even if disconnect fails
+                cleanupStreamsAndSetProviderNull('logout_disconnect_error');
+                reset();
+            }
+        } else {
+            console.log(`%c[DashboardPage] 👋 No provider to disconnect, but ensuring proper cleanup for logged out peer: ${loggedOutPeerId}`, 'font-weight: bold; color: blue;');
+            
+            // CRITICAL: Even without provider, we need to ensure proper disconnect flow
+            // The WebRTC connection might have been cleaned up already, but we still need to
+            // trigger the proper disconnect sequence to clean up any remaining state
+            console.log(`%c[DashboardPage] 👋 FORCING DISCONNECT FLOW: Calling performDisconnect for logged out peer`, 'font-weight: bold; color: orange;');
+            try {
+                // Call the disconnect method directly to ensure proper cleanup
+                await performDisconnect(false); // false = responder side (we're responding to peer logout)
+                console.log(`%c[DashboardPage] 👋 ✅ FORCED DISCONNECT COMPLETED for logged out peer`, 'font-weight: bold; color: green;');
+            } catch (error) {
+                console.warn(`%c[DashboardPage] ⚠️ Error during forced disconnect for logged out peer:`, 'font-weight: bold; color: yellow;', error);
+                // Still reset the UI even if forced disconnect fails
+                reset();
+            }
+        }
+        
+        // Stream cleanup is now handled by cleanupStreamsAndSetProviderNull function when provider is destroyed
+        
+        // FALLBACK: Always ensure UI is reset after logout detection
+        console.log(`%c[DashboardPage] 👋 FALLBACK: Ensuring UI reset after logout detection`, 'font-weight: bold; color: red;');
+        setTimeout(() => {
+            if (isPeerConnected || isConnecting) {
+                console.log(`%c[DashboardPage] 👋 FALLBACK: UI still shows connected state, forcing reset`, 'font-weight: bold; color: red;');
+                reset();
+            }
+        }, 100);
+    };
+ 
     // Global flag to prevent multiple provider instances
     const [hasActiveProvider, setHasActiveProvider] = useState(false);
     const [activeProviderTimestamp, setActiveProviderTimestamp] = useState(0);
@@ -237,15 +441,74 @@ const DashboardPage = () => {
 
 
 
+    // Function to handle removal of connected peer (logout detection)
+    const removeConnectedPeer = (removedPeerId) => {
+        console.log('%c[DashboardPage] 👋 CONNECTED PEER REMOVED - Peer no longer available:', 'font-weight: bold; color: red; font-size: 14px;', {
+            removedPeerId: removedPeerId,
+            connectedPeer: connectedPeerRef.current,
+            selectedPeer: selectedPeer,
+            wasConnected: isPeerConnected,
+            providerExists: !!provider,
+            timestamp: new Date().toISOString(),
+            reason: 'peer_logged_out',
+            detectionMethod: 'session_level_check'
+        });
+        
+        // Set graceful disconnect flag to prevent "unexpected disconnect" error
+        console.log('%c[DashboardPage] 🏷️ SETTING GRACEFUL DISCONNECT FLAG for peer logout', 'font-weight: bold; color: purple;');
+        setIsGracefulDisconnect(true);
+        
+        // Disconnect gracefully from the logged-out peer
+        if (provider) {
+            console.log('%c[DashboardPage] 🔌 DISCONNECTING from logged-out peer (responder side)', 'font-weight: bold; color: orange;');
+            try {
+                // OWNERSHIP: DashboardPage owns WebRTCProvider - call disconnect for cleanup
+                console.log('%c[DashboardPage] 🔌 Calling provider.disconnect() - DashboardPage owns provider', 'font-weight: bold; color: blue;');
+                provider.disconnect(removedPeerId, false); // false = not initiator, use detected peer
+                console.log('%c[DashboardPage] ✅ Disconnect from logged-out peer completed', 'font-weight: bold; color: green;');
+            } catch (error) {
+                console.warn('%c[DashboardPage] ⚠️ Error disconnecting from logged-out peer:', 'font-weight: bold; color: yellow;', error);
+            }
+        } else {
+            console.log('%c[DashboardPage] ⚠️ No provider available for disconnect (peer already logged out)', 'font-weight: bold; color: yellow;');
+        }
+        
+        // Reset to logged-in state
+        console.log('%c[DashboardPage] 🔄 RESETTING TO LOGGED-IN STATE after peer logout', 'font-weight: bold; color: blue;');
+        setIsPeerConnected(false);
+        setIsConnecting(false);
+        setShowChat(false);
+        setError(null);
+        
+        // Clear media states
+        setIsAudioEnabled(false);
+        setIsVideoEnabled(false);
+        setIsScreenSharing(false);
+        setReceivedMessages([]);
+        
+        // Clear peer selection and disconnected peer tracking
+        clearSelectedPeer('peer_logout_cleanup');
+        disconnectedPeerRef.current = null;
+        
+        console.log('%c[DashboardPage] ✅ Successfully returned to logged-in state after peer logout', 'font-weight: bold; color: green;');
+    };
+
     // Define handlePeerListUpdate outside useEffect so it can be accessed by other functions
-    const handlePeerListUpdate = (peers) => {
+    const handlePeerListUpdate = async (peers) => {
         const user = userRef.current;
         if (!user) {
             console.log('[DashboardPage] No user data available for peer list handler');
             return;
         }
 
-        console.log('[DashboardPage] Received peer list update:', peers);
+        console.log(`%c[DashboardPage] 📨 PEER LIST UPDATE RECEIVED:`, 'font-weight: bold; color: blue; font-size: 14px;', {
+            currentUser: user.id,
+            receivedPeers: peers,
+            timestamp: new Date().toISOString(),
+            selectedPeer: selectedPeer,
+            disconnectedPeerRef: disconnectedPeerRef.current,
+            willCheckForLogout: selectedPeer && !peers.some(p => p.id === selectedPeer)
+        });
         
         // Filter out current user and format peer list using user ID
         const filteredPeers = peers
@@ -255,37 +518,36 @@ const DashboardPage = () => {
                 name: `Peer ${peerId}`
             }));
 
-        console.log('[DashboardPage] Filtered peer list:', filteredPeers);
-        
-        // Update peer list state
-        setPeerList(prevPeers => {
-            // Compare with current peer list
-            const currentPeerIds = new Set(prevPeers.map(p => p.id));
-            const newPeerIds = new Set(filteredPeers.map(p => p.id));
-            
-            // Check if the sets are different
-            const hasChanged = currentPeerIds.size !== newPeerIds.size || 
-                             [...currentPeerIds].some(id => !newPeerIds.has(id)) ||
-                             [...newPeerIds].some(id => !currentPeerIds.has(id));
-
-            if (hasChanged) {
-                console.log('[DashboardPage] Updating peer list state:', filteredPeers);
-                
-                // Check if we're connected to a peer that's no longer in the list
-                if (provider && isPeerConnected && selectedPeer) {
-                    const isPeerStillAvailable = filteredPeers.some(p => p.id === selectedPeer);
-                    if (!isPeerStillAvailable) {
-                        console.log('[DashboardPage] 🔄 Connected peer is no longer available, disconnecting and clearing selection');
-                        // The peer we're connected to is no longer in the list, disconnect and clear selection
-                        handleDisconnect();
-                        setSelectedPeer(''); // Clear the selected peer since it's no longer available
-                    }
-                }
-                
-                return filteredPeers;
-            }
-            return prevPeers;
+        console.log('%c[DashboardPage] 🔍 FILTERED PEER LIST:', 'font-weight: bold; color: blue;', {
+            filteredPeers: filteredPeers,
+            currentUser: user.id
         });
+        
+        // Check if we have a recently cleared selectedPeer that might indicate logout
+        if (disconnectedPeerRef.current) {
+            const { peerId, timestamp } = disconnectedPeerRef.current;
+            const timeSinceCleared = Date.now() - timestamp;
+            
+            // If within 2 seconds and peer is not in the updated list = logout
+            if (timeSinceCleared <= 2000 && !filteredPeers.some(p => p.id === peerId)) {
+                console.log(`%c[DashboardPage] 👋 PEER ${peerId} LOGGED OUT (detected within ${timeSinceCleared}ms)`, 'font-weight: bold; color: red; font-size: 14px;');
+                await handlePeerLogout(peerId);
+                // Note: handlePeerLogout() will clear disconnectedPeerRef.current
+            } else if (timeSinceCleared > 2000) {
+                // More than 2 seconds = just a normal disconnect, clear the ref
+                console.log(`%c[DashboardPage] 🔌 Normal disconnect detected (${timeSinceCleared}ms ago)`, 'font-weight: bold; color: blue;');
+                disconnectedPeerRef.current = null;
+            }
+        }
+        
+        // Check if current selectedPeer is missing from updated list (immediate logout detection)
+        if (selectedPeer && !filteredPeers.some(p => p.id === selectedPeer)) {
+            console.log(`%c[DashboardPage] 👋 CONNECTED PEER ${selectedPeer} LOGGED OUT (immediate detection)`, 'font-weight: bold; color: red; font-size: 14px;');
+            await handlePeerLogout(selectedPeer);
+        }
+        
+        // Update the peer list
+        setPeerList(filteredPeers);
     };
 
     // Set up peer list handler - separate effect to avoid re-runs
@@ -329,17 +591,21 @@ const DashboardPage = () => {
                         if (provider) {
                             console.log('[DashboardPage] 🔄 Destroying existing provider before creating new one for incoming connection');
                             
-                            // Clean up message handler before destroying provider
-                            if (signalingService) {
-                                const handlerId = provider.getMessageHandlerId();
-                                if (handlerId !== null) {
-                                    console.log(`%c[DashboardPage] 🧹 REMOVING EXISTING HANDLER ${handlerId} before creating new provider for incoming connection`, 'font-weight: bold; color: orange; font-size: 14px;');
-                                    const removed = signalingService.removeMessageHandler(handlerId);
-                                    console.log(`%c[DashboardPage] 🧹 EXISTING HANDLER REMOVAL RESULT: ${removed}`, 'font-weight: bold; color: orange; font-size: 14px;');
-                                }
-                            }
-                            
+                            // OWNERSHIP: DashboardPage owns WebRTCProvider - manage its cleanup
                             try {
+                                console.log('%c[DashboardPage] 🧹 DashboardPage managing WebRTCProvider cleanup', 'font-weight: bold; color: blue;');
+                                
+                                // DashboardPage removes the message handler (it owns the provider)
+                                if (signalingService) {
+                                    const handlerId = provider.getMessageHandlerId();
+                                    if (handlerId !== null) {
+                                        console.log(`%c[DashboardPage] 🧹 REMOVING HANDLER ${handlerId} (DashboardPage owns provider)`, 'font-weight: bold; color: orange;');
+                                        const removed = signalingService.removeMessageHandler(handlerId);
+                                        console.log(`%c[DashboardPage] 🧹 HANDLER REMOVAL RESULT: ${removed}`, 'font-weight: bold; color: orange;');
+                                    }
+                                }
+                                
+                                // Then destroy the provider
                                 provider.destroy();
                                 // Add a small delay to ensure the destroy operation completes
                                 await new Promise(resolve => setTimeout(resolve, 100));
@@ -410,7 +676,7 @@ const DashboardPage = () => {
             setSelectedPeer(peerList[0].id);
         } else if (peerList.length === 0 && selectedPeer) {
             console.log('[DashboardPage] No peers available, clearing selected peer');
-            setSelectedPeer('');
+            clearSelectedPeer('no_peers_available');
         }
     }, [peerList, selectedPeer, isPeerConnected, isConnecting]);
 
@@ -421,17 +687,21 @@ const DashboardPage = () => {
             if (provider) {
                 console.log('[DashboardPage] 🔄 Cleaning up WebRTC provider on unmount/change');
                 
-                // Clean up message handler before destroying provider
-                if (signalingService) {
-                    const handlerId = provider.getMessageHandlerId();
-                    if (handlerId !== null) {
-                        console.log(`%c[DashboardPage] 🧹 REMOVING HANDLER ${handlerId} during cleanup`, 'font-weight: bold; color: orange; font-size: 14px;');
-                        const removed = signalingService.removeMessageHandler(handlerId);
-                        console.log(`%c[DashboardPage] 🧹 CLEANUP HANDLER REMOVAL RESULT: ${removed}`, 'font-weight: bold; color: orange; font-size: 14px;');
-                    }
-                }
-                
+                // OWNERSHIP: DashboardPage owns WebRTCProvider - manage its cleanup
                 try {
+                    console.log('%c[DashboardPage] 🧹 DashboardPage managing WebRTCProvider cleanup', 'font-weight: bold; color: blue;');
+                    
+                    // DashboardPage removes the message handler (it owns the provider)
+                    if (signalingService) {
+                        const handlerId = provider.getMessageHandlerId();
+                        if (handlerId !== null) {
+                            console.log(`%c[DashboardPage] 🧹 REMOVING HANDLER ${handlerId} (DashboardPage owns provider)`, 'font-weight: bold; color: orange;');
+                            const removed = signalingService.removeMessageHandler(handlerId);
+                            console.log(`%c[DashboardPage] 🧹 HANDLER REMOVAL RESULT: ${removed}`, 'font-weight: bold; color: orange;');
+                        }
+                    }
+                    
+                    // Then destroy the provider
                     provider.destroy();
                 } catch (error) {
                     console.warn('[DashboardPage] ⚠️ Error during provider cleanup:', error);
@@ -654,7 +924,7 @@ const DashboardPage = () => {
     // Helper function to set up WebRTC event listeners
     const setupWebRTCEventListeners = (rtcProvider) => {
         // Connection event listener
-        rtcProvider.addEventListener('connection', (event) => {
+        const connectionHandler = (event) => {
             const state = event.data.state;
             console.log(`[DashboardPage] Connection state changed:`, state);
             
@@ -664,6 +934,15 @@ const DashboardPage = () => {
                 setShowChat(true);
                 setError(null);
                 setIsGracefulDisconnect(false); // Reset graceful disconnect flag on successful connection
+                
+                // Clear any previous disconnected peer tracking since we have a new connection
+                disconnectedPeerRef.current = null;
+                handledLogoutPeersRef.current.clear(); // Clear handled logout tracking for new connection
+                console.log('%c[DashboardPage] 🔗 CONNECTION ESTABLISHED:', 'font-weight: bold; color: green;', {
+                    selectedPeer: selectedPeer,
+                    clearedDisconnectedPeer: true,
+                    clearedHandledLogoutPeers: true
+                });
             } else if (state === 'connecting') {
                 setIsConnecting(true);
                 setIsPeerConnected(false);
@@ -674,6 +953,18 @@ const DashboardPage = () => {
                 setIsConnecting(false);
                 setShowChat(false);
                 
+                // Save disconnected peer with timestamp to detect logout vs disconnect
+                if (selectedPeer) {
+                    disconnectedPeerRef.current = {
+                        peerId: selectedPeer,
+                        timestamp: Date.now()
+                    };
+                    console.log('%c[DashboardPage] 🔌 CONNECTION LOST - Saved peer for logout detection:', 'font-weight: bold; color: red;', {
+                        disconnectedPeer: disconnectedPeerRef.current,
+                        reason: 'Will check if peer is missing from updated list within 2 seconds'
+                    });
+                }
+                
                 // Clean up message handler when disconnected
                 if (messageHandlerRef.current) {
                     signalingService.removeMessageHandler(messageHandlerRef.current);
@@ -683,30 +974,42 @@ const DashboardPage = () => {
                 // Destroy provider on disconnect or failure to ensure fresh instance for retry
                 if (state === 'failed' || state === 'disconnected') {
                     console.log(`[DashboardPage] Connection ${state} - destroying provider for retry`);
-                    setProvider(null); // Set provider to null to trigger cleanup
                     
-                // Only show error message for unexpected disconnections
-                console.log(`%c[DashboardPage] 🔍 CONNECTION STATE CHANGE: ${state}, isGracefulDisconnect: ${isGracefulDisconnect}`, 'font-weight: bold; color: blue;');
-                console.log(`%c[DashboardPage] 🔍 DISCONNECT FLAG DEBUG: flag=${isGracefulDisconnect}, state=${state}`, 'font-weight: bold; color: purple;');
-                
-                if (state === 'failed') {
-                    // Failed connections are always unexpected
-                    console.log('[DashboardPage] Failed connection - showing error message');
-                    setError('Connection failed. This may be due to network issues or firewall restrictions. Please try reconnecting.');
-                } else if (state === 'disconnected' && !isGracefulDisconnect) {
-                    // Only show "Connection lost" for unexpected disconnections
-                    console.log('%c[DashboardPage] ❌ Unexpected disconnect - showing error message', 'font-weight: bold; color: red;');
-                    setError('Connection lost. Please try reconnecting.');
-                } else if (state === 'disconnected' && isGracefulDisconnect) {
-                    // Graceful disconnect - clear any existing error and don't show new error
-                    console.log('%c[DashboardPage] ✅ Graceful disconnect detected - not showing error message', 'font-weight: bold; color: green;');
-                    setError(null);
-                }
+                    // Check if we've already handled a logout for this peer to prevent duplicate cleanup
+                    const isLogoutHandled = selectedPeer && handledLogoutPeersRef.current.has(selectedPeer);
+                    if (isLogoutHandled) {
+                        console.log(`%c[DashboardPage] 🚫 SKIPPING STREAM CLEANUP - Logout already handled for peer ${selectedPeer}`, 'font-weight: bold; color: orange;');
+                    } else {
+                        console.log(`%c[DashboardPage] 🎥 PROCEEDING WITH STREAM CLEANUP - No logout detected yet for peer ${selectedPeer}`, 'font-weight: bold; color: blue;');
+                        cleanupStreamsAndSetProviderNull(`connection_${state}`); // Clean up streams before setting provider to null
+                    }
+                    
+                    // Only show error message for unexpected disconnections
+                    console.log(`%c[DashboardPage] 🔍 CONNECTION STATE CHANGE: ${state}, isGracefulDisconnect: ${isGracefulDisconnect}`, 'font-weight: bold; color: blue;');
+                    console.log(`%c[DashboardPage] 🔍 DISCONNECT FLAG DEBUG: flag=${isGracefulDisconnect}, state=${state}`, 'font-weight: bold; color: purple;');
+                    
+                    if (state === 'failed') {
+                        // Failed connections are always unexpected
+                        console.log('[DashboardPage] Failed connection - showing error message');
+                        setError('Connection failed. This may be due to network issues or firewall restrictions. Please try reconnecting.');
+                    } else if (state === 'disconnected' && !isGracefulDisconnect) {
+                        // Only show "Connection lost" for unexpected disconnections
+                        console.log('%c[DashboardPage] ❌ Unexpected disconnect - showing error message', 'font-weight: bold; color: red;');
+                        setError('Connection lost. Please try reconnecting.');
+                    } else if (state === 'disconnected' && isGracefulDisconnect) {
+                        // Graceful disconnect - clear any existing error and don't show new error
+                        console.log('%c[DashboardPage] ✅ Graceful disconnect detected - not showing error message', 'font-weight: bold; color: green;');
+                        setError(null);
+                    }
                 }
             }
-        });
+        };
+        
+        // Store the connection handler
+        webRTCEventHandlersRef.current.connection = connectionHandler;
+        rtcProvider.addEventListener('connection', connectionHandler);
 
-        rtcProvider.addEventListener('error', (event) => {
+        const errorHandler = (event) => {
             console.error('[DashboardPage] WebRTC error:', event.data);
             
             // Provide more specific error messages for common issues
@@ -718,9 +1021,13 @@ const DashboardPage = () => {
             }
             
             setError(errorMessage);
-        });
+        };
+        
+        // Store the error handler
+        webRTCEventHandlersRef.current.error = errorHandler;
+        rtcProvider.addEventListener('error', errorHandler);
 
-        rtcProvider.addEventListener('message', (event) => {
+        const messageHandler = (event) => {
             // Enhanced debugging to identify message structure issues
             console.group('[DashboardPage] 🔍 Message Event Debug');
             safeLog('Event type:', event.type);
@@ -759,10 +1066,20 @@ const DashboardPage = () => {
             } catch (error) {
                 console.error('[DashboardPage] Error processing received message:', error);
             }
-        });
+        };
+        
+        // Store the message handler
+        webRTCEventHandlersRef.current.message = messageHandler;
+        rtcProvider.addEventListener('message', messageHandler);
     };
 
     const handleConnect = async () => {
+        // Safety check: Perform cleanup if we're in a corrupted state
+        if (provider && !isPeerConnected && !isConnecting) {
+            console.log('%c[DashboardPage] ⚠️ DETECTED CORRUPTED STATE - Performing cleanup before connect', 'font-weight: bold; color: orange;');
+            performComprehensiveCleanup('corrupted_state_before_connect');
+        }
+        
         if (!selectedPeer) {
             setError('Please select a peer');
             return;
@@ -990,46 +1307,93 @@ const DashboardPage = () => {
             // 2. Reset remote resources (remote peer will clear its resources)
             if (provider) {
                 console.log('%c[DashboardPage] 🔌 DISCONNECTING WEBRTC from peer', 'font-weight: bold; color: orange; font-size: 14px;');
+                
+                // CRITICAL: Remove event listeners BEFORE disconnecting to prevent delayed events (especially on responder side)
+                console.log(`%c[DashboardPage] 🔌 REMOVING EVENT LISTENERS before disconnect (${disconnectType})`, 'font-weight: bold; color: orange;');
+                try {
+                    const handlers = webRTCEventHandlersRef.current;
+                    if (handlers.connection) {
+                        provider.removeEventListener('connection', handlers.connection);
+                        console.log(`%c[DashboardPage] 🔌 ✅ Removed connection event listener (${disconnectType})`, 'font-weight: bold; color: green;');
+                    }
+                    if (handlers.error) {
+                        provider.removeEventListener('error', handlers.error);
+                        console.log(`%c[DashboardPage] 🔌 ✅ Removed error event listener (${disconnectType})`, 'font-weight: bold; color: green;');
+                    }
+                    if (handlers.message) {
+                        provider.removeEventListener('message', handlers.message);
+                        console.log(`%c[DashboardPage] 🔌 ✅ Removed message event listener (${disconnectType})`, 'font-weight: bold; color: green;');
+                    }
+                    if (handlers.stream) {
+                        provider.removeEventListener('stream', handlers.stream);
+                        console.log(`%c[DashboardPage] 🔌 ✅ Removed stream event listener (${disconnectType})`, 'font-weight: bold; color: green;');
+                    }
+                    if (handlers.stateChange) {
+                        provider.removeEventListener('stateChange', handlers.stateChange);
+                        console.log(`%c[DashboardPage] 🔌 ✅ Removed stateChange event listener (${disconnectType})`, 'font-weight: bold; color: green;');
+                    }
+                    if (handlers.track) {
+                        provider.removeEventListener('track', handlers.track);
+                        console.log(`%c[DashboardPage] 🔌 ✅ Removed track event listener (${disconnectType})`, 'font-weight: bold; color: green;');
+                    }
+                    
+                    // Clear the stored handlers
+                    webRTCEventHandlersRef.current = {
+                        connection: null,
+                        error: null,
+                        message: null,
+                        stream: null,
+                        stateChange: null,
+                        track: null
+                    };
+                    
+                    console.log(`%c[DashboardPage] 🔌 ✅ All event listeners removed (${disconnectType})`, 'font-weight: bold; color: green;');
+                } catch (error) {
+                    console.warn(`%c[DashboardPage] 🔌 ⚠️ Error removing event listeners (${disconnectType}):`, 'font-weight: bold; color: yellow;', error);
+                }
+                
                 // Set graceful disconnect flag on WebRTC provider to prevent connection state events
                 provider.setGracefulDisconnect(true);
                 await provider.disconnect(selectedPeer, isInitiator);
             } else {
                 console.log(`[DashboardPage] ⚠️ No WebRTC provider available for disconnect (${disconnectType})`);
+                // CRITICAL: Even without provider, we need to clean up streams
+                console.log(`%c[DashboardPage] 🎥 CLEANING UP STREAMS without provider (${disconnectType})`, 'font-weight: bold; color: orange;');
+                cleanupStreamsAndSetProviderNull(`disconnect_${disconnectType}_no_provider`);
             }
             
             // STEP 3: Reset dashboard state to go back to logged in page
             console.log('[DashboardPage] 🔄 Resetting dashboard state after disconnect');
             reset();
             
-            // STEP 4: Clean up message handler before destroying provider
-            console.log('%c[DashboardPage] 🧹 CLEANING UP MESSAGE HANDLER before provider destroy', 'font-weight: bold; color: orange; font-size: 14px;');
-            if (provider && signalingService) {
-                const handlerId = provider.getMessageHandlerId();
-                if (handlerId !== null) {
-                    console.log(`%c[DashboardPage] 🧹 REMOVING MESSAGE HANDLER ${handlerId} from signaling service`, 'font-weight: bold; color: orange; font-size: 14px;');
-                    const removed = signalingService.removeMessageHandler(handlerId);
-                    console.log(`%c[DashboardPage] 🧹 HANDLER REMOVAL RESULT: ${removed}`, 'font-weight: bold; color: orange; font-size: 14px;');
-                } else {
-                    console.log(`%c[DashboardPage] ⚠️ NO HANDLER ID TO REMOVE`, 'font-weight: bold; color: yellow; font-size: 14px;');
-                }
-            }
-            
-            // STEP 5: Destroy the provider to clean up WebRTC resources
+            // STEP 4: Destroy the provider (DashboardPage owns WebRTCProvider)
             console.log('%c[DashboardPage] 💥 DESTROYING WEBRTC PROVIDER after disconnect', 'font-weight: bold; color: red; font-size: 14px;');
             console.log('[DashboardPage] 🔄 Destroying WebRTC provider after disconnect');
             if (provider) {
-                // Clean up the provider before setting to null
+                // OWNERSHIP: DashboardPage owns WebRTCProvider - manage its cleanup
+                console.log('%c[DashboardPage] 💥 DashboardPage managing WebRTCProvider cleanup', 'font-weight: bold; color: blue;');
                 try {
+                    // DashboardPage removes the message handler (it owns the provider)
+                    if (signalingService) {
+                        const handlerId = provider.getMessageHandlerId();
+                        if (handlerId !== null) {
+                            console.log(`%c[DashboardPage] 🧹 REMOVING HANDLER ${handlerId} (DashboardPage owns provider)`, 'font-weight: bold; color: orange;');
+                            const removed = signalingService.removeMessageHandler(handlerId);
+                            console.log(`%c[DashboardPage] 🧹 HANDLER REMOVAL RESULT: ${removed}`, 'font-weight: bold; color: orange;');
+                        }
+                    }
+                    
+                    // Then destroy the provider and clean up streams properly
                     provider.destroy();
+                    cleanupStreamsAndSetProviderNull(`disconnect_${disconnectType}_with_provider`);
                 } catch (error) {
                     console.warn('[DashboardPage] Error during provider destroy:', error);
                 }
             }
             
-            // STEP 6: Clear all WebRTC instances and set provider to null
-            WebRTCProvider.clearAllInstances();
-            WebRTCProvider.clearActiveInstance(); // Clear the active instance reference
-            setProvider(null); // DashboardPage sets provider to null
+            // STEP 6: The existing disconnect logic already handles cleanup properly
+            // No need for additional comprehensive cleanup here as it might interfere
+            console.log(`[DashboardPage] ✅ Disconnect cleanup completed by existing logic`);
             
             console.log(`[DashboardPage] ✅ Disconnect process completed - user remains logged in (${disconnectType})`);
         } catch (error) {
@@ -1044,47 +1408,112 @@ const DashboardPage = () => {
     };
 
     const handleLogout = async () => {
-        console.log('[DashboardPage] 👋 User logging out');
+        console.log('%c[DashboardPage] 👋 LOGOUT INITIATED by user', 'font-weight: bold; color: red; font-size: 14px;');
+        console.log('[DashboardPage] 👋 User logging out - starting logout process');
         
         try {
-            // If user is connected to a peer, disconnect first
+            // STEP 1: If user is connected to a peer, disconnect gracefully (but don't send disconnect message)
             if (provider && selectedPeer && isPeerConnected) {
-                console.log('[DashboardPage] 👋 User is connected to peer, disconnecting first');
+                console.log('%c[DashboardPage] 👋 STEP 1: User is connected to peer, disconnecting gracefully', 'font-weight: bold; color: orange;');
+                console.log('[DashboardPage] 👋 Connected peer:', selectedPeer, 'Provider exists:', !!provider);
+                
                 try {
-                    await provider.disconnect(selectedPeer);
-                    console.log('[DashboardPage] 👋 Disconnect completed before logout');
+                    // OWNERSHIP: DashboardPage owns WebRTCProvider - call disconnect for cleanup
+                    // WebRTCProvider.disconnect() will handle internal WebRTC cleanup
+                    console.log('%c[DashboardPage] 👋 Calling provider.disconnect() - DashboardPage owns provider', 'font-weight: bold; color: blue;');
+                    await provider.disconnect(selectedPeer, true); // true = isInitiator, but we won't send disconnect message
+                    console.log('%c[DashboardPage] 👋 ✅ Disconnect completed before logout', 'font-weight: bold; color: green;');
                 } catch (disconnectError) {
-                    console.warn('[DashboardPage] ⚠️ Error during disconnect before logout:', disconnectError);
+                    console.warn('%c[DashboardPage] ⚠️ Error during disconnect before logout:', 'font-weight: bold; color: yellow;', disconnectError);
                     // Continue with logout even if disconnect fails
                 }
+            } else {
+                console.log('%c[DashboardPage] 👋 STEP 1: No active connection to disconnect', 'font-weight: bold; color: blue;');
+                console.log('[DashboardPage] 👋 Provider exists:', !!provider, 'Selected peer:', selectedPeer, 'Is connected:', isPeerConnected);
             }
             
-            // Clear all WebRTC instances
-            WebRTCProvider.clearAllInstances();
-            
-            // Send logout message to signaling server so other peers can remove this user
+            // STEP 2: Send logout message to signaling server so other peers can remove this user
             if (signalingService) {
-                console.log('[DashboardPage] 👋 Sending logout message to signaling server');
+                console.log('%c[DashboardPage] 👋 STEP 2: Sending logout message to signaling server', 'font-weight: bold; color: orange;');
+                console.log('[DashboardPage] 👋 Signaling service exists:', !!signalingService);
                 signalingService.sendLogout();
+                console.log('%c[DashboardPage] 👋 ✅ Logout message sent to server', 'font-weight: bold; color: green;');
+                
+                // STEP 2.5: Clean up signaling service state to prevent "already connected" issue
+                console.log('%c[DashboardPage] 👋 STEP 2.5: Cleaning up signaling service state', 'font-weight: bold; color: orange;');
+                signalingService.cleanup();
+                console.log('%c[DashboardPage] 👋 ✅ Signaling service state cleaned up', 'font-weight: bold; color: green;');
+            } else {
+                console.log('%c[DashboardPage] ⚠️ STEP 2: No signaling service available for logout', 'font-weight: bold; color: yellow;');
             }
             
-            // Reset signaling service
-            if (signalingService) {
-                signalingService.reset();
+            // STEP 3: Close WebRTC connection silently (no disconnect message)
+            if (provider) {
+                console.log('%c[DashboardPage] 👋 STEP 3: Closing WebRTC connection', 'font-weight: bold; color: orange;');
+                
+                // CRITICAL: Remove event listeners BEFORE destroying provider to prevent delayed events
+                console.log('%c[DashboardPage] 👋 STEP 3.1: Removing WebRTC event listeners', 'font-weight: bold; color: orange;');
+                try {
+                    // Remove stored event handlers
+                    const handlers = webRTCEventHandlersRef.current;
+                    if (handlers.connection) {
+                        provider.removeEventListener('connection', handlers.connection);
+                        console.log('%c[DashboardPage] 👋 ✅ Removed connection event listener', 'font-weight: bold; color: green;');
+                    }
+                    if (handlers.error) {
+                        provider.removeEventListener('error', handlers.error);
+                        console.log('%c[DashboardPage] 👋 ✅ Removed error event listener', 'font-weight: bold; color: green;');
+                    }
+                    if (handlers.message) {
+                        provider.removeEventListener('message', handlers.message);
+                        console.log('%c[DashboardPage] 👋 ✅ Removed message event listener', 'font-weight: bold; color: green;');
+                    }
+                    if (handlers.stream) {
+                        provider.removeEventListener('stream', handlers.stream);
+                        console.log('%c[DashboardPage] 👋 ✅ Removed stream event listener', 'font-weight: bold; color: green;');
+                    }
+                    if (handlers.stateChange) {
+                        provider.removeEventListener('stateChange', handlers.stateChange);
+                        console.log('%c[DashboardPage] 👋 ✅ Removed stateChange event listener', 'font-weight: bold; color: green;');
+                    }
+                    if (handlers.track) {
+                        provider.removeEventListener('track', handlers.track);
+                        console.log('%c[DashboardPage] 👋 ✅ Removed track event listener', 'font-weight: bold; color: green;');
+                    }
+                    
+                    // Clear the stored handlers
+                    webRTCEventHandlersRef.current = {
+                        connection: null,
+                        error: null,
+                        message: null,
+                        stream: null,
+                        stateChange: null,
+                        track: null
+                    };
+                    
+                    console.log('%c[DashboardPage] 👋 ✅ All WebRTC event listeners removed', 'font-weight: bold; color: green;');
+                } catch (error) {
+                    console.warn('%c[DashboardPage] ⚠️ Error removing event listeners:', 'font-weight: bold; color: yellow;', error);
+                }
+                
+                // Now destroy the provider
+                console.log('%c[DashboardPage] 👋 STEP 3.2: Destroying WebRTC provider', 'font-weight: bold; color: orange;');
+                provider.destroy();
+                cleanupStreamsAndSetProviderNull('user_logout');
+                console.log('%c[DashboardPage] 👋 ✅ WebRTC connection closed', 'font-weight: bold; color: green;');
             }
             
-            // Reset dashboard state
+            // STEP 3.5: Stream cleanup is now handled by cleanupStreamsAndSetProviderNull function
+            
+            // STEP 4: Reset state and navigate
+            console.log('%c[DashboardPage] 👋 STEP 4: Resetting state and navigating', 'font-weight: bold; color: orange;');
             reset();
-            
-            // Clean up user data
             localStorage.removeItem('user');
-            
-            // Navigate to login
             navigate('/');
+            console.log('%c[DashboardPage] 👋 ✅ LOGOUT COMPLETED', 'font-weight: bold; color: green; font-size: 14px;');
             
-            console.log('[DashboardPage] 👋 Logout completed successfully');
         } catch (error) {
-            console.error('[DashboardPage] ❌ Error during logout:', error);
+            console.error('%c[DashboardPage] ❌ Error during logout:', 'font-weight: bold; color: red;', error);
             // Still navigate to login even if reset fails
             localStorage.removeItem('user');
             navigate('/');
@@ -1338,9 +1767,15 @@ const DashboardPage = () => {
         
         // Clear peer selection when resetting - this prevents UI inconsistency
         // when a peer logs out without explicitly disconnecting
-        setSelectedPeer('');
+        clearSelectedPeer('connection_state_reset');
         
-        console.log('[DashboardPage] 🔄 RESET: Connection state reset completed - peer selection cleared');
+        // Clear disconnected peer tracking
+        disconnectedPeerRef.current = null;
+        
+        // Stream cleanup is now handled by cleanupStreamsAndSetProviderNull function when provider is destroyed
+        
+        console.log('[DashboardPage] 🔄 RESET: Connection state reset completed - peer selection and session cleared');
+        console.log('[DashboardPage] 🔄 RESET: UI should now show logged-in state (no disconnect buttons)');
     };
 
     const resetPeerManagement = () => {
