@@ -1006,7 +1006,16 @@ export class WebRTCProvider implements IWebRTCProvider {
                 console.log('[WebRTC] 🔊 Audio ON - adding audio track');
                 
                 try {
-                    const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                    const audioStream = await navigator.mediaDevices.getUserMedia({ 
+                        audio: {
+                            echoCancellation: true,        // ✅ Cancel echo
+                            noiseSuppression: true,        // ✅ Reduce noise
+                            autoGainControl: true,         // ✅ Auto volume control
+                            sampleRate: 44100,             // ✅ High quality
+                            channelCount: 1                // ✅ Mono audio
+                        }, 
+                        video: false 
+                    });
                     const newAudioTrack = audioStream.getAudioTracks()[0];
                     
                     if (newAudioTrack) {
@@ -1297,11 +1306,14 @@ export class WebRTCProvider implements IWebRTCProvider {
             // Request user media
 
             const stream = await navigator.mediaDevices.getUserMedia({
-
-                audio: options.audio,
-
+                audio: options.audio ? {
+                    echoCancellation: true,        // ✅ Cancel echo
+                    noiseSuppression: true,        // ✅ Reduce noise
+                    autoGainControl: true,         // ✅ Auto volume control
+                    sampleRate: 44100,             // ✅ High quality
+                    channelCount: 1                // ✅ Mono audio
+                } : false,
                 video: options.video
-
             });
 
             

@@ -89,6 +89,9 @@ A: open command prompt
    # download  log for debuggging
    az webapp log download --resource-group tutor-cancen-rg --name tutor-cancen-signalling
 
+   #  see live log
+   az webapp log tail --resource-group tutor-cancen-rg --name tutor-cancen-signalling
+
    (3) deploy frontend
     # make sure correct cli is installed
     npm install -g @azure/static-web-apps-cli
@@ -98,7 +101,7 @@ A: open command prompt
     # npm run build
     npm run build:versioned
     # deploy it
-    
+    swa deploy --deployment-token 332ea4ac45c51a22d0e89c997e655d6fbfeff2cd35c712a89ad6737f3a1f214901-434cbdd2-0451-4c3a-985b-3f56ae83184500f27250ba06940f --app-location build
     # test the site
     https://thankful-water-0ba06940f-preview.eastus2.1.azurestaticapps.net
     
@@ -106,4 +109,3 @@ A: open command prompt
 
 
 
-swa deploy --deployment-token 332ea4ac45c51a22d0e89c997e655d6fbfeff2cd35c712a89ad6737f3a1f214901-434cbdd2-0451-4c3a-985b-3f56ae83184500f27250ba06940f --app-location build
