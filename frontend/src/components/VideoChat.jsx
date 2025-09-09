@@ -771,6 +771,7 @@ const VideoChat = ({
                         if (el) {
                             console.log('[VideoChat] 🔊 Setting remote audio stream:', streams.remoteAudioStream.id);
                             el.srcObject = streams.remoteAudioStream;
+                            el.volume = 1.0; // ✅ Maximum volume for remote audio
                             el.play().catch(error => {
                                 console.error('[VideoChat] 🔊 Error playing remote audio:', error);
                             });

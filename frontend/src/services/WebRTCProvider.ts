@@ -1010,8 +1010,8 @@ export class WebRTCProvider implements IWebRTCProvider {
                         audio: {
                             echoCancellation: true,        // ✅ Cancel echo
                             noiseSuppression: true,        // ✅ Reduce noise
-                            autoGainControl: true,         // ✅ Auto volume control
-                            sampleRate: 44100,             // ✅ High quality
+                            autoGainControl: false,        // ✅ Disable auto gain (prevents volume issues)
+                            sampleRate: 48000,             // ✅ Standard WebRTC rate (better for mobile)
                             channelCount: 1                // ✅ Mono audio
                         }, 
                         video: false 
@@ -1309,8 +1309,8 @@ export class WebRTCProvider implements IWebRTCProvider {
                 audio: options.audio ? {
                     echoCancellation: true,        // ✅ Cancel echo
                     noiseSuppression: true,        // ✅ Reduce noise
-                    autoGainControl: true,         // ✅ Auto volume control
-                    sampleRate: 44100,             // ✅ High quality
+                    autoGainControl: false,        // ✅ Disable auto gain (prevents volume issues)
+                    sampleRate: 48000,             // ✅ Standard WebRTC rate (better for mobile)
                     channelCount: 1                // ✅ Mono audio
                 } : false,
                 video: options.video
