@@ -62,7 +62,10 @@ const Whiteboard = ({
   const [pdfPages, setPdfPages] = useState(1);
   const [currentPage, setCurrentPage] = useState(1);
   const [scale, setScale] = useState(1);
-  const [containerSize, setContainerSize] = useState({ width: 320, height: 400 }); // Mobile-friendly default size
+  // Fixed size for consistent drawing surface across all peers
+  const STANDARD_WHITEBOARD_WIDTH = 1200;
+  const STANDARD_WHITEBOARD_HEIGHT = 800;
+  const [containerSize, setContainerSize] = useState({ width: STANDARD_WHITEBOARD_WIDTH, height: STANDARD_WHITEBOARD_HEIGHT });
   const [pageShapes, setPageShapes] = useState({});
 
   // Debug flag to control verbose logging
@@ -103,37 +106,16 @@ const Whiteboard = ({
     }
   }, [webRTCProvider, selectedPeer]);
 
-  // Container size tracking
+  // Container size tracking - use fixed dimensions for consistency across peers
   useEffect(() => {
-    const updateSize = () => {
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        // Ensure minimum size for drawing (mobile-friendly)
-        const isMobile = window.innerWidth < 768;
-        const minWidth = isMobile ? 320 : 800;
-        const minHeight = isMobile ? 400 : 600;
-        const width = Math.max(rect.width, minWidth);
-        const height = Math.max(rect.height, minHeight);
-        
-        setContainerSize({ width, height });
-        console.log('[Whiteboard] 📏 Container size updated:', { 
-          originalWidth: rect.width, 
-          originalHeight: rect.height,
-          finalWidth: width, 
-          finalHeight: height, 
-          isScreenShareActive 
-        });
-      }
-    };
-
-    // Add a small delay to ensure DOM is ready
-    const timeoutId = setTimeout(updateSize, 100);
-    window.addEventListener('resize', updateSize);
-    return () => {
-      clearTimeout(timeoutId);
-      window.removeEventListener('resize', updateSize);
-    };
-  }, [isScreenShareActive]); // Also update when screen share state changes
+    // Always use standard dimensions for consistent drawing surface
+    setContainerSize({ width: STANDARD_WHITEBOARD_WIDTH, height: STANDARD_WHITEBOARD_HEIGHT });
+    console.log('[Whiteboard] 📏 Using fixed container size for consistency:', { 
+      width: STANDARD_WHITEBOARD_WIDTH, 
+      height: STANDARD_WHITEBOARD_HEIGHT,
+      isScreenShareActive 
+    });
+  }, [isScreenShareActive]); // Update when screen share state changes
 
   // Clear background when screen sharing becomes active
   useEffect(() => {

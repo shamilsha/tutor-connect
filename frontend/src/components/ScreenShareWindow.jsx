@@ -126,8 +126,8 @@ const ScreenShareWindow = ({
                 background: '#000',
                 zIndex: useRelativePositioning ? 1 : 100,
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
+                alignItems: 'flex-start',
+                justifyContent: 'flex-start',
                 border: '3px solid #ff6b6b',
                 boxSizing: 'border-box',
                 overflow: 'hidden'
@@ -141,7 +141,7 @@ const ScreenShareWindow = ({
                 style={{
                     width: '100%',
                     height: '100%',
-                    objectFit: 'contain',
+                    objectFit: 'cover',
                     background: '#000'
                 }}
             />

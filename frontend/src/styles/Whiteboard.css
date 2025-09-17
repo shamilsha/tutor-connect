@@ -1,10 +1,8 @@
 .whiteboard-container {
   display: flex;
   flex-direction: column;
-  width: 100%;
-  min-width: 320px; /* Mobile-friendly minimum width */
-  height: 100%; /* Take full height of dashboard-content */
-  min-height: 400px; /* Mobile-friendly minimum height */
+  width: 1200px; /* Fixed width for consistency across peers */
+  height: 800px; /* Fixed height for consistency across peers */
   background-color: rgba(230, 243, 255, 0.9); /* Semi-transparent light blue background for debugging */
   border: 4px solid #8B4513; /* Thicker brown border for better visibility */
   position: relative; /* Relative positioning within dashboard-content */
@@ -15,23 +13,21 @@
   padding-top: 0;
 }
 
-/* Desktop-specific minimum sizes */
+/* Fixed size for all devices - no responsive scaling */
 @media (min-width: 768px) {
   .whiteboard-container {
-    min-width: 800px;
-    min-height: 600px;
+    width: 1200px; /* Same fixed width */
+    height: 800px; /* Same fixed height */
   }
 }
 
-/* When screen sharing is active, overlay the screen share */
+/* When screen sharing is active, overlay the screen share with fixed dimensions */
 .whiteboard-container.screen-share-overlay {
   position: absolute !important; /* Absolute positioning to overlay screen share */
   top: 0 !important;
   left: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-  min-width: 100% !important; /* Ensure at least same width as screen share */
-  min-height: 100% !important; /* Ensure at least same height as screen share */
+  width: 1200px !important; /* Fixed width to match drawing surface */
+  height: 800px !important; /* Fixed height to match drawing surface */
   background-color: transparent !important; /* Make container fully transparent during screen share */
   z-index: 2 !important; /* Above screen share (z-index: 1) */
   border: none !important; /* Remove border during screen share */
@@ -46,20 +42,18 @@
   border: 2px solid #32CD32; /* Green border for visibility */
   display: flex;
   flex-direction: column;
-  width: 100%;
-  min-width: 320px; /* Mobile-friendly minimum width */
-  height: 100%;
-  min-height: 400px; /* Mobile-friendly minimum height */
+  width: 1200px; /* Fixed width to match container */
+  height: 800px; /* Fixed height to match container */
   /* Ensure the scroll container starts at the top */
   padding-top: 0;
   margin-top: 0;
 }
 
-/* Desktop-specific minimum sizes for scroll container */
+/* Fixed size for all devices - no responsive scaling */
 @media (min-width: 768px) {
   .whiteboard-scroll-container {
-    min-width: 800px;
-    min-height: 600px;
+    width: 1200px; /* Same fixed width */
+    height: 800px; /* Same fixed height */
   }
 }
 

@@ -2161,7 +2161,7 @@ const DashboardPage = () => {
                     screenShareStream={provider?.getScreenShareStream() || provider?.getRemoteScreen(selectedPeer)}
                     isVisible={isScreenSharing || !!(provider?.getScreenShareStream() || provider?.getRemoteScreen(selectedPeer))}
                     position={{ top: '0', left: '0' }}
-                    size={{ width: '100%', height: '100%' }}
+                    size={{ width: '1200px', height: '800px' }}
                     onStreamChange={(stream) => {
                         console.log('[DashboardPage] 🖥️ Screen share stream change notified:', stream?.id);
                     }}

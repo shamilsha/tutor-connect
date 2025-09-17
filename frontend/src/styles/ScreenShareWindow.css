@@ -4,20 +4,20 @@
     background: #000;
     z-index: 100; /* Lower z-index so it doesn't cover button panels */
     display: flex;
-    align-items: center;
-    justify-content: center;
+    align-items: flex-start;
+    justify-content: flex-start;
     border: 3px solid #ff6b6b;
     box-sizing: border-box;
     overflow: hidden;
 }
 
-/* When used inside dashboard-content with relative positioning */
+/* When used inside dashboard-content with relative positioning - fixed dimensions */
 .screen-share-window[style*="position: relative"] {
     position: absolute !important;
     top: 0 !important;
     left: 0 !important;
-    width: 100% !important;
-    height: 100% !important;
+    width: 1200px !important; /* Fixed width to match whiteboard */
+    height: 800px !important; /* Fixed height to match whiteboard */
     z-index: 1 !important;
     border-width: 2px;
     border-color: #ff6b6b;
@@ -26,7 +26,7 @@
 .screen-share-window video {
     width: 100%;
     height: 100%;
-    object-fit: contain;
+    object-fit: cover;
     background: #000;
 }
 
