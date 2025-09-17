@@ -26,7 +26,7 @@ export type MediaState = {
 };
 
 export type WebRTCEvent = {
-    type: 'track' | 'connection' | 'message' | 'error' | 'stream' | 'media' | 'stateChange';
+    type: 'track' | 'connection' | 'message' | 'error' | 'stream' | 'media' | 'stateChange' | 'whiteboard';
     peerId: string;
     data: any;
 };

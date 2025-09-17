@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FaVideo, FaVideoSlash, FaMicrophone, FaMicrophoneSlash, FaDesktop, FaStop, FaBan } from 'react-icons/fa';
+import { FaVideo, FaVideoSlash, FaMicrophone, FaMicrophoneSlash, FaDesktop, FaStop, FaBan, FaChalkboard, FaTimes } from 'react-icons/fa';
 import ConnectionStatusLight from './ConnectionStatusLight';
 import '../styles/ConnectionPanel.css';
 
@@ -17,9 +17,11 @@ const ConnectionPanel = ({
     isVideoEnabled = false,
     isScreenSharing = false,
     isScreenShareSupported = true,
+    isWhiteboardActive = false,
     onToggleAudio,
     onToggleVideo,
-    onToggleScreenShare
+    onToggleScreenShare,
+    onToggleWhiteboard
 }) => {
     const [isPeerListEnabled, setIsPeerListEnabled] = useState(true);
 
@@ -219,6 +221,13 @@ const ConnectionPanel = ({
                         }
                     >
                         {!isScreenShareSupported ? <FaBan /> : (isScreenSharing ? <FaStop /> : <FaDesktop />)}
+                    </button>
+                    <button
+                        className={`media-button ${isWhiteboardActive ? 'active' : ''}`}
+                        onClick={onToggleWhiteboard}
+                        title={isWhiteboardActive ? 'Close Whiteboard' : 'Open Whiteboard'}
+                    >
+                        {isWhiteboardActive ? <FaTimes /> : <FaChalkboard />}
                     </button>
                     {onLogout && (
                         <button

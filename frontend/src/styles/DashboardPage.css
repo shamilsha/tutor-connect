@@ -1,9 +1,7 @@
 .dashboard-container {
     min-height: 100vh;
     background-color: #f8f9fa;
-    padding-top: 80px; /* Add space for fixed connection panel */
-    display: flex;
-    flex-direction: column;
+    padding-top: 0; /* No padding needed with sticky connection panel */
 }
 
 .dashboard-header {
@@ -14,6 +12,8 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    border: 3px solid #00FF00; /* Green border for debugging */
+    box-shadow: 0 0 15px rgba(0, 255, 0, 0.8); /* Green glow for debugging */
 }
 
 .dashboard-header h1 {
@@ -72,22 +72,23 @@
 }
 
 .dashboard-content {
-    padding: 2px 5px 2rem 5px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2rem;
-    background-color: #e8f4f8; /* Light blue background to visualize the content area */
-    position: relative; /* For debugging */
-    flex: 1; /* Allow content to expand to fill remaining space */
+    padding: 0; /* No padding */
+    margin: 0; /* No margins - flows naturally in document flow */
+    background-color: rgba(232, 244, 248, 0.8); /* Semi-transparent light blue background for debugging */
+    border: 3px solid #FF1493; /* Thicker pink border for better visibility */
+    position: relative; /* For absolute positioning of ScreenShareWindow */
+    min-height: 500px; /* Ensure minimum height for screen share and drawing surface */
+    z-index: 5; /* Higher z-index to see if it's overlaying */
+    box-shadow: 0 0 10px rgba(255, 20, 147, 0.5); /* Pink glow for debugging */
 }
+
 
 
 
 /* Mobile responsive adjustments */
 @media (max-width: 768px) {
     .dashboard-container {
-        padding-top: 160px; /* More space for mobile connection panel and controls */
+        padding-top: 0; /* No padding needed with sticky connection panel */
     }
 }
 

@@ -382,7 +382,7 @@ export class WebRTCProvider implements IWebRTCProvider {
 
         // Initialize event listeners
 
-        for (const type of ['connection', 'track', 'media', 'stream', 'error', 'message'] as WebRTCEventType[]) {
+        for (const type of ['connection', 'track', 'media', 'stream', 'error', 'message', 'whiteboard'] as WebRTCEventType[]) {
 
             this.eventListeners.set(type, new Set());
 
@@ -1294,11 +1294,15 @@ export class WebRTCProvider implements IWebRTCProvider {
             
 
             // Check if mediaDevices API is available
-
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-
+                console.warn('[WebRTC] MediaDevices API not available, this might be a mobile browser limitation');
                 throw new Error('MediaDevices API not available');
+            }
 
+            // Check for mobile browser compatibility
+            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+            if (isMobile) {
+                console.log('[WebRTC] Mobile browser detected, using mobile-optimized settings');
             }
 
             
@@ -3413,6 +3417,9 @@ private detectTrackRemoval(peerId: string, changeType: 'sender' | 'receiver') {
                 } else if (message.type === 'mediaState') {
                     // Handle media state changes from peer
                     this.handleMediaStateMessage(peerId, message);
+                } else if (message.type === 'whiteboard') {
+                    // Handle whiteboard drawing messages
+                    this.handleWhiteboardMessage(peerId, message);
                 } else {
                     // Dispatch other messages as before
                     this.dispatchEvent({
@@ -3629,6 +3636,41 @@ private detectTrackRemoval(peerId: string, changeType: 'sender' | 'receiver') {
 
             
             // Audio will be handled by the ontrack event when the offer is received
+        }
+    }
+
+    /**
+     * Handle whiteboard drawing messages from data channels
+     */
+    private handleWhiteboardMessage(peerId: string, message: any): void {
+        console.log(`[WebRTC] 🎨 Received whiteboard message from peer ${peerId}:`, message);
+        
+        // Dispatch whiteboard message to listeners (like the Whiteboard component)
+        this.dispatchEvent({
+            type: 'whiteboard',
+            peerId,
+            data: message
+        });
+    }
+
+    /**
+     * Send whiteboard drawing data to peer via data channel
+     */
+    public async sendWhiteboardMessage(peerId: string, message: any): Promise<void> {
+        const whiteboardMessage = {
+            type: 'whiteboard',
+            ...message,
+            timestamp: Date.now()
+        };
+        
+        console.log(`[WebRTC] 🎨 Sending whiteboard message to peer ${peerId}:`, whiteboardMessage);
+        
+        try {
+            await this.sendMessage(peerId, whiteboardMessage);
+            console.log(`[WebRTC] ✅ Whiteboard message sent successfully to peer ${peerId}`);
+        } catch (error) {
+            console.error(`[WebRTC] ❌ Failed to send whiteboard message to peer ${peerId}:`, error);
+            throw error;
         }
     }
 

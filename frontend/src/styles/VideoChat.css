@@ -40,7 +40,9 @@
     }
     
     .video-chat {
-        margin-top: 0; /* No extra margin since connection panel is now outside */
+        top: 180px; /* Position below connection panel on mobile (160px + 20px) */
+        left: 10px; /* Smaller offset on mobile */
+        width: 280px; /* Slightly smaller width on mobile */
     }
     
     .video-container:not(.screen-share-active) {
@@ -134,15 +136,16 @@
     flex-direction: column;
     background: #1a1a1a;
     border-radius: 8px;
-    margin: 20px 0; /* Remove left/right margins to use full width */
-    margin-top: 0; /* No extra margin since connection panel is now outside */
+    margin: 0; /* No margins since it's positioned absolutely */
     overflow: visible; /* Changed from hidden to visible to allow PiP window to show */
     z-index: 2001; /* Higher than connection panel */
-    position: relative;
+    position: absolute; /* Positioned absolutely since it's movable */
+    top: 100px; /* Position below connection panel */
+    left: 20px; /* Small offset from left edge */
     align-items: flex-start; /* Top align instead of center */
     min-height: auto; /* Remove fixed height */
     height: auto; /* Let content determine height */
-    width: 100%; /* Use full available width */
+    width: 300px; /* Fixed width for movable video chat */
 }
 
 

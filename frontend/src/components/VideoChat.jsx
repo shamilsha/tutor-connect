@@ -786,24 +786,6 @@ const VideoChat = ({
                 />
             )}
             
-            {/* Audio Stream Debug Info - Always show for debugging */}
-            <div style={{ 
-                position: 'fixed', 
-                top: '10px', 
-                right: '10px', 
-                background: 'rgba(0,0,255,0.8)', 
-                color: 'white', 
-                padding: '10px', 
-                fontSize: '12px', 
-                zIndex: 1000,
-                borderRadius: '5px'
-            }}>
-                🔊 Audio Debug: 
-                {streams.localAudioStream ? ` Local(${streams.localAudioStream.id})` : 'No Local'}
-                {streams.remoteAudioStream ? ` Remote(${streams.remoteAudioStream.id})` : 'No Remote'}
-                <br />
-                <small>Provider: {provider ? 'Yes' : 'No'}</small>
-            </div>
             
             {/* Video Window - Only show when there are video streams */}
             {(streams.mainStream || streams.pipStream) && (

@@ -6,7 +6,7 @@
     background-color: #f8f9fa;
     border-radius: 8px;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    position: fixed;
+    position: relative;
     top: 0;
     left: 0;
     right: 0;
@@ -14,6 +14,8 @@
     background-color: rgba(248, 249, 250, 0.95); /* Slightly transparent */
     backdrop-filter: blur(10px); /* Blur effect for better visibility */
     border-bottom: 1px solid #dee2e6;
+    border: 3px solid #FFD700; /* Gold border for debugging */
+    box-shadow: 0 0 15px rgba(255, 215, 0, 0.8); /* Gold glow for debugging */
     flex-wrap: wrap; /* Allow wrapping on small screens */
     min-height: 60px; /* Ensure minimum height */
 }

@@ -1,0 +1,108 @@
+.whiteboard-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 320px; /* Mobile-friendly minimum width */
+  height: 100%; /* Take full height of dashboard-content */
+  min-height: 400px; /* Mobile-friendly minimum height */
+  background-color: rgba(230, 243, 255, 0.9); /* Semi-transparent light blue background for debugging */
+  border: 4px solid #8B4513; /* Thicker brown border for better visibility */
+  position: relative; /* Relative positioning within dashboard-content */
+  z-index: 1; /* Default z-index */
+  margin: 0; /* Remove all margins to ensure it starts at top */
+  box-shadow: 0 0 15px rgba(139, 69, 19, 0.6); /* Brown glow for debugging */
+  /* Ensure the drawing surface starts at the top of the container */
+  padding-top: 0;
+}
+
+/* Desktop-specific minimum sizes */
+@media (min-width: 768px) {
+  .whiteboard-container {
+    min-width: 800px;
+    min-height: 600px;
+  }
+}
+
+/* When screen sharing is active, overlay the screen share */
+.whiteboard-container.screen-share-overlay {
+  position: absolute !important; /* Absolute positioning to overlay screen share */
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 100% !important; /* Ensure at least same width as screen share */
+  min-height: 100% !important; /* Ensure at least same height as screen share */
+  background-color: transparent !important; /* Make container fully transparent during screen share */
+  z-index: 2 !important; /* Above screen share (z-index: 1) */
+  border: none !important; /* Remove border during screen share */
+  box-shadow: none !important; /* Remove box shadow during screen share */
+  pointer-events: all !important; /* Ensure drawing works */
+}
+
+.whiteboard-scroll-container {
+  overflow: auto;
+  position: relative;
+  background-color: #f0f8ff; /* Light blue background for drawing surface */
+  border: 2px solid #32CD32; /* Green border for visibility */
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 320px; /* Mobile-friendly minimum width */
+  height: 100%;
+  min-height: 400px; /* Mobile-friendly minimum height */
+  /* Ensure the scroll container starts at the top */
+  padding-top: 0;
+  margin-top: 0;
+}
+
+/* Desktop-specific minimum sizes for scroll container */
+@media (min-width: 768px) {
+  .whiteboard-scroll-container {
+    min-width: 800px;
+    min-height: 600px;
+  }
+}
+
+/* When screen sharing is active, make scroll container transparent */
+.whiteboard-container.screen-share-overlay .whiteboard-scroll-container {
+  background-color: transparent !important;
+  border: none !important;
+  overflow: hidden !important;
+  pointer-events: all !important;
+}
+
+/* When screen sharing is active, make all child divs transparent */
+.whiteboard-container.screen-share-overlay .whiteboard-scroll-container > div {
+  background-color: transparent !important;
+  border: none !important;
+}
+
+/* When screen sharing is active, make Konva Stage transparent */
+.whiteboard-container.screen-share-overlay .whiteboard-scroll-container canvas {
+  background: transparent !important;
+}
+
+.pdf-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 10px;
+}
+
+.pdf-controls button {
+  padding: 5px 10px;
+  border: 1px solid #ddd;
+  background-color: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.pdf-controls button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pdf-controls span {
+  font-size: 12px;
+  color: #666;
+}

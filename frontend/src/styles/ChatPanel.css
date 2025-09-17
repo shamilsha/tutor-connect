@@ -1,21 +1,21 @@
 .chat-panel {
     display: flex;
     flex-direction: column;
-    height: calc(100vh - 180px); /* Account for fixed connection panel */
-    background: white;
+    height: 200px; /* Fixed height for chat panel */
+    background: #fffacd; /* Light yellow background for chat panel */
+    border: 2px solid #FF6347; /* Red border for visibility */
     border-radius: 8px;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    margin: 20px;
-    margin-top: 100px; /* Space for fixed connection panel */
-    z-index: 1999; /* Lower than connection panel to not interfere */
-    position: relative;
+    margin: 10px 0 0 0; /* Small top margin for separation from whiteboard */
+    z-index: 1; /* Below whiteboard */
+    position: relative; /* Normal document flow */
 }
 
 /* Mobile responsive adjustments */
 @media (max-width: 768px) {
     .chat-panel {
-        height: calc(100vh - 260px); /* Account for mobile connection panel and controls */
-        margin-top: 160px; /* Space for mobile connection panel and controls */
+        height: 200px; /* Keep consistent height on mobile */
+        margin: 10px 0 0 0; /* Consistent margin on mobile */
     }
 }
 

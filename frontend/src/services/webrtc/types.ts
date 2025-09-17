@@ -1,4 +1,4 @@
-export type WebRTCEventType = 'connection' | 'track' | 'media' | 'stream' | 'error' | 'message' | 'stateChange';
+export type WebRTCEventType = 'connection' | 'track' | 'media' | 'stream' | 'error' | 'message' | 'stateChange' | 'whiteboard';
 
 export type ConnectionPhase = 'idle' | 'initiating' | 'responding' | 'offering' | 'answering' | 'connecting' | 'connected' | 'disconnected' | 'failed';
 
@@ -56,6 +56,15 @@ export interface StateChangeData {
     remoteVideo: boolean;
 }
 
+export interface WhiteboardEventData {
+    action: 'draw' | 'update' | 'erase' | 'undo' | 'redo' | 'state';
+    shape?: any;
+    state?: any;
+    userId: string;
+    username: string;
+    timestamp: number;
+}
+
 export type WebRTCEventData = 
     | { type: 'connection'; data: ConnectionStateData }
     | { type: 'track'; data: TrackEventData }
@@ -63,7 +72,8 @@ export type WebRTCEventData =
     | { type: 'stream'; data: StreamEventData }
     | { type: 'error'; data: ErrorEventData }
     | { type: 'message'; data: MessageEventData }
-    | { type: 'stateChange'; data: StateChangeData };
+    | { type: 'stateChange'; data: StateChangeData }
+    | { type: 'whiteboard'; data: WhiteboardEventData };
 
 export interface WebRTCEvent {
     type: WebRTCEventType;

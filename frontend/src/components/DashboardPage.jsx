@@ -1,7 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { WebRTCProvider } from '../services/WebRTCProvider';
 import VideoChat from './VideoChat';
+import Whiteboard from './Whiteboard';
+import WhiteboardToolbar from './WhiteboardToolbar';
 import ConnectionPanel from './ConnectionPanel';
 import ChatPanel from './ChatPanel';
 import ConnectionStatusLight from './ConnectionStatusLight';
@@ -43,6 +45,28 @@ const DashboardPage = () => {
     const navigate = useNavigate();
     const { signalingService } = useCommunication();
 
+    // Check WebRTC compatibility on component mount
+    useEffect(() => {
+        const checkWebRTCSupport = () => {
+            const isSupported = !!(
+                window.RTCPeerConnection &&
+                window.RTCSessionDescription &&
+                window.RTCIceCandidate &&
+                navigator.mediaDevices &&
+                navigator.mediaDevices.getUserMedia
+            );
+            
+            if (!isSupported) {
+                console.warn('[DashboardPage] ⚠️ WebRTC not fully supported on this device');
+                setError('Your browser does not fully support video calling features. Some features may not work properly.');
+            } else {
+                console.log('[DashboardPage] ✅ WebRTC is supported on this device');
+            }
+        };
+        
+        checkWebRTCSupport();
+    }, []);
+
     // WebRTC state
     const [provider, setProvider] = useState(null);
     const [isCreatingProvider, setIsCreatingProvider] = useState(false);
@@ -62,9 +86,75 @@ const DashboardPage = () => {
     const [isVideoEnabled, setIsVideoEnabled] = useState(false);
     const [isScreenSharing, setIsScreenSharing] = useState(false);
     const [isScreenShareSupported, setIsScreenShareSupported] = useState(true);
+    const [isWhiteboardActive, setIsWhiteboardActive] = useState(false);
     
-    // Force re-render when streams change
-    const [streamRevision, setStreamRevision] = useState(0);
+    // Whiteboard toolbar state
+    const [currentTool, setCurrentTool] = useState(null);
+    const [currentColor, setCurrentColor] = useState('#000000');
+    const [canUndo, setCanUndo] = useState(false);
+    const [canRedo, setCanRedo] = useState(false);
+    const [isScreenShareActive, setIsScreenShareActive] = useState(false);
+    
+    // Whiteboard function references
+    const whiteboardUndoRef = useRef(null);
+    const whiteboardRedoRef = useRef(null);
+    
+    // Stable callback functions to prevent Whiteboard remounting
+    const handleWhiteboardClose = useCallback(() => {
+        setIsWhiteboardActive(false);
+    }, []);
+    
+    const handleWhiteboardBackgroundCleared = useCallback(() => {
+        console.log('[DashboardPage] 🎨 Background file cleared from whiteboard');
+    }, []);
+    
+    // Debug: Track state changes to identify what's causing re-renders
+    const prevStateRef = useRef({});
+    useEffect(() => {
+        const currentState = {
+            isWebSocketConnected,
+            isPeerConnected,
+            userEmail,
+            provider: !!provider,
+            selectedPeer,
+            isConnecting,
+            peerListLength: peerList.length,
+            showChat,
+            error,
+            isGracefulDisconnect,
+            isAudioEnabled,
+            isVideoEnabled,
+            isScreenSharing,
+            isScreenShareSupported,
+            isWhiteboardActive,
+            currentTool,
+            currentColor,
+            canUndo,
+            canRedo,
+            receivedMessagesLength: receivedMessages.length
+        };
+        
+        const prevState = prevStateRef.current;
+        const changedStates = [];
+        
+        Object.keys(currentState).forEach(key => {
+            if (prevState[key] !== currentState[key]) {
+                changedStates.push({
+                    key,
+                    from: prevState[key],
+                    to: currentState[key]
+                });
+            }
+        });
+        
+        if (changedStates.length > 0) {
+            console.log('[DashboardPage] 🔍 State changes detected:', JSON.stringify(changedStates, null, 2));
+        }
+        
+        prevStateRef.current = currentState;
+    });
+    
+    // Removed streamRevision state that was causing constant re-renders
     
 
     
@@ -74,6 +164,7 @@ const DashboardPage = () => {
     // Store user data and message handler IDs in ref
     const userRef = useRef(null);
     const messageHandlerRef = useRef(null);
+    
     
     // Store WebRTC event handlers for cleanup
     const webRTCEventHandlersRef = useRef({
@@ -314,6 +405,7 @@ const DashboardPage = () => {
         };
     }, [provider]);
     
+
     // Check screen sharing support on component mount
     useEffect(() => {
         const checkScreenShareSupport = () => {
@@ -484,6 +576,7 @@ const DashboardPage = () => {
         setIsAudioEnabled(false);
         setIsVideoEnabled(false);
         setIsScreenSharing(false);
+        setIsWhiteboardActive(false);
         setReceivedMessages([]);
         
         // Clear peer selection and disconnected peer tracking
@@ -728,8 +821,21 @@ const DashboardPage = () => {
 
         const handleStreamChange = (event) => {
             console.log('[DashboardPage] 🔄 Received stream event from provider:', event.data);
-            // Force re-render of components that depend on streams
-            setStreamRevision(prev => prev + 1);
+            
+            // Update screen share active status when streams change
+            const hasLocalScreenShare = !!provider.getScreenShareStream();
+            const hasRemoteScreenShare = !!provider.getRemoteScreen(selectedPeer);
+            const newIsScreenShareActive = isScreenSharing || hasLocalScreenShare || hasRemoteScreenShare;
+            
+            console.log('[DashboardPage] 🔍 Updating screen share status:', {
+                isScreenSharing,
+                hasLocalScreenShare,
+                hasRemoteScreenShare,
+                selectedPeer,
+                newIsScreenShareActive
+            });
+            
+            setIsScreenShareActive(newIsScreenShareActive);
         };
 
         provider.addEventListener('stateChange', handleStateChange);
@@ -744,7 +850,7 @@ const DashboardPage = () => {
             provider.removeEventListener('stateChange', handleStateChange);
             provider.removeEventListener('stream', handleStreamChange);
         };
-    }, [provider]);
+    }, [provider, isScreenSharing, selectedPeer]);
 
     // Debug: Measure and display element dimensions
     useEffect(() => {
@@ -934,6 +1040,12 @@ const DashboardPage = () => {
                 setShowChat(true);
                 setError(null);
                 setIsGracefulDisconnect(false); // Reset graceful disconnect flag on successful connection
+                
+                // Automatically enable whiteboard when connection is established
+                if (!isWhiteboardActive) {
+                    console.log('[DashboardPage] 🎨 Auto-enabling whiteboard on connection');
+                    setIsWhiteboardActive(true);
+                }
                 
                 // Clear any previous disconnected peer tracking since we have a new connection
                 disconnectedPeerRef.current = null;
@@ -1216,20 +1328,28 @@ const DashboardPage = () => {
             setActiveProviderTimestamp(currentTimestamp);
             
             console.log('%c[DashboardPage] 🚀 CREATING WEBRTC PROVIDER for connect button', 'font-weight: bold; color: green; font-size: 14px;');
-            const rtcProvider = new WebRTCProvider({
-                userId: user.id,
-                iceServers: [
-                    {
-                        urls: [
-                            'stun:stun.l.google.com:19302',
-                            'stun:stun1.l.google.com:19302',
-                            'stun:stun2.l.google.com:19302',
-                            'stun:stun3.l.google.com:19302',
-                            'stun:stun4.l.google.com:19302'
-                        ]
-                    }
-                ]
-            });
+            
+            let rtcProvider;
+            try {
+                rtcProvider = new WebRTCProvider({
+                    userId: user.id,
+                    iceServers: [
+                        {
+                            urls: [
+                                'stun:stun.l.google.com:19302',
+                                'stun:stun1.l.google.com:19302',
+                                'stun:stun2.l.google.com:19302',
+                                'stun:stun3.l.google.com:19302',
+                                'stun:stun4.l.google.com:19302'
+                            ]
+                        }
+                    ]
+                });
+            } catch (error) {
+                console.error('[DashboardPage] ❌ Failed to create WebRTC provider:', error);
+                setError('Failed to initialize connection. This might be due to browser compatibility issues.');
+                return;
+            }
 
             // Set up WebRTC event listeners
             setupWebRTCEventListeners(rtcProvider);
@@ -1520,7 +1640,7 @@ const DashboardPage = () => {
         }
     };
 
-    const handleSendMessage = async (message) => {
+    const handleSendMessage = useCallback(async (message) => {
         if (!provider || !selectedPeer) return;
         
         // Debug: Log what message is being sent
@@ -1539,7 +1659,7 @@ const DashboardPage = () => {
             console.error('[DashboardPage] Failed to send message:', err);
             setError('Failed to send message');
         }
-    };
+    }, [provider, selectedPeer]);
 
     // Media toggle handlers for ConnectionPanel
     const handleToggleAudio = async () => {
@@ -1693,6 +1813,11 @@ const DashboardPage = () => {
         console.log('%c[DashboardPage] 🖥️ SCREEN SHARE TOGGLE STARTED (initiator side):', 'font-weight: bold; color: orange;', newScreenShareState ? 'ENABLE' : 'DISABLE');
         console.log('[DashboardPage] 🖥️ Toggle screen share requested:', newScreenShareState);
         
+        // If enabling screen share, ensure whiteboard background is cleared (mutual exclusivity)
+        if (newScreenShareState && isWhiteboardActive) {
+            console.log('[DashboardPage] 🖥️ Screen share enabled - whiteboard will clear any background files');
+        }
+        
         try {
             // Create provider if it doesn't exist
             let currentProvider = provider;
@@ -1756,6 +1881,75 @@ const DashboardPage = () => {
         }
     };
 
+    const handleToggleWhiteboard = () => {
+        const newWhiteboardState = !isWhiteboardActive;
+        console.log('%c[DashboardPage] 🎨 WHITEBOARD TOGGLE STARTED:', 'font-weight: bold; color: purple;', newWhiteboardState ? 'ENABLE' : 'DISABLE');
+        
+        // If enabling whiteboard, stop screen share first (mutual exclusivity)
+        if (newWhiteboardState && isScreenSharing) {
+            console.log('[DashboardPage] 🎨 Stopping screen share before opening whiteboard');
+            handleToggleScreenShare();
+        }
+        
+        setIsWhiteboardActive(newWhiteboardState);
+        console.log('[DashboardPage] ✅ Whiteboard state updated:', newWhiteboardState);
+    };
+
+    // Whiteboard toolbar handlers
+    const handleToolChange = (tool) => {
+        console.log('[DashboardPage] 🎨 Tool changed to:', tool);
+        setCurrentTool(tool);
+    };
+
+    const handleColorChange = (color) => {
+        console.log('[DashboardPage] 🎨 Color changed to:', color);
+        setCurrentColor(color);
+    };
+
+    const handleWhiteboardUndo = () => {
+        console.log('[DashboardPage] 🎨 Undo requested');
+        console.log('[DashboardPage] Undo ref:', { hasRef: !!whiteboardUndoRef.current, ref: whiteboardUndoRef.current });
+        if (whiteboardUndoRef.current) {
+            console.log('[DashboardPage] Calling undo function');
+            whiteboardUndoRef.current();
+        } else {
+            console.log('[DashboardPage] No undo function available');
+        }
+    };
+
+    const handleWhiteboardRedo = () => {
+        console.log('[DashboardPage] 🎨 Redo requested');
+        console.log('[DashboardPage] Redo ref:', { hasRef: !!whiteboardRedoRef.current, ref: whiteboardRedoRef.current });
+        if (whiteboardRedoRef.current) {
+            console.log('[DashboardPage] Calling redo function');
+            whiteboardRedoRef.current();
+        } else {
+            console.log('[DashboardPage] No redo function available');
+        }
+    };
+
+    const handleWhiteboardHistoryChange = useCallback((historyState) => {
+        console.log('[DashboardPage] 🎨 History changed:', historyState);
+        setCanUndo(historyState.canUndo);
+        setCanRedo(historyState.canRedo);
+    }, []);
+
+    const handleWhiteboardImageUpload = (event) => {
+        console.log('[DashboardPage] 🎨 Image upload requested');
+        // The whiteboard component will handle the actual upload logic
+    };
+
+    const handleWhiteboardFileUpload = (event) => {
+        console.log('[DashboardPage] 🎨 File upload requested');
+        // The whiteboard component will handle the actual upload logic
+    };
+
+    const handleWhiteboardClear = () => {
+        console.log('[DashboardPage] 🎨 Clear requested');
+        // The whiteboard component will handle the actual clear logic
+    };
+
+
     const resetConnectionState = () => {
         console.log('[DashboardPage] 🔄 RESET: Starting connection state reset');
         
@@ -1808,6 +2002,7 @@ const DashboardPage = () => {
         setIsAudioEnabled(false);
         setIsVideoEnabled(false);
         setIsScreenSharing(false);
+        setIsWhiteboardActive(false);
         
         // Don't reset isGracefulDisconnect here - let it persist for connection state handler
         // It will be reset when starting a new connection
@@ -1832,6 +2027,32 @@ const DashboardPage = () => {
     };
 
     if (!userEmail) return null;
+
+    console.log('[DashboardPage] 🔄 Parent component is re-rendering');
+    
+    // Debug: Log all state variables to identify what's changing
+    console.log('[DashboardPage] 🔍 State values:', JSON.stringify({
+      isWebSocketConnected,
+      isPeerConnected,
+      userEmail,
+      provider: !!provider,
+      selectedPeer,
+      isConnecting,
+      peerList: peerList.length,
+      showChat,
+      error,
+      isGracefulDisconnect,
+      isAudioEnabled,
+      isVideoEnabled,
+      isScreenSharing,
+      isScreenShareSupported,
+      isWhiteboardActive,
+      currentTool,
+      currentColor,
+      canUndo,
+      canRedo,
+      receivedMessages: receivedMessages.length
+    }, null, 2));
 
     // Calculate VideoChat key
     const videoChatKey = `videochat-${isPeerConnected}-${isConnecting}`;
@@ -1861,9 +2082,11 @@ const DashboardPage = () => {
                 isVideoEnabled={isVideoEnabled}
                 isScreenSharing={isScreenSharing}
                 isScreenShareSupported={isScreenShareSupported}
+                isWhiteboardActive={isWhiteboardActive}
                 onToggleAudio={handleToggleAudio}
                 onToggleVideo={handleToggleVideo}
                 onToggleScreenShare={handleToggleScreenShare}
+                onToggleWhiteboard={handleToggleWhiteboard}
             />
             
             <div className="dashboard-header">
@@ -1910,32 +2133,31 @@ const DashboardPage = () => {
                 </div>
             )}
             
+            {/* Whiteboard Toolbar - Outside dashboard-content, below connection panel */}
+            {isWhiteboardActive && (
+                <WhiteboardToolbar
+                    userId={userRef.current?.id}
+                    username={userRef.current?.name || userEmail}
+                    isScreenShareActive={isScreenShareActive}
+                    onToolChange={handleToolChange}
+                    onColorChange={handleColorChange}
+                    onUndo={handleWhiteboardUndo}
+                    onRedo={handleWhiteboardRedo}
+                    onImageUpload={handleWhiteboardImageUpload}
+                    onFileUpload={handleWhiteboardFileUpload}
+                    onClear={handleWhiteboardClear}
+                    currentTool={currentTool}
+                    currentColor={currentColor}
+                    canUndo={canUndo}
+                    canRedo={canRedo}
+                />
+            )}
+            
             <div className="dashboard-content">
-                {/* Debug info for screen share */}
-                {provider && (
-                    <div style={{ 
-                        position: 'absolute', 
-                        top: '10px', 
-                        left: '10px', 
-                        background: 'rgba(0,0,0,0.8)', 
-                        color: 'white', 
-                        padding: '10px', 
-                        fontSize: '12px', 
-                        zIndex: 1000,
-                        maxWidth: '300px'
-                    }}>
-                        <div>🖥️ Screen Share Debug:</div>
-                        <div>Local: {provider.getScreenShareStream()?.id || 'None'}</div>
-                        <div>Remote: {provider.getRemoteScreen(selectedPeer)?.id || 'None'}</div>
-                        <div>Selected Peer: {selectedPeer}</div>
-                        <div>Is Screen Sharing: {isScreenSharing ? 'Yes' : 'No'}</div>
-                        <div>Stream Revision: {streamRevision}</div>
-                    </div>
-                )}
                 
-                {/* Screen Share Window - Inside dashboard-content */}
+                {/* Screen Share Window - Inside dashboard-content, same space as drawing surface */}
                 <ScreenShareWindow
-                    key={`screen-share-${streamRevision}`}
+                    key="screen-share-stable"
                     screenShareStream={provider?.getScreenShareStream() || provider?.getRemoteScreen(selectedPeer)}
                     isVisible={isScreenSharing || !!(provider?.getScreenShareStream() || provider?.getRemoteScreen(selectedPeer))}
                     position={{ top: '0', left: '0' }}
@@ -1946,17 +2168,43 @@ const DashboardPage = () => {
                     debugMode={true}
                     useRelativePositioning={true}
                 />
+
+                {/* Whiteboard Component */}
+               {console.log('[DashboardPage] 🔍 Is whiteboard active?', isWhiteboardActive)}
+               {console.log('[DashboardPage] 🔍 Screen share detection debug:', {
+                 isScreenSharing,
+                 hasLocalScreenShare: !!provider?.getScreenShareStream(),
+                 selectedPeer,
+                 hasRemoteScreen: !!provider?.getRemoteScreen(selectedPeer),
+                 isScreenShareActiveState: isScreenShareActive
+               })}
+               {isWhiteboardActive && (
+                   <Whiteboard
+                       key="whiteboard-stable"
+                       userId={userRef.current?.id}
+                       username={userRef.current?.name || userEmail}
+                       screenShareStream={null}
+                       isScreenShareActive={isScreenShareActive}
+                       onClose={handleWhiteboardClose}
+                       onBackgroundCleared={handleWhiteboardBackgroundCleared}
+                       webRTCProvider={provider}
+                       selectedPeer={selectedPeer}
+                       currentTool={currentTool}
+                       currentColor={currentColor}
+                       onToolChange={handleToolChange}
+                       onColorChange={handleColorChange}
+                       onUndo={whiteboardUndoRef}
+                       onRedo={whiteboardRedoRef}
+                       onHistoryChange={handleWhiteboardHistoryChange}
+                       onImageUpload={handleWhiteboardImageUpload}
+                       onFileUpload={handleWhiteboardFileUpload}
+                       onClear={handleWhiteboardClear}
+                       canUndo={canUndo}
+                       canRedo={canRedo}
+                   />
+               )}
             </div>
             
-            {/* Chat Panel - Below everything */}
-            {showChat && (
-                <ChatPanel
-                    user={userRef.current}
-                    provider={provider}
-                    onSendMessage={handleSendMessage}
-                    receivedMessages={receivedMessages}
-                />
-            )}
             
             {/* Debug Popup */}
             {showDebugPopup && (
@@ -2113,6 +2361,16 @@ const DashboardPage = () => {
                         </div>
                     </div>
                 </div>
+            )}
+            
+            {/* Chat Panel - Last element under dashboard-container */}
+            {showChat && (
+                <ChatPanel
+                    user={{ id: userRef.current?.id, name: userRef.current?.name || userEmail }}
+                    provider={provider}
+                    onSendMessage={handleSendMessage}
+                    receivedMessages={receivedMessages}
+                />
             )}
         </div>
     );
