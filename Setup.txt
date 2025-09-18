@@ -75,6 +75,9 @@ A: open command prompt
    az webapp deploy --resource-group tutor-cancen-rg --name tutor-cancen-backend --src-path target/tutor-connect-0.0.1-SNAPSHOT.jar --type jar
    # verify it is working
    curl https://tutor-cancen-backend-bxepcjdqeca7f6bk.canadacentral-01.azurewebsites.net/api/users/health
+   # use in memory database, set ENV variable
+   az webapp config appsettings set --resource-group tutor-cancen-rg --name tutor-cancen-backend --settings SPRING_DATASOURCE_URL="jdbc:h2:mem:tutordb;DB_CLOSE_ON_EXIT=FALSE;DB_CLOSE_DELAY=-1"
+
    (2) Deploy signaling server:
    cd signaling-server
    #compress folder

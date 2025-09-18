@@ -98,6 +98,7 @@ const DashboardPage = () => {
     // Whiteboard function references
     const whiteboardUndoRef = useRef(null);
     const whiteboardRedoRef = useRef(null);
+    const whiteboardImageUploadRef = useRef(null);
     
     // Stable callback functions to prevent Whiteboard remounting
     const handleWhiteboardClose = useCallback(() => {
@@ -1936,7 +1937,13 @@ const DashboardPage = () => {
 
     const handleWhiteboardImageUpload = (event) => {
         console.log('[DashboardPage] 🎨 Image upload requested');
-        // The whiteboard component will handle the actual upload logic
+        console.log('[DashboardPage] 🎨 File:', event.target.files[0]);
+        // Pass the file directly to the Whiteboard component
+        if (whiteboardImageUploadRef.current && typeof whiteboardImageUploadRef.current.handleImageUpload === 'function') {
+            whiteboardImageUploadRef.current.handleImageUpload(event);
+        } else {
+            console.error('[DashboardPage] 🎨 Ref not available or handleImageUpload not a function');
+        }
     };
 
     const handleWhiteboardFileUpload = (event) => {
@@ -2201,6 +2208,7 @@ const DashboardPage = () => {
                        onClear={handleWhiteboardClear}
                        canUndo={canUndo}
                        canRedo={canRedo}
+                       ref={whiteboardImageUploadRef}
                    />
                )}
             </div>

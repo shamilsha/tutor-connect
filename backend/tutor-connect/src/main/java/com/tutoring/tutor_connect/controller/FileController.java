@@ -1,0 +1,119 @@
+package com.tutoring.tutor_connect.controller;
+
+import com.tutoring.tutor_connect.service.FileUploadService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/files")
+public class FileController {
+    
+    public FileController() {
+        System.out.println("=== FileController Constructor ===");
+        System.out.println("FileController is being instantiated");
+    }
+    
+    @Autowired
+    private FileUploadService fileUploadService;
+    
+    @GetMapping("/test")
+    public ResponseEntity<String> test() {
+        System.out.println("=== FileController.test ===");
+        System.out.println("FileController test endpoint called");
+        return ResponseEntity.ok("FileController test endpoint works!");
+    }
+    
+    @GetMapping("/health")
+    public ResponseEntity<?> healthCheck() {
+        System.out.println("=== FileController.healthCheck ===");
+        System.out.println("FileController health endpoint called");
+        System.out.println("CORS headers should be set");
+        System.out.println("Returning success response");
+        return ResponseEntity.ok("File upload service is running");
+    }
+    
+    @PostMapping("/upload")
+    public ResponseEntity<?> uploadFile(@RequestParam("file") MultipartFile file) {
+        try {
+            System.out.println("=== FileController.uploadFile ===");
+            System.out.println("File upload requested: " + file.getOriginalFilename());
+            
+            // Validate file
+            if (file.isEmpty()) {
+                return ResponseEntity.badRequest().body("File is empty");
+            }
+            
+            // Check file size (max 10MB)
+            if (file.getSize() > 10 * 1024 * 1024) {
+                return ResponseEntity.badRequest().body("File too large (max 10MB)");
+            }
+            
+            // Check file type (images only)
+            String contentType = file.getContentType();
+            if (contentType == null || !contentType.startsWith("image/")) {
+                return ResponseEntity.badRequest().body("Only image files are allowed");
+            }
+            
+            // Upload file
+            String filename = fileUploadService.uploadFile(file);
+            
+            // Return response
+            Map<String, Object> response = new HashMap<>();
+            response.put("status", "success");
+            response.put("filename", filename);
+            response.put("url", "/api/files/download/" + filename);
+            response.put("originalName", file.getOriginalFilename());
+            response.put("size", file.getSize());
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (IOException e) {
+            System.out.println("Upload failed: " + e.getMessage());
+            return ResponseEntity.status(500).body("Upload failed: " + e.getMessage());
+        } catch (Exception e) {
+            System.out.println("Upload failed: " + e.getMessage());
+            return ResponseEntity.status(500).body("Upload failed: " + e.getMessage());
+        }
+    }
+    
+    @GetMapping("/download/{filename}")
+    public ResponseEntity<byte[]> downloadFile(@PathVariable String filename) {
+        try {
+            System.out.println("=== FileController.downloadFile ===");
+            System.out.println("Download requested for: " + filename);
+            
+            byte[] fileContent = fileUploadService.downloadFile(filename);
+            
+            // Determine content type based on file extension
+            String contentType = "application/octet-stream";
+            if (filename.toLowerCase().endsWith(".png")) {
+                contentType = "image/png";
+            } else if (filename.toLowerCase().endsWith(".jpg") || filename.toLowerCase().endsWith(".jpeg")) {
+                contentType = "image/jpeg";
+            } else if (filename.toLowerCase().endsWith(".gif")) {
+                contentType = "image/gif";
+            }
+            
+            return ResponseEntity.ok()
+                    .header("Content-Type", contentType)
+                    .header("Content-Disposition", "inline; filename=\"" + filename + "\"")
+                    .body(fileContent);
+                    
+        } catch (IllegalArgumentException e) {
+            System.out.println("Download failed - File not found: " + e.getMessage());
+            return ResponseEntity.notFound().build();
+        } catch (IOException e) {
+            System.out.println("Download failed - IO error: " + e.getMessage());
+            return ResponseEntity.status(500).body(null);
+        } catch (Exception e) {
+            System.out.println("Download failed - Unexpected error: " + e.getMessage());
+            return ResponseEntity.status(500).body(null);
+        }
+    }
+}
