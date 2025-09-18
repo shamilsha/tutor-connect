@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Audio Test</title>
+</head>
+<body>
+    <h1>Audio Test</h1>
+    <button onclick="testAudio()">Test Audio Access</button>
+    <div id="status"></div>
+
+    <script>
+        async function testAudio() {
+            const statusDiv = document.getElementById('status');
+            
+            try {
+                statusDiv.textContent = 'Requesting audio access...';
+                console.log('Requesting audio access...');
+                
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: false, 
+                    audio: true 
+                });
+                
+                statusDiv.textContent = 'Audio access granted!';
+                console.log('Audio access granted:', stream);
+                
+            } catch (error) {
+                statusDiv.textContent = 'Error: ' + error.message;
+                console.error('Audio access error:', error);
+            }
+        }
+    </script>
+</body>
+</html>
+
