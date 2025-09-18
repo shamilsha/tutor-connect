@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react';
 import { Stage, Layer, Line, Circle, Ellipse, Rect, Transformer, Group, Text } from 'react-konva';
 import { v4 as uuidv4 } from 'uuid';
 import { Document, Page } from 'react-pdf';
@@ -9,13 +9,17 @@ import { WebRTCProvider } from '../services/WebRTCProvider';
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
-const Whiteboard = ({ 
+const Whiteboard = forwardRef(({ 
   userId, 
   username, 
   screenShareStream = null, 
   isScreenShareActive = false, 
+  isImageActive = false,
+  currentImageUrl = null,
+  containerSize = { width: 1200, height: 800 },
   onClose = null, 
-  onBackgroundCleared = null, 
+  onBackgroundCleared = null,
+  onImageChange = null, 
   webRTCProvider = null, 
   selectedPeer = null,
   // New props from toolbar
@@ -31,7 +35,7 @@ const Whiteboard = ({
   onClear = null,
   canUndo = false,
   canRedo = false,
-}) => {
+}, ref) => {
   console.log('Whiteboard mounted with:', { userId, username, screenShareStream: !!screenShareStream, isScreenShareActive });
   
   // Drawing state
@@ -62,10 +66,8 @@ const Whiteboard = ({
   const [pdfPages, setPdfPages] = useState(1);
   const [currentPage, setCurrentPage] = useState(1);
   const [scale, setScale] = useState(1);
-  // Fixed size for consistent drawing surface across all peers
-  const STANDARD_WHITEBOARD_WIDTH = 1200;
-  const STANDARD_WHITEBOARD_HEIGHT = 800;
-  const [containerSize, setContainerSize] = useState({ width: STANDARD_WHITEBOARD_WIDTH, height: STANDARD_WHITEBOARD_HEIGHT });
+  // Use dynamic container size from props
+  const [currentContainerSize, setCurrentContainerSize] = useState(containerSize);
   const [pageShapes, setPageShapes] = useState({});
 
   // Debug flag to control verbose logging
@@ -83,6 +85,12 @@ const Whiteboard = ({
   useEffect(() => {
     setStrokeColor(currentColor);
   }, [currentColor]);
+
+  // Update container size when prop changes
+  useEffect(() => {
+    setCurrentContainerSize(containerSize);
+    console.log('[Whiteboard] 📏 Container size updated:', containerSize);
+  }, [containerSize]);
 
 
   // WebRTC setup
@@ -106,16 +114,15 @@ const Whiteboard = ({
     }
   }, [webRTCProvider, selectedPeer]);
 
-  // Container size tracking - use fixed dimensions for consistency across peers
+  // Container size tracking - use dynamic dimensions
   useEffect(() => {
-    // Always use standard dimensions for consistent drawing surface
-    setContainerSize({ width: STANDARD_WHITEBOARD_WIDTH, height: STANDARD_WHITEBOARD_HEIGHT });
-    console.log('[Whiteboard] 📏 Using fixed container size for consistency:', { 
-      width: STANDARD_WHITEBOARD_WIDTH, 
-      height: STANDARD_WHITEBOARD_HEIGHT,
-      isScreenShareActive 
+    console.log('[Whiteboard] 📏 Using dynamic container size:', { 
+      width: currentContainerSize.width, 
+      height: currentContainerSize.height,
+      isScreenShareActive,
+      isImageActive
     });
-  }, [isScreenShareActive]); // Update when screen share state changes
+  }, [currentContainerSize, isScreenShareActive, isImageActive]); // Update when container size or overlay state changes
 
   // Clear background when screen sharing becomes active
   useEffect(() => {
@@ -197,6 +204,18 @@ const Whiteboard = ({
             });
             return newCursors;
           });
+        }
+        break;
+      case 'background':
+        if (data.background) {
+          console.log('[Whiteboard] 🎨 Received background update:', data.background);
+          setBackgroundFile(data.background.file);
+          setBackgroundType(data.background.type);
+          
+          // Notify parent component
+          if (onImageChange && data.background.type === 'image') {
+            onImageChange(data.background.file);
+          }
         }
         break;
       default:
@@ -666,17 +685,78 @@ const Whiteboard = ({
   }, [historyStep, history.length, onHistoryChange]);
 
 
-  const handleImageUpload = (event) => {
+  const handleImageUpload = async (event) => {
     const file = event.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setBackgroundFile(e.target.result);
-        setBackgroundType('image');
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+    
+    console.log('[Whiteboard] 🎨 Image upload started:', file.name);
+    
+    try {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        console.error('[Whiteboard] 🎨 Invalid file type:', file.type);
+        return;
+      }
+      
+      // Validate file size (max 10MB)
+      if (file.size > 10 * 1024 * 1024) {
+        console.error('[Whiteboard] 🎨 File too large:', file.size);
+        return;
+      }
+      
+      // Upload to backend
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const backendUrl = process.env.REACT_APP_BACKEND_URL || 'https://tutor-cancen-backend-bxepcjdqeca7f6bk.canadacentral-01.azurewebsites.net';
+      const response = await fetch(`${backendUrl}/api/files/upload`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Upload failed: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      console.log('[Whiteboard] 🎨 Upload successful:', result);
+      
+      // Construct full URL
+      const imageUrl = result.url.startsWith('http') ? result.url : `${backendUrl}${result.url}`;
+      
+      // Set background (preserve existing drawings)
+      setBackgroundFile(imageUrl);
+      setBackgroundType('image');
+      
+      // Add to history with current state (preserve existing drawings)
+      addToHistory();
+      
+      // Notify parent component
+      if (onImageChange) {
+        onImageChange(imageUrl);
+      }
+      
+      // Send to remote peers
+      if (webRTCProvider && selectedPeer) {
+        console.log('[Whiteboard] 🎨 Sending image to remote peer');
+        webRTCProvider.sendWhiteboardMessage(selectedPeer, {
+          action: 'background',
+          background: {
+            file: imageUrl,
+            type: 'image'
+          }
+        });
+      }
+      
+    } catch (error) {
+      console.error('[Whiteboard] 🎨 Upload failed:', error);
     }
   };
+
+  // Expose functions to parent component
+  useImperativeHandle(ref, () => ({
+    handleImageUpload: handleImageUpload
+  }));
 
   const handleFileUpload = (event) => {
     const file = event.target.files[0];
@@ -719,13 +799,13 @@ const Whiteboard = ({
   // Debug transparency issues
   console.log('[Whiteboard] 🔍 TRANSPARENCY DEBUG:', {
     isScreenShareActive,
-    containerBackgroundColor: isScreenShareActive ? 'transparent' : 'rgba(230, 243, 255, 0.9)',
-    scrollContainerBackgroundColor: isScreenShareActive ? 'transparent' : '#f0f8ff',
-    drawingSurfaceBackgroundColor: isScreenShareActive ? 'transparent' : 'transparent',
-    stageBackground: isScreenShareActive ? 'transparent' : 'transparent',
+    containerBackgroundColor: (isScreenShareActive || isImageActive) ? 'transparent' : 'rgba(230, 243, 255, 0.9)',
+    scrollContainerBackgroundColor: (isScreenShareActive || isImageActive) ? 'transparent' : '#f0f8ff',
+    drawingSurfaceBackgroundColor: (isScreenShareActive || isImageActive) ? 'transparent' : 'transparent',
+    stageBackground: (isScreenShareActive || isImageActive) ? 'transparent' : 'transparent',
     hasBackgroundFile: !!backgroundFile,
     backgroundType,
-    showBackgroundLayer: backgroundFile && !isScreenShareActive
+    showBackgroundLayer: backgroundFile && !isScreenShareActive && !isImageActive
   });
 
   // Add useEffect to debug actual computed styles
@@ -784,17 +864,17 @@ const Whiteboard = ({
     <>
       {/* Whiteboard Container - Drawing Surface Only */}
       <div 
-        className={`whiteboard-container ${isScreenShareActive ? 'screen-share-overlay' : ''}`}
+        className={`whiteboard-container ${(isScreenShareActive || isImageActive) ? 'screen-share-overlay' : ''}`}
       style={{
-        position: isScreenShareActive ? 'absolute' : 'relative',
-        top: isScreenShareActive ? '0' : 'auto',
-        left: isScreenShareActive ? '0' : 'auto',
-        width: '100%',
-        height: isScreenShareActive ? '100%' : 'auto',
-        zIndex: isScreenShareActive ? 2 : 1,
-        backgroundColor: isScreenShareActive ? 'transparent' : 'rgba(230, 243, 255, 0.9)',
-        border: isScreenShareActive ? 'none' : '4px solid #8B4513',
-        pointerEvents: isScreenShareActive ? 'all' : 'auto'
+        position: (isScreenShareActive || isImageActive) ? 'absolute' : 'relative',
+        top: (isScreenShareActive || isImageActive) ? '0' : 'auto',
+        left: (isScreenShareActive || isImageActive) ? '0' : 'auto',
+        width: currentContainerSize.width,
+        height: currentContainerSize.height,
+        zIndex: (isScreenShareActive || isImageActive) ? 2 : 1,
+        backgroundColor: (isScreenShareActive || isImageActive) ? 'transparent' : 'rgba(230, 243, 255, 0.9)',
+        border: (isScreenShareActive || isImageActive) ? 'none' : '4px solid #8B4513',
+        pointerEvents: (isScreenShareActive || isImageActive) ? 'all' : 'auto'
       }}
       >
         <div 
@@ -802,26 +882,26 @@ const Whiteboard = ({
           className="whiteboard-scroll-container"
           style={{ 
             position: 'relative',
-            width: '100%',
-            height: isScreenShareActive ? '100%' : 'auto',
-            overflowY: isScreenShareActive ? 'hidden' : 'auto',
+            width: currentContainerSize.width,
+            height: currentContainerSize.height,
+            overflowY: (isScreenShareActive || isImageActive) ? 'hidden' : 'auto',
             overflowX: 'hidden',
-            backgroundColor: isScreenShareActive ? 'transparent' : '#f0f8ff',
-            border: isScreenShareActive ? 'none' : '2px solid #32CD32',
-            pointerEvents: isScreenShareActive ? 'all' : 'auto'
+            backgroundColor: (isScreenShareActive || isImageActive) ? 'transparent' : '#f0f8ff',
+            border: (isScreenShareActive || isImageActive) ? 'none' : '2px solid #32CD32',
+            pointerEvents: (isScreenShareActive || isImageActive) ? 'all' : 'auto'
           }}
         >
           {/* Drawing Surface Container - Overlay screen share when active */}
           <div style={{
             position: 'relative',
-            width: '100%',
-            height: isScreenShareActive ? '100%' : 'auto',
-            backgroundColor: isScreenShareActive ? 'transparent' : 'transparent',
-            border: isScreenShareActive ? 'none' : '2px solid #FF6B35',
-            pointerEvents: isScreenShareActive ? 'all' : 'auto'
+            width: currentContainerSize.width,
+            height: currentContainerSize.height,
+            backgroundColor: (isScreenShareActive || isImageActive) ? 'transparent' : 'transparent',
+            border: (isScreenShareActive || isImageActive) ? 'none' : '2px solid #FF6B35',
+            pointerEvents: (isScreenShareActive || isImageActive) ? 'all' : 'auto'
           }}>
           {/* Background Layer - PDF/Image only (Screen share is handled by ScreenShareWindow component) */}
-          {backgroundFile && !isScreenShareActive && (
+          {backgroundFile && !isScreenShareActive && !isImageActive && (
             <div
               style={{
                 position: 'relative',
@@ -869,8 +949,8 @@ const Whiteboard = ({
 
           {/* Drawing Layer */}
           <Stage
-            width={containerSize.width}
-            height={containerSize.height}
+            width={currentContainerSize.width}
+            height={currentContainerSize.height}
             style={{
               position: 'relative',
               top: 0,
@@ -990,6 +1070,6 @@ const Whiteboard = ({
       
     </>
   );
-};
+});
 
 export default Whiteboard; 

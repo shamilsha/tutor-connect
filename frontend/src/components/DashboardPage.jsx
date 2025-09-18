@@ -8,6 +8,7 @@ import ConnectionPanel from './ConnectionPanel';
 import ChatPanel from './ChatPanel';
 import ConnectionStatusLight from './ConnectionStatusLight';
 import ScreenShareWindow from './ScreenShareWindow';
+import ImageDisplayWindow from './ImageDisplayWindow';
 import '../styles/DashboardPage.css';
 import { useCommunication } from '../context/CommunicationContext';
 import { WebSocketProvider } from '../services/WebSocketProvider';
@@ -94,6 +95,9 @@ const DashboardPage = () => {
     const [canUndo, setCanUndo] = useState(false);
     const [canRedo, setCanRedo] = useState(false);
     const [isScreenShareActive, setIsScreenShareActive] = useState(false);
+    const [isImageActive, setIsImageActive] = useState(false);
+    const [currentImageUrl, setCurrentImageUrl] = useState(null);
+    const [dynamicContainerSize, setDynamicContainerSize] = useState({ width: 1200, height: 800 });
     
     // Whiteboard function references
     const whiteboardUndoRef = useRef(null);
@@ -1819,6 +1823,13 @@ const DashboardPage = () => {
             console.log('[DashboardPage] 🖥️ Screen share enabled - whiteboard will clear any background files');
         }
         
+        // Clear image if screen share becomes active (mutual exclusivity)
+        if (newScreenShareState && isImageActive) {
+            console.log('[DashboardPage] 🖥️ Clearing image due to screen share activation');
+            setIsImageActive(false);
+            setCurrentImageUrl(null);
+        }
+        
         try {
             // Create provider if it doesn't exist
             let currentProvider = provider;
@@ -1934,6 +1945,23 @@ const DashboardPage = () => {
         setCanUndo(historyState.canUndo);
         setCanRedo(historyState.canRedo);
     }, []);
+
+    const handleImageChange = (imageUrl) => {
+        console.log('[DashboardPage] 🎨 Image changed:', imageUrl);
+        setCurrentImageUrl(imageUrl);
+        setIsImageActive(true);
+        
+        // Clear screen share if image becomes active (mutual exclusivity)
+        if (isScreenShareActive) {
+            console.log('[DashboardPage] 🎨 Clearing screen share due to image activation');
+            setIsScreenShareActive(false);
+        }
+    };
+
+    const handleImageSizeChange = (newSize) => {
+        console.log('[DashboardPage] 🎨 Image size changed:', newSize);
+        setDynamicContainerSize(newSize);
+    };
 
     const handleWhiteboardImageUpload = (event) => {
         console.log('[DashboardPage] 🎨 Image upload requested');
@@ -2175,6 +2203,15 @@ const DashboardPage = () => {
                     debugMode={true}
                     useRelativePositioning={true}
                 />
+                
+                {/* Image Display Window - Same position as screen share */}
+                <ImageDisplayWindow
+                    key="image-display-stable"
+                    imageUrl={currentImageUrl}
+                    isVisible={isImageActive}
+                    size={dynamicContainerSize}
+                    onSizeChange={handleImageSizeChange}
+                />
 
                 {/* Whiteboard Component */}
                {console.log('[DashboardPage] 🔍 Is whiteboard active?', isWhiteboardActive)}
@@ -2192,8 +2229,12 @@ const DashboardPage = () => {
                        username={userRef.current?.name || userEmail}
                        screenShareStream={null}
                        isScreenShareActive={isScreenShareActive}
+                       isImageActive={isImageActive}
+                       currentImageUrl={currentImageUrl}
+                       containerSize={dynamicContainerSize}
                        onClose={handleWhiteboardClose}
                        onBackgroundCleared={handleWhiteboardBackgroundCleared}
+                       onImageChange={handleImageChange}
                        webRTCProvider={provider}
                        selectedPeer={selectedPeer}
                        currentTool={currentTool}
