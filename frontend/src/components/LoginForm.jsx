@@ -26,36 +26,66 @@ export default function LoginForm() {
         setIsLoading(true);
 
         try {
-            // Set up registration handler before attempting to connect
+            // Step 1: Call backend directly for login validation
+            console.log('[LoginForm] 🔐 Calling backend for login validation');
+            const { SERVER_CONFIG } = await import('../services/config');
+            const response = await fetch(`${SERVER_CONFIG.backend.getUrl()}/api/users/login`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ email, password })
+            });
+
+            if (!response.ok) {
+                // Get the specific error message from the backend
+                let errorMessage = 'Login failed';
+                try {
+                    const errorData = await response.text();
+                    errorMessage = errorData || `Login failed (${response.status})`;
+                } catch (e) {
+                    errorMessage = `Login failed: ${response.status} ${response.statusText}`;
+                }
+                throw new Error(errorMessage);
+            }
+
+            const userData = await response.json();
+            console.log('[LoginForm] ✅ Backend login successful:', userData);
+
+            // Step 2: Store user data in localStorage
+            localStorage.setItem('user', JSON.stringify({
+                id: userData.id,
+                email: userData.email,
+                name: userData.email // Use email as name since User model doesn't have name field
+            }));
+
+            // Step 3: Connect to signaling server
+            console.log('[LoginForm] 🔌 Connecting to signaling server');
             await new Promise((resolve, reject) => {
-                let registrationTimeout;
+                let connectionTimeout;
                 
-                // Set up one-time registration handler
-                const handleRegistration = (isConnected) => {
+                const handleConnection = (isConnected) => {
                     if (isConnected) {
-                        console.log('[LoginForm] ✅ Registration confirmed');
-                        clearTimeout(registrationTimeout);
-                        signalingService.onConnectionStatusChange = null; // Remove handler
+                        console.log('[LoginForm] ✅ Signaling server connection confirmed');
+                        clearTimeout(connectionTimeout);
+                        signalingService.onConnectionStatusChange = null;
                         resolve();
                     }
                 };
 
-                // Set up connection status handler
-                signalingService.onConnectionStatusChange = handleRegistration;
+                signalingService.onConnectionStatusChange = handleConnection;
 
-                // Set timeout for registration
-                registrationTimeout = setTimeout(() => {
-                    console.error('[LoginForm] ⏰ LOGIN TIMEOUT: Login process failed after 5 seconds');
-                    console.error('[LoginForm] ⏰ LOGIN TIMEOUT: Source - LoginForm.jsx registration timeout');
+                connectionTimeout = setTimeout(() => {
+                    console.error('[LoginForm] ⏰ SIGNALING TIMEOUT: Signaling server connection failed after 10 seconds');
                     signalingService.onConnectionStatusChange = null;
-                    reject(new Error('Login timeout'));
-                }, 5000);
+                    reject(new Error('Signaling server connection timeout'));
+                }, 10000);
 
-                // Attempt to login and connect
-                signalingService.connect({
-                    email,
-                    password
-                }).catch(reject);
+                // Connect to signaling server with user ID
+                signalingService.connectWithUserId(userData.id.toString()).catch((error) => {
+                    clearTimeout(connectionTimeout);
+                    reject(error);
+                });
             });
 
             console.log('[LoginForm] 🚀 Navigating to dashboard');
@@ -74,6 +104,7 @@ export default function LoginForm() {
         <div className="login-container">
             <div className="login-card">
                 <h2>Welcome to MyTutor</h2>
+                {error && <div className="error-message">{error}</div>}
                 <form onSubmit={handleSubmit} className="login-form">
                     <div className="form-group">
                         <label htmlFor="email">Email</label>
@@ -99,7 +130,6 @@ export default function LoginForm() {
                             required
                         />
                     </div>
-                    {error && <div className="error-message">{error}</div>}
                     <button 
                         type="submit" 
                         className="login-button"

@@ -160,7 +160,7 @@ export class SignalingService {
     }
 
     // Socket message handler
-    async handleSocketMessage(message) {
+    async handleSocketMessage(message, timeoutRef = null, resolve = null, reject = null) {
         try {
             switch (message.type) {
                 case 'registered':
@@ -170,6 +170,11 @@ export class SignalingService {
                     if (this.onConnectionStatusChange) {
                         this.onConnectionStatusChange(true);
                     }
+                    // Clear timeout on successful registration
+                    if (timeoutRef) {
+                        clearTimeout(timeoutRef);
+                    }
+                    if (resolve) resolve(true);
                     break;
                     
                 case 'peer_list':
@@ -226,6 +231,18 @@ export class SignalingService {
                     await this.forwardMessage(message);
                     break;
                     
+                case 'error':
+                    console.log('[SignalingService] ❌ ERROR: Received error from signaling server:', message);
+                    // Clear timeout on error
+                    if (timeoutRef) {
+                        clearTimeout(timeoutRef);
+                    }
+                    // Reject the promise with the error message
+                    if (reject) {
+                        reject(new Error(message.message || 'Signaling server error'));
+                    }
+                    break;
+                    
                 default:
                     console.log('[SignalingService] 📨 Unknown message type:', message.type);
             }
@@ -248,7 +265,16 @@ export class SignalingService {
             });
 
             if (!response.ok) {
-                throw new Error('Login failed');
+                // Get the specific error message from the backend
+                let errorMessage = 'Login failed';
+                try {
+                    const errorData = await response.text();
+                    errorMessage = errorData || `Login failed (${response.status})`;
+                } catch (e) {
+                    // If we can't parse the error response, use status text
+                    errorMessage = `Login failed: ${response.status} ${response.statusText}`;
+                }
+                throw new Error(errorMessage);
             }
 
             const data = await response.json();
@@ -268,6 +294,22 @@ export class SignalingService {
         } catch (error) {
             console.error('[SignalingService] ❌ LOGIN ERROR:', error);
             console.error('[SignalingService] ❌ LOGIN ERROR: Source - SignalingService.login() method');
+            this.cleanup();
+            throw error; // Re-throw to let UI handle the error
+        }
+    }
+
+    async connectWithUserId(userId) {
+        console.log('[SignalingService] Connecting with existing userId:', userId);
+        try {
+            this.userId = userId;
+            
+            // Establish WebSocket connection with existing user ID
+            console.log('[SignalingService] 🔌 CONNECT: Starting WebSocket establishment with userId:', this.userId);
+            await this.establishWebSocket();
+            console.log('[SignalingService] ✅ CONNECT: WebSocket establishment completed successfully');
+            
+        } catch (error) {
             this.cleanup();
             throw error; // Re-throw to let UI handle the error
         }
@@ -295,26 +337,26 @@ export class SignalingService {
 
         return new Promise((resolve, reject) => {
             const registrationTimeout = setTimeout(() => {
-                console.error('[SignalingService] ⏰ LOGIN TIMEOUT: WebSocket registration failed after 5 seconds');
+                console.error('[SignalingService] ⏰ LOGIN TIMEOUT: WebSocket registration failed after 10 seconds');
                 console.error('[SignalingService] ⏰ LOGIN TIMEOUT: Source - SignalingService.establishWebSocket() timeout');
                 this.cleanup();
                 reject(new Error('Login timeout'));
-            }, 5000);
+            }, 10000);
 
             // Set up message handling for all message types
             this.wsProvider.subscribe('*', (message) => {
-                this.handleSocketMessage(message);
+                this.handleSocketMessage(message, registrationTimeout, resolve, reject);
             });
             console.log('[SignalingService] 🔌 WEBSOCKET: Message handlers subscribed');
 
-            // Set up specific handler for registration
-            this.wsProvider.subscribe('registered', (message) => {
-                console.log('[SignalingService] ✅ REGISTRATION: Registration confirmed:', message);
+            // Set up specific handler for login
+            this.wsProvider.subscribe('logged_in', (message) => {
+                console.log('[SignalingService] ✅ LOGIN: Login confirmed:', message);
                 clearTimeout(registrationTimeout);
                 this.isConnected = true;
-                console.log('[SignalingService] ✅ REGISTRATION: Connection status set to true');
+                console.log('[SignalingService] ✅ LOGIN: Connection status set to true');
                 if (this.onConnectionStatusChange) {
-                    console.log('[SignalingService] ✅ REGISTRATION: Calling onConnectionStatusChange(true)');
+                    console.log('[SignalingService] ✅ LOGIN: Calling onConnectionStatusChange(true)');
                     this.onConnectionStatusChange(true);
                 }
                 
@@ -330,9 +372,9 @@ export class SignalingService {
             this.wsProvider.connect()
                 .then(async () => {
                     console.log('[SignalingService] ✅ WEBSOCKET: Connected to WebSocket server successfully');
-                    console.log('[SignalingService] 📤 REGISTER: Sending registration message for userId:', this.userId);
-                    this.wsProvider.publish('register', {
-                        type: 'register',
+                    console.log('[SignalingService] 📤 LOGIN: Sending login message for userId:', this.userId);
+                    this.wsProvider.publish('login', {
+                        type: 'login',
                         userId: this.userId
                     });
                 })

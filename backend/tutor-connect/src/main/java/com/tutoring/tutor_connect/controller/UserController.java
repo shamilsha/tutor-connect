@@ -52,14 +52,22 @@ public class UserController {
             User user = userRepository.findByEmail(loginRequest.getEmail())
                 .orElse(null);
 
-            // Check if user exists and password matches
-            if (user != null && user.getPassword().equals(loginRequest.getPassword())) {
-                logger.info("Login successful for email: {}", loginRequest.getEmail());
-                return ResponseEntity.ok(user);
-            } else {
-                logger.warn("Login failed for email: {}", loginRequest.getEmail());
-                return ResponseEntity.badRequest().body("Invalid email or password");
+            // Check if user exists first
+            if (user == null) {
+                logger.warn("Login failed - User does not exist: {}", loginRequest.getEmail());
+                return ResponseEntity.badRequest().body("User does not exist");
             }
+            
+            // Check if password matches
+            if (!user.getPassword().equals(loginRequest.getPassword())) {
+                logger.warn("Login failed - Password incorrect for email: {}", loginRequest.getEmail());
+                return ResponseEntity.badRequest().body("Password incorrect");
+            }
+            
+            // Login successful
+            logger.info("Login successful for email: {}", loginRequest.getEmail());
+            return ResponseEntity.ok(user);
+            
         } catch (Exception e) {
             logger.error("Login failed for email: " + loginRequest.getEmail(), e);
             return ResponseEntity.badRequest().body("Login failed: " + e.getMessage());

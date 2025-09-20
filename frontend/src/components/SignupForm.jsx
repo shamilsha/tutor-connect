@@ -17,6 +17,7 @@ const SignupForm = () => {
   });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = React.useRef(null);
 
   const handleChange = (e) => {
@@ -30,16 +31,42 @@ const SignupForm = () => {
     e.preventDefault();
     setError('');
     setSuccess('');
+    setIsLoading(true);
     
     try {
-      const response = await axios.post(`${SERVER_CONFIG.backend.getUrl()}/api/users/signup`, formData);
-      console.log('Signup response:', response);
+      console.log('[SignupForm] 🔐 Calling backend for signup validation');
+      
+      // Add timeout handling
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+      }, 10000); // 10 seconds timeout
+      
+      const response = await axios.post(`${SERVER_CONFIG.backend.getUrl()}/api/users/signup`, formData, {
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      console.log('[SignupForm] ✅ Backend signup successful:', response.data);
       setSuccess('Signup successful! Redirecting to login...');
       setTimeout(() => navigate('/login'), 2000);
     } catch (err) {
-      console.error('Signup error:', err);
-      const errorMessage = err.response?.data || 'Signup failed. Please try again.';
+      console.error('[SignupForm] ❌ Signup error:', err);
+      
+      let errorMessage = 'Signup failed. Please try again.';
+      
+      if (err.name === 'AbortError') {
+        errorMessage = 'Signup request timed out. Please try again.';
+      } else if (err.response?.data) {
+        // Extract specific error message from backend
+        errorMessage = err.response.data;
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
       setError(errorMessage);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -134,7 +161,24 @@ const SignupForm = () => {
             Choose File
           </button>
         </div>
-        <button type="submit">Sign Up</button>
+        <button 
+          type="submit" 
+          disabled={isLoading}
+          style={{
+            padding: '0.75rem 1.5rem',
+            backgroundColor: isLoading ? '#ccc' : '#007bff',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: isLoading ? 'not-allowed' : 'pointer',
+            fontSize: '1rem',
+            fontWeight: '500',
+            width: '100%',
+            marginTop: '1rem'
+          }}
+        >
+          {isLoading ? 'Signing up...' : 'Sign Up'}
+        </button>
       </form>
       <div style={{ textAlign: 'center', marginTop: '1rem' }}>
         <p>Already have an account? <Link to="/login" style={{ color: '#007bff', textDecoration: 'none' }}>Login here</Link></p>

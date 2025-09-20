@@ -92,31 +92,40 @@ wss.on('connection', (ws) => {
             console.log(`[DEBUG] Processing message type: '${data.type}'`);
             
             switch(data.type) {
-                case 'register':
+                case 'login':
                     clientId = data.userId.toString();
-                    // Check if client already exists and is active
-                    const existingClient = clients.get(clientId);
-                    if (existingClient && existingClient.readyState === WebSocket.OPEN) {
-                        console.log(`[Warning] Client ${clientId} already registered and active`);
+                    console.log(`[Login] Processing login for clientId: ${clientId}`);
+                    console.log(`[Login] Current active clients:`, Array.from(clients.keys()));
+                    
+                    // Check if user is already logged in
+                    const existingLoginClient = clients.get(clientId);
+                    if (existingLoginClient && existingLoginClient.readyState === WebSocket.OPEN) {
+                        console.log(`[Warning] Client ${clientId} already logged in - WebSocket state:`, existingLoginClient.readyState);
+                        // Send error message before closing
+                        ws.send(JSON.stringify({
+                            type: 'error',
+                            message: 'User already logged in'
+                        }));
                         ws.close();
                         return;
                     }
                     
+                    // Register the logged-in user
                     clients.set(clientId, ws);
-                    console.log(`\n[Register] Client ${clientId} registered`);
+                    console.log(`\n[Login] Client ${clientId} logged in`);
                     console.log('[Active Clients]:', Array.from(clients.keys()));
                     
-                    // Send registration confirmation
+                    // Send login confirmation
                     ws.send(JSON.stringify({
-                        type: 'registered',
+                        type: 'logged_in',
                         userId: clientId
                     }));
-                    console.log(`[Register] Sent registration confirmation to client ${clientId}`);
+                    console.log(`[Login] Sent login confirmation to client ${clientId}`);
 
                     // Broadcast updated peer list to all clients
-                    console.log('[Register] Broadcasting updated peer list...');
+                    console.log('[Login] Broadcasting updated peer list...');
                     setTimeout(() => {
-                        console.log('[Register] Executing delayed broadcast...');
+                        console.log('[Login] Executing delayed broadcast...');
                         broadcastPeerList();
                     }, 100);
                     break;
