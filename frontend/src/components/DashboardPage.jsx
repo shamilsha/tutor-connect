@@ -2190,30 +2190,7 @@ const DashboardPage = () => {
             
             <div className="dashboard-content">
                 
-                {/* Screen Share Window - Inside dashboard-content, same space as drawing surface */}
-                <ScreenShareWindow
-                    key="screen-share-stable"
-                    screenShareStream={provider?.getScreenShareStream() || provider?.getRemoteScreen(selectedPeer)}
-                    isVisible={isScreenSharing || !!(provider?.getScreenShareStream() || provider?.getRemoteScreen(selectedPeer))}
-                    position={{ top: '0', left: '0' }}
-                    size={{ width: '1200px', height: '800px' }}
-                    onStreamChange={(stream) => {
-                        console.log('[DashboardPage] 🖥️ Screen share stream change notified:', stream?.id);
-                    }}
-                    debugMode={true}
-                    useRelativePositioning={true}
-                />
-                
-                {/* Image Display Window - Same position as screen share */}
-                <ImageDisplayWindow
-                    key="image-display-stable"
-                    imageUrl={currentImageUrl}
-                    isVisible={isImageActive}
-                    size={dynamicContainerSize}
-                    onSizeChange={handleImageSizeChange}
-                />
-
-                {/* Whiteboard Component */}
+                {/* Whiteboard Component - TOP LAYER (zIndex: 2) */}
                {console.log('[DashboardPage] 🔍 Is whiteboard active?', isWhiteboardActive)}
                {console.log('[DashboardPage] 🔍 Screen share detection debug:', {
                  isScreenSharing,
@@ -2252,6 +2229,28 @@ const DashboardPage = () => {
                        ref={whiteboardImageUploadRef}
                    />
                )}
+
+                {/* Background Layer - BOTTOM LAYER (zIndex: 1) - Image OR Screen Share (Mutually Exclusive) */}
+                <ImageDisplayWindow
+                    key="image-display-stable"
+                    imageUrl={currentImageUrl}
+                    isVisible={isImageActive}
+                    size={dynamicContainerSize}
+                    onSizeChange={handleImageSizeChange}
+                />
+                
+                <ScreenShareWindow
+                    key="screen-share-stable"
+                    screenShareStream={provider?.getScreenShareStream() || provider?.getRemoteScreen(selectedPeer)}
+                    isVisible={isScreenSharing || !!(provider?.getScreenShareStream() || provider?.getRemoteScreen(selectedPeer))}
+                    position={{ top: '0', left: '0' }}
+                    size={{ width: '1200px', height: '800px' }}
+                    onStreamChange={(stream) => {
+                        console.log('[DashboardPage] 🖥️ Screen share stream change notified:', stream?.id);
+                    }}
+                    debugMode={true}
+                    useRelativePositioning={true}
+                />
             </div>
             
             
