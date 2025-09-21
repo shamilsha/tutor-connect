@@ -110,7 +110,11 @@ A: open command prompt
 
    (4) static file like CDN like URL
       https://green-coast-0cab46c0f.1.azurestaticapps.net
-      
+   (5) Frontdoor CDN endpoint
+      cdnendpoint-axaja4h5fuesg7gj.z03.azurefd.net
+      ex: https://<your-endpoint-hostname>/<your-image-file-name>.jpg
+
+   
     
     
 

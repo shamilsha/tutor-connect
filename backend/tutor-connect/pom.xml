@@ -49,6 +49,13 @@
 			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		
+		<!-- Azure Storage SDK for CDN sync -->
+		<dependency>
+			<groupId>com.azure</groupId>
+			<artifactId>azure-storage-blob</artifactId>
+			<version>12.25.0</version>
+		</dependency>
 	</dependencies>
 
 	<build>

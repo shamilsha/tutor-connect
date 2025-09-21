@@ -1,6 +1,8 @@
 package com.tutoring.tutor_connect.controller;
 
 import com.tutoring.tutor_connect.service.FileUploadService;
+import com.tutoring.tutor_connect.service.StaticWebAppsService;
+import com.tutoring.tutor_connect.service.FileSyncService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -21,6 +23,12 @@ public class FileController {
     
     @Autowired
     private FileUploadService fileUploadService;
+    
+    @Autowired
+    private StaticWebAppsService staticWebAppsService;
+    
+    @Autowired
+    private FileSyncService fileSyncService;
     
     @GetMapping("/test")
     public ResponseEntity<String> test() {
@@ -63,11 +71,17 @@ public class FileController {
             // Upload file
             String filename = fileUploadService.uploadFile(file);
             
+            // Sync file to CDN
+            fileSyncService.syncFileToCDN(filename);
+            
+            // Get CDN URL from StaticWebAppsService
+            String cdnUrl = staticWebAppsService.getCdnUrl(filename);
+            
             // Return response
             Map<String, Object> response = new HashMap<>();
             response.put("status", "success");
             response.put("filename", filename);
-            response.put("url", "/api/files/download/" + filename);
+            response.put("url", cdnUrl);
             response.put("originalName", file.getOriginalFilename());
             response.put("size", file.getSize());
             

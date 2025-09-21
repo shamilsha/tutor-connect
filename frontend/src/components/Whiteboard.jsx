@@ -14,7 +14,6 @@ const Whiteboard = forwardRef(({
   username, 
   screenShareStream = null, 
   isScreenShareActive = false, 
-  isImageActive = false,
   currentImageUrl = null,
   containerSize = { width: 1200, height: 800 },
   onClose = null, 
@@ -119,10 +118,9 @@ const Whiteboard = forwardRef(({
     console.log('[Whiteboard] 📏 Using dynamic container size:', { 
       width: currentContainerSize.width, 
       height: currentContainerSize.height,
-      isScreenShareActive,
-      isImageActive
+      isScreenShareActive
     });
-  }, [currentContainerSize, isScreenShareActive, isImageActive]); // Update when container size or overlay state changes
+  }, [currentContainerSize, isScreenShareActive]); // Update when container size or overlay state changes
 
   // Clear background when screen sharing becomes active
   useEffect(() => {
@@ -721,8 +719,8 @@ const Whiteboard = forwardRef(({
       const result = await response.json();
       console.log('[Whiteboard] 🎨 Upload successful:', result);
       
-      // Construct full URL
-      const imageUrl = result.url.startsWith('http') ? result.url : `${backendUrl}${result.url}`;
+      // Use CDN URL for better performance
+      const imageUrl = result.url;
       
       // Set background (preserve existing drawings)
       setBackgroundFile(imageUrl);
@@ -799,13 +797,13 @@ const Whiteboard = forwardRef(({
   // Debug transparency issues
   console.log('[Whiteboard] 🔍 TRANSPARENCY DEBUG:', {
     isScreenShareActive,
-    containerBackgroundColor: (isScreenShareActive || isImageActive) ? 'transparent' : 'rgba(230, 243, 255, 0.9)',
-    scrollContainerBackgroundColor: (isScreenShareActive || isImageActive) ? 'transparent' : '#f0f8ff',
-    drawingSurfaceBackgroundColor: (isScreenShareActive || isImageActive) ? 'transparent' : 'transparent',
-    stageBackground: (isScreenShareActive || isImageActive) ? 'transparent' : 'transparent',
+    containerBackgroundColor: isScreenShareActive ? 'transparent' : 'rgba(230, 243, 255, 0.9)',
+    scrollContainerBackgroundColor: isScreenShareActive ? 'transparent' : '#f0f8ff',
+    drawingSurfaceBackgroundColor: isScreenShareActive ? 'transparent' : 'transparent',
+    stageBackground: isScreenShareActive ? 'transparent' : 'transparent',
     hasBackgroundFile: !!backgroundFile,
     backgroundType,
-    showBackgroundLayer: backgroundFile && !isScreenShareActive && !isImageActive
+    showBackgroundLayer: backgroundFile && !isScreenShareActive
   });
 
   // Add useEffect to debug actual computed styles
@@ -864,17 +862,17 @@ const Whiteboard = forwardRef(({
     <>
       {/* Whiteboard Container - Drawing Surface Only */}
       <div 
-        className={`whiteboard-container ${(isScreenShareActive || isImageActive) ? 'screen-share-overlay' : ''}`}
+        className={`whiteboard-container ${isScreenShareActive ? 'screen-share-overlay' : ''}`}
       style={{
-        position: (isScreenShareActive || isImageActive) ? 'absolute' : 'relative',
-        top: (isScreenShareActive || isImageActive) ? '0' : 'auto',
-        left: (isScreenShareActive || isImageActive) ? '0' : 'auto',
+        position: isScreenShareActive ? 'absolute' : 'relative',
+        top: isScreenShareActive ? '0' : 'auto',
+        left: isScreenShareActive ? '0' : 'auto',
         width: currentContainerSize.width,
         height: currentContainerSize.height,
-        zIndex: (isScreenShareActive || isImageActive) ? 2 : 1,
-        backgroundColor: (isScreenShareActive || isImageActive) ? 'transparent' : 'rgba(230, 243, 255, 0.9)',
-        border: (isScreenShareActive || isImageActive) ? 'none' : '4px solid #8B4513',
-        pointerEvents: (isScreenShareActive || isImageActive) ? 'all' : 'auto'
+        zIndex: isScreenShareActive ? 2 : 1,
+        backgroundColor: isScreenShareActive ? 'transparent' : 'rgba(230, 243, 255, 0.9)',
+        border: isScreenShareActive ? 'none' : '4px solid #8B4513',
+        pointerEvents: isScreenShareActive ? 'all' : 'auto'
       }}
       >
         <div 
@@ -884,11 +882,11 @@ const Whiteboard = forwardRef(({
             position: 'relative',
             width: currentContainerSize.width,
             height: currentContainerSize.height,
-            overflowY: (isScreenShareActive || isImageActive) ? 'hidden' : 'auto',
+            overflowY: isScreenShareActive ? 'hidden' : 'auto',
             overflowX: 'hidden',
-            backgroundColor: (isScreenShareActive || isImageActive) ? 'transparent' : '#f0f8ff',
-            border: (isScreenShareActive || isImageActive) ? 'none' : '2px solid #32CD32',
-            pointerEvents: (isScreenShareActive || isImageActive) ? 'all' : 'auto'
+            backgroundColor: isScreenShareActive ? 'transparent' : '#f0f8ff',
+            border: isScreenShareActive ? 'none' : '2px solid #32CD32',
+            pointerEvents: isScreenShareActive ? 'all' : 'auto'
           }}
         >
           {/* Drawing Surface Container - Overlay screen share when active */}
@@ -896,12 +894,18 @@ const Whiteboard = forwardRef(({
             position: 'relative',
             width: currentContainerSize.width,
             height: currentContainerSize.height,
-            backgroundColor: (isScreenShareActive || isImageActive) ? 'transparent' : 'transparent',
-            border: (isScreenShareActive || isImageActive) ? 'none' : '2px solid #FF6B35',
-            pointerEvents: (isScreenShareActive || isImageActive) ? 'all' : 'auto'
+            backgroundColor: isScreenShareActive ? 'transparent' : 'transparent',
+            border: isScreenShareActive ? 'none' : '2px solid #FF6B35',
+            pointerEvents: isScreenShareActive ? 'all' : 'auto'
           }}>
-          {/* Background Layer - PDF/Image only (Screen share is handled by ScreenShareWindow component) */}
-          {backgroundFile && !isScreenShareActive && !isImageActive && (
+          {/* Background Layer - PDF and Images */}
+          {console.log('[Whiteboard] 🔍 Background display check:', {
+            hasBackgroundFile: !!backgroundFile,
+            backgroundType,
+            isScreenShareActive,
+            shouldShow: backgroundFile && !isScreenShareActive
+          })}
+          {backgroundFile && !isScreenShareActive && (
             <div
               style={{
                 position: 'relative',
@@ -912,38 +916,41 @@ const Whiteboard = forwardRef(({
                 justifyContent: 'center'
               }}
             >
-                  {backgroundType === 'image' ? (
-                    <img
-                      src={backgroundFile}
-                      alt="Background"
-                      style={{
-                        maxWidth: '100%',
-                        height: 'auto',
-                        objectFit: 'contain'
-                      }}
-                    />
-                  ) : (
-                    <Document
-                      file={backgroundFile}
-                      onLoadSuccess={({ numPages }) => {
-                        console.log('PDF loaded successfully with', numPages, 'pages');
-                        setPdfPages(numPages);
-                      }}
-                      onLoadError={(error) => {
-                        console.error('Error loading PDF:', error);
-                      }}
-                      loading={<div>Loading PDF...</div>}
-                    >
-                      <Page
-                        pageNumber={currentPage}
-                        width={containerSize.width * 0.9}
-                        renderTextLayer={false}
-                        renderAnnotationLayer={false}
-                        error={<div>Error loading page!</div>}
-                        loading={<div>Loading page...</div>}
-                      />
-                    </Document>
-              )}
+              {backgroundType === 'pdf' ? (
+                <Document
+                  file={backgroundFile}
+                  onLoadSuccess={({ numPages }) => {
+                    console.log('PDF loaded successfully with', numPages, 'pages');
+                    setPdfPages(numPages);
+                  }}
+                  onLoadError={(error) => {
+                    console.error('Error loading PDF:', error);
+                  }}
+                  loading={<div>Loading PDF...</div>}
+                >
+                  <Page
+                    pageNumber={currentPage}
+                    width={containerSize.width * 0.9}
+                    renderTextLayer={false}
+                    renderAnnotationLayer={false}
+                    error={<div>Error loading page!</div>}
+                    loading={<div>Loading page...</div>}
+                  />
+                </Document>
+              ) : backgroundType === 'image' ? (
+                <img
+                  src={backgroundFile}
+                  alt="Background Image"
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: '100%',
+                    objectFit: 'contain',
+                    display: 'block'
+                  }}
+                  onLoad={() => console.log('[Whiteboard] 🖼️ Image loaded successfully:', backgroundFile)}
+                  onError={(e) => console.error('[Whiteboard] 🖼️ Image failed to load:', backgroundFile, e)}
+                />
+              ) : null}
             </div>
           )}
 

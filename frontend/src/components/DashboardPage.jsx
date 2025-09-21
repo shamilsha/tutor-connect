@@ -8,7 +8,6 @@ import ConnectionPanel from './ConnectionPanel';
 import ChatPanel from './ChatPanel';
 import ConnectionStatusLight from './ConnectionStatusLight';
 import ScreenShareWindow from './ScreenShareWindow';
-import ImageDisplayWindow from './ImageDisplayWindow';
 import '../styles/DashboardPage.css';
 import { useCommunication } from '../context/CommunicationContext';
 import { WebSocketProvider } from '../services/WebSocketProvider';
@@ -95,7 +94,6 @@ const DashboardPage = () => {
     const [canUndo, setCanUndo] = useState(false);
     const [canRedo, setCanRedo] = useState(false);
     const [isScreenShareActive, setIsScreenShareActive] = useState(false);
-    const [isImageActive, setIsImageActive] = useState(false);
     const [currentImageUrl, setCurrentImageUrl] = useState(null);
     const [dynamicContainerSize, setDynamicContainerSize] = useState({ width: 1200, height: 800 });
     
@@ -1824,9 +1822,8 @@ const DashboardPage = () => {
         }
         
         // Clear image if screen share becomes active (mutual exclusivity)
-        if (newScreenShareState && isImageActive) {
+        if (newScreenShareState && currentImageUrl) {
             console.log('[DashboardPage] 🖥️ Clearing image due to screen share activation');
-            setIsImageActive(false);
             setCurrentImageUrl(null);
         }
         
@@ -1949,7 +1946,6 @@ const DashboardPage = () => {
     const handleImageChange = (imageUrl) => {
         console.log('[DashboardPage] 🎨 Image changed:', imageUrl);
         setCurrentImageUrl(imageUrl);
-        setIsImageActive(true);
         
         // Clear screen share if image becomes active (mutual exclusivity)
         if (isScreenShareActive) {
@@ -2190,7 +2186,7 @@ const DashboardPage = () => {
             
             <div className="dashboard-content">
                 
-                {/* Whiteboard Component - TOP LAYER (zIndex: 2) */}
+                {/* Whiteboard Component - Handles both drawing and backgrounds (PDF/Images) */}
                {console.log('[DashboardPage] 🔍 Is whiteboard active?', isWhiteboardActive)}
                {console.log('[DashboardPage] 🔍 Screen share detection debug:', {
                  isScreenSharing,
@@ -2206,7 +2202,6 @@ const DashboardPage = () => {
                        username={userRef.current?.name || userEmail}
                        screenShareStream={null}
                        isScreenShareActive={isScreenShareActive}
-                       isImageActive={isImageActive}
                        currentImageUrl={currentImageUrl}
                        containerSize={dynamicContainerSize}
                        onClose={handleWhiteboardClose}
@@ -2229,15 +2224,6 @@ const DashboardPage = () => {
                        ref={whiteboardImageUploadRef}
                    />
                )}
-
-                {/* Background Layer - BOTTOM LAYER (zIndex: 1) - Image OR Screen Share (Mutually Exclusive) */}
-                <ImageDisplayWindow
-                    key="image-display-stable"
-                    imageUrl={currentImageUrl}
-                    isVisible={isImageActive}
-                    size={dynamicContainerSize}
-                    onSizeChange={handleImageSizeChange}
-                />
                 
                 <ScreenShareWindow
                     key="screen-share-stable"
