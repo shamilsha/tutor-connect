@@ -19,6 +19,7 @@ const Whiteboard = forwardRef(({
   onClose = null, 
   onBackgroundCleared = null,
   onImageChange = null, 
+  onPdfChange = null,
   webRTCProvider = null, 
   selectedPeer = null,
   // New props from toolbar
@@ -122,21 +123,14 @@ const Whiteboard = forwardRef(({
     });
   }, [currentContainerSize, isScreenShareActive]); // Update when container size or overlay state changes
 
-  // Clear background when screen sharing becomes active
-  useEffect(() => {
-    if (isScreenShareActive && backgroundFile) {
-      console.log('[Whiteboard] 🖥️ Screen sharing active, clearing background file');
-      setBackgroundFile(null);
-      setBackgroundType(null);
-      if (onBackgroundCleared) {
-        onBackgroundCleared();
-      }
-    }
-  }, [isScreenShareActive, backgroundFile, onBackgroundCleared]);
+  // Note: Background clearing is now handled by the parent component's mutual exclusivity logic
+  // The image will be visible below the screen share window when both are active
 
   // Handle remote whiteboard updates
   const handleRemoteWhiteboardUpdate = (data) => {
     console.log('[Whiteboard] 📨 Processing remote whiteboard update:', data);
+    
+    // Note: clearBackground messages now handled via checkExclusivity() approach
     
     switch (data.action) {
       case 'draw':
@@ -204,18 +198,30 @@ const Whiteboard = forwardRef(({
           });
         }
         break;
-      case 'background':
-        if (data.background) {
-          console.log('[Whiteboard] 🎨 Received background update:', data.background);
-          setBackgroundFile(data.background.file);
-          setBackgroundType(data.background.type);
-          
-          // Notify parent component
-          if (onImageChange && data.background.type === 'image') {
-            onImageChange(data.background.file);
+        case 'background':
+          if (data.background) {
+            console.log('[Whiteboard] 🎨 Received background update:', data.background);
+            console.log('[Whiteboard] 📥 RECEIVED BACKGROUND FROM REMOTE:', { 
+              type: data.background.type, 
+              file: data.background.file
+            });
+            
+            // Check mutual exclusivity when receiving background from remote peer
+            if (data.background.type === 'image' && onImageChange) {
+              console.log('[Whiteboard] 🎨 Remote image received, checking exclusivity');
+              console.log('[Whiteboard] 📥 TRIGGERING IMAGE EXCLUSIVITY CHECK:', data.background.file);
+              onImageChange(data.background.file);
+            } else if (data.background.type === 'pdf' && onPdfChange) {
+              console.log('[Whiteboard] 📄 Remote PDF received, checking exclusivity');
+              console.log('[Whiteboard] 📥 TRIGGERING PDF EXCLUSIVITY CHECK:', data.background.file);
+              onPdfChange(data.background.file);
+            }
+            
+            setBackgroundFile(data.background.file);
+            setBackgroundType(data.background.type);
           }
-        }
-        break;
+          break;
+      // Note: clearBackground case removed - now using checkExclusivity() approach
       default:
         console.log('[Whiteboard] Unknown action:', data.action);
     }
@@ -684,8 +690,18 @@ const Whiteboard = forwardRef(({
 
 
   const handleImageUpload = async (event) => {
+    console.log('[Whiteboard] 🎨 File input change event triggered:', { 
+      hasFiles: event.target.files.length > 0, 
+      fileCount: event.target.files.length,
+      isScreenShareActive,
+      hasBackgroundFile: !!backgroundFile
+    });
+    
     const file = event.target.files[0];
-    if (!file) return;
+    if (!file) {
+      console.log('[Whiteboard] 🎨 No file selected, returning');
+      return;
+    }
     
     console.log('[Whiteboard] 🎨 Image upload started:', file.name);
     
@@ -735,16 +751,23 @@ const Whiteboard = forwardRef(({
       }
       
       // Send to remote peers
-      if (webRTCProvider && selectedPeer) {
-        console.log('[Whiteboard] 🎨 Sending image to remote peer');
-        webRTCProvider.sendWhiteboardMessage(selectedPeer, {
-          action: 'background',
-          background: {
-            file: imageUrl,
-            type: 'image'
-          }
-        });
-      }
+        if (webRTCProvider && selectedPeer) {
+          console.log('[Whiteboard] 🎨 Sending image to remote peer:', { selectedPeer, imageUrl });
+          console.log('[Whiteboard] 📤 SENDING IMAGE TO REMOTE PEER:', { peer: selectedPeer, imageUrl });
+          webRTCProvider.sendWhiteboardMessage(selectedPeer, {
+            action: 'background',
+            background: {
+              file: imageUrl,
+              type: 'image'
+            }
+          });
+        } else {
+          console.log('[Whiteboard] 🎨 Cannot send image to remote peer:', { 
+            hasWebRTCProvider: !!webRTCProvider, 
+            selectedPeer, 
+            imageUrl 
+          });
+        }
       
     } catch (error) {
       console.error('[Whiteboard] 🎨 Upload failed:', error);
@@ -753,14 +776,29 @@ const Whiteboard = forwardRef(({
 
   // Expose functions to parent component
   useImperativeHandle(ref, () => ({
-    handleImageUpload: handleImageUpload
+    handleImageUpload: handleImageUpload,
+    clearBackground: () => {
+      console.log('[Whiteboard] 🖥️ Clearing background due to screen share activation');
+      setBackgroundFile(null);
+      setBackgroundType(null);
+    }
   }));
 
   const handleFileUpload = (event) => {
     const file = event.target.files[0];
     if (file) {
+      // Notify parent component for mutual exclusivity check
+      if (onFileUpload) {
+        onFileUpload(event);
+      }
+      
       setBackgroundFile(file);
       setBackgroundType('pdf');
+      
+      // Notify parent component about PDF change for mutual exclusivity
+      if (onPdfChange) {
+        onPdfChange(file);
+      }
     }
   };
 
@@ -903,9 +941,9 @@ const Whiteboard = forwardRef(({
             hasBackgroundFile: !!backgroundFile,
             backgroundType,
             isScreenShareActive,
-            shouldShow: backgroundFile && !isScreenShareActive
+            shouldShow: backgroundFile
           })}
-          {backgroundFile && !isScreenShareActive && (
+          {backgroundFile && (
             <div
               style={{
                 position: 'relative',

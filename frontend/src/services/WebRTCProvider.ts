@@ -3413,6 +3413,7 @@ private detectTrackRemoval(peerId: string, changeType: 'sender' | 'receiver') {
                 
                 // Handle screen share signaling messages
                 if (message.type === 'screenShare') {
+                    console.log('[WebRTC] 📥 RECEIVED SCREEN SHARE SIGNAL FROM PEER:', { peer: peerId, screenId: message.screenId });
                     this.handleScreenShareSignal(peerId, message);
                 } else if (message.type === 'mediaState') {
                     // Handle media state changes from peer
@@ -3645,6 +3646,8 @@ private detectTrackRemoval(peerId: string, changeType: 'sender' | 'receiver') {
     private handleWhiteboardMessage(peerId: string, message: any): void {
         console.log(`[WebRTC] 🎨 Received whiteboard message from peer ${peerId}:`, message);
         
+        // Note: clearBackground messages now handled via checkExclusivity() approach
+        
         // Dispatch whiteboard message to listeners (like the Whiteboard component)
         this.dispatchEvent({
             type: 'whiteboard',
@@ -3719,6 +3722,8 @@ private detectTrackRemoval(peerId: string, changeType: 'sender' | 'receiver') {
             screenId: screenId || null,
             timestamp: Date.now()
         };
+        
+        console.log('[WebRTC] 📤 SENDING SCREEN SHARE SIGNAL TO PEER:', { peer: peerId, screenId: screenId || null });
         
         try {
             peerState.dataChannel.send(JSON.stringify(message));

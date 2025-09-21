@@ -53,13 +53,40 @@ const WhiteboardToolbar = ({
   };
 
   const handleImageUpload = (event) => {
+    console.log('[WhiteboardToolbar] 🎨 File input onChange triggered directly');
+    console.log('[WhiteboardToolbar] 🎨 File input element during onChange:', event.target);
+    console.log('[WhiteboardToolbar] 🎨 File input files during onChange:', event.target.files);
+    console.log('[WhiteboardToolbar] 🎨 FILE SELECTED:', {
+      hasFiles: event.target.files.length > 0,
+      fileCount: event.target.files.length,
+      fileName: event.target.files[0]?.name || 'No file',
+      fileSize: event.target.files[0]?.size || 0,
+      fileType: event.target.files[0]?.type || 'No type'
+    });
     console.log('[WhiteboardToolbar] 🎨 Image upload triggered, calling onImageUpload');
+    console.log('[WhiteboardToolbar] 🎨 onImageUpload function:', typeof onImageUpload);
+    
+    // Call the upload handler
     onImageUpload(event);
+    
+    // Clear the file input value so the same file can be selected again
+    event.target.value = '';
+    console.log('[WhiteboardToolbar] 🎨 File input value cleared for next selection');
   };
 
   const handleFileUpload = (event) => {
     onFileUpload(event);
   };
+
+  // Debug: Monitor component re-renders and file input element
+  React.useEffect(() => {
+    console.log('[WhiteboardToolbar] 🔄 Component re-rendered');
+    const fileInput = document.getElementById('image-upload');
+    console.log('[WhiteboardToolbar] 🔍 File input element after render:', fileInput);
+    if (fileInput) {
+      console.log('[WhiteboardToolbar] 🔍 File input has onChange handler:', typeof fileInput.onchange);
+    }
+  });
 
   const handleClear = () => {
     onClear();
@@ -193,7 +220,17 @@ const WhiteboardToolbar = ({
         {/* File Upload Tools */}
         <button
           className="tool-button"
-          onClick={() => document.getElementById('image-upload').click()}
+          onClick={() => {
+            console.log('[WhiteboardToolbar] 🎨 Image button clicked');
+            const fileInput = document.getElementById('image-upload');
+            console.log('[WhiteboardToolbar] 🎨 File input element:', fileInput);
+            if (fileInput) {
+              console.log('[WhiteboardToolbar] 🎨 File input found, clicking...');
+              fileInput.click();
+            } else {
+              console.error('[WhiteboardToolbar] 🎨 File input not found!');
+            }
+          }}
           title="Upload Image"
         >
           <FaImage />

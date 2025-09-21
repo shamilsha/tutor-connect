@@ -95,6 +95,7 @@ const DashboardPage = () => {
     const [canRedo, setCanRedo] = useState(false);
     const [isScreenShareActive, setIsScreenShareActive] = useState(false);
     const [currentImageUrl, setCurrentImageUrl] = useState(null);
+    const currentImageUrlRef = useRef(null);
     const [dynamicContainerSize, setDynamicContainerSize] = useState({ width: 1200, height: 800 });
     
     // Whiteboard function references
@@ -835,10 +836,26 @@ const DashboardPage = () => {
                 hasLocalScreenShare,
                 hasRemoteScreenShare,
                 selectedPeer,
-                newIsScreenShareActive
+                newIsScreenShareActive,
+                currentIsScreenShareActive: isScreenShareActive
             });
             
-            setIsScreenShareActive(newIsScreenShareActive);
+            // Only update if the new state is different from current state
+            // This prevents overriding manual state changes
+            if (newIsScreenShareActive !== isScreenShareActive) {
+                console.log('[DashboardPage] 🔄 Screen share state changed, updating:', newIsScreenShareActive);
+                setIsScreenShareActive(newIsScreenShareActive);
+                
+                // Check mutual exclusivity when screen share becomes active (from remote peer)
+                if (newIsScreenShareActive) {
+                    console.log('[DashboardPage] 🖥️ Remote screen share detected, checking exclusivity');
+                    console.log('[DashboardPage] 🖥️ Current image URL:', currentImageUrlRef.current);
+                    console.log('[DashboardPage] 📥 TRIGGERING SCREEN SHARE EXCLUSIVITY CHECK');
+                    checkExclusivity('screenShare', true);
+                }
+            } else {
+                console.log('[DashboardPage] 🔄 Screen share state unchanged, keeping current state');
+            }
         };
 
         provider.addEventListener('stateChange', handleStateChange);
@@ -1053,6 +1070,20 @@ const DashboardPage = () => {
                 // Clear any previous disconnected peer tracking since we have a new connection
                 disconnectedPeerRef.current = null;
                 handledLogoutPeersRef.current.clear(); // Clear handled logout tracking for new connection
+                
+        // Send current image state to newly connected peer
+        if (currentImageUrlRef.current && provider && selectedPeer) {
+            console.log('[DashboardPage] 🎨 Sending current image to newly connected peer:', currentImageUrlRef.current);
+            console.log('[DashboardPage] 📤 SENDING IMAGE TO PEER:', { peer: selectedPeer, imageUrl: currentImageUrlRef.current });
+            provider.sendWhiteboardMessage(selectedPeer, {
+                action: 'background',
+                background: {
+                    file: currentImageUrlRef.current,
+                    type: 'image'
+                }
+            });
+        }
+                
                 console.log('%c[DashboardPage] 🔗 CONNECTION ESTABLISHED:', 'font-weight: bold; color: green;', {
                     selectedPeer: selectedPeer,
                     clearedDisconnectedPeer: true,
@@ -1816,17 +1847,6 @@ const DashboardPage = () => {
         console.log('%c[DashboardPage] 🖥️ SCREEN SHARE TOGGLE STARTED (initiator side):', 'font-weight: bold; color: orange;', newScreenShareState ? 'ENABLE' : 'DISABLE');
         console.log('[DashboardPage] 🖥️ Toggle screen share requested:', newScreenShareState);
         
-        // If enabling screen share, ensure whiteboard background is cleared (mutual exclusivity)
-        if (newScreenShareState && isWhiteboardActive) {
-            console.log('[DashboardPage] 🖥️ Screen share enabled - whiteboard will clear any background files');
-        }
-        
-        // Clear image if screen share becomes active (mutual exclusivity)
-        if (newScreenShareState && currentImageUrl) {
-            console.log('[DashboardPage] 🖥️ Clearing image due to screen share activation');
-            setCurrentImageUrl(null);
-        }
-        
         try {
             // Create provider if it doesn't exist
             let currentProvider = provider;
@@ -1870,6 +1890,8 @@ const DashboardPage = () => {
                 await currentProvider.startScreenShare();
                 setIsScreenSharing(true);
                 console.log('[DashboardPage] ✅ Screen share started');
+                
+                // Note: checkExclusivity is handled by handleStreamChange when stream starts
             } else {
                 // Stop screen sharing
                 console.log('[DashboardPage] 🖥️ Stopping screen share...');
@@ -1943,15 +1965,75 @@ const DashboardPage = () => {
         setCanRedo(historyState.canRedo);
     }, []);
 
-    const handleImageChange = (imageUrl) => {
-        console.log('[DashboardPage] 🎨 Image changed:', imageUrl);
-        setCurrentImageUrl(imageUrl);
+    // Centralized mutual exclusivity function
+    const checkExclusivity = async (newType, newValue) => {
+        console.log('[DashboardPage] 🔄 Checking exclusivity:', { newType, newValue, currentImageUrl: currentImageUrlRef.current, isScreenSharing });
         
-        // Clear screen share if image becomes active (mutual exclusivity)
-        if (isScreenShareActive) {
-            console.log('[DashboardPage] 🎨 Clearing screen share due to image activation');
-            setIsScreenShareActive(false);
+        // ALWAYS clear any existing content before loading new content
+        // This ensures mutual exclusivity regardless of what's currently active
+        
+        // 1. Clear screen share if active
+        if (isScreenSharing && provider) {
+            console.log('[DashboardPage] 🖥️ Stopping existing screen share due to', newType, 'activation');
+            try {
+                await provider.stopScreenShare();
+                setIsScreenSharing(false);
+                setIsScreenShareActive(false);
+                console.log('[DashboardPage] ✅ Screen share stopped due to', newType, 'activation');
+            } catch (error) {
+                console.error('[DashboardPage] Failed to stop screen share:', error);
+                setIsScreenSharing(false);
+                setIsScreenShareActive(false);
+            }
         }
+        
+        // 2. Clear image/pdf if active (but not if we're setting the same type)
+        if (currentImageUrlRef.current && newType !== 'image') {
+            console.log('[DashboardPage] 🎨 Clearing existing image due to', newType, 'activation');
+            console.log('[DashboardPage] 🎨 Previous currentImageUrl was:', currentImageUrlRef.current);
+            setCurrentImageUrl(null);
+            currentImageUrlRef.current = null;
+            console.log('[DashboardPage] 🎨 currentImageUrl cleared, should now be null');
+        }
+        
+        // Always clear Whiteboard's internal background state when screen share is activated
+        if (newType === 'screenShare' && whiteboardImageUploadRef.current && typeof whiteboardImageUploadRef.current.clearBackground === 'function') {
+            console.log('[DashboardPage] 🖥️ Clearing Whiteboard background due to screen share activation');
+            whiteboardImageUploadRef.current.clearBackground();
+        }
+        
+        console.log('[DashboardPage] ✅ All existing content cleared, ready for', newType);
+    };
+
+    const handleImageChange = async (imageUrl) => {
+        console.log('[DashboardPage] 🎨 Image changed:', imageUrl);
+        
+        if (imageUrl === null) {
+            console.log('[DashboardPage] 🎨 Image cleared (received from remote peer)');
+            setCurrentImageUrl(null);
+            currentImageUrlRef.current = null;
+            return;
+        }
+        
+        // Set the new image FIRST, then check exclusivity
+        console.log('[DashboardPage] 🎨 Setting currentImageUrl to:', imageUrl);
+        setCurrentImageUrl(imageUrl);
+        currentImageUrlRef.current = imageUrl;
+        console.log('[DashboardPage] 🎨 currentImageUrl state should now be:', imageUrl);
+        
+        // Check mutual exclusivity after setting the image
+        // Note: We pass the imageUrl directly to avoid relying on state that might not be updated yet
+        await checkExclusivity('image', imageUrl);
+    };
+
+    const handlePdfChange = async (pdfFile) => {
+        console.log('[DashboardPage] 📄 PDF changed:', pdfFile);
+        
+        // Check mutual exclusivity first
+        await checkExclusivity('pdf', pdfFile);
+        
+        // Note: PDF handling is done in Whiteboard component
+        // This function is for mutual exclusivity only
     };
 
     const handleImageSizeChange = (newSize) => {
@@ -1962,16 +2044,23 @@ const DashboardPage = () => {
     const handleWhiteboardImageUpload = (event) => {
         console.log('[DashboardPage] 🎨 Image upload requested');
         console.log('[DashboardPage] 🎨 File:', event.target.files[0]);
+        console.log('[DashboardPage] 🎨 Screen share state:', { isScreenShareActive, isScreenSharing });
+        
         // Pass the file directly to the Whiteboard component
         if (whiteboardImageUploadRef.current && typeof whiteboardImageUploadRef.current.handleImageUpload === 'function') {
+            console.log('[DashboardPage] 🎨 Calling Whiteboard handleImageUpload');
             whiteboardImageUploadRef.current.handleImageUpload(event);
         } else {
             console.error('[DashboardPage] 🎨 Ref not available or handleImageUpload not a function');
         }
     };
 
-    const handleWhiteboardFileUpload = (event) => {
+    const handleWhiteboardFileUpload = async (event) => {
         console.log('[DashboardPage] 🎨 File upload requested');
+        
+        // Check mutual exclusivity for PDF uploads
+        await handlePdfChange(event.target.files[0]);
+        
         // The whiteboard component will handle the actual upload logic
     };
 
@@ -2207,6 +2296,7 @@ const DashboardPage = () => {
                        onClose={handleWhiteboardClose}
                        onBackgroundCleared={handleWhiteboardBackgroundCleared}
                        onImageChange={handleImageChange}
+                       onPdfChange={handlePdfChange}
                        webRTCProvider={provider}
                        selectedPeer={selectedPeer}
                        currentTool={currentTool}
