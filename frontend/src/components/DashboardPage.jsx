@@ -815,47 +815,83 @@ const DashboardPage = () => {
         if (!provider) return;
 
         const handleStateChange = (event) => {
-            console.log('[DashboardPage] 🔄 Received stateChange event from provider:', event.data);
+            const timestamp = Date.now();
+            console.log(`[DashboardPage] 🔄 Received stateChange event from provider (${timestamp}):`, event.data);
             
             // Update media state based on provider state
-            setIsAudioEnabled(provider.getLocalAudioState());
-            setIsVideoEnabled(provider.getLocalVideoState());
-            setIsScreenSharing(provider.isScreenSharingActive());
+            const newAudioState = provider.getLocalAudioState();
+            const newVideoState = provider.getLocalVideoState();
+            const newScreenShareState = provider.isScreenSharingActive();
+            
+            console.log(`[DashboardPage] 🔄 StateChange updating states (${timestamp}):`, {
+                audio: newAudioState,
+                video: newVideoState,
+                screenShare: newScreenShareState,
+                currentIsScreenShareActive: isScreenShareActive,
+                note: 'Screen share state will be handled by handleStreamChange only'
+            });
+            
+            setIsAudioEnabled(newAudioState);
+            setIsVideoEnabled(newVideoState);
+            // Don't update screen share state here - let handleStreamChange handle it
+            // setIsScreenSharing(newScreenShareState);
         };
 
         const handleStreamChange = (event) => {
-            console.log('[DashboardPage] 🔄 Received stream event from provider:', event.data);
+            const timestamp = Date.now();
+            console.log(`[DashboardPage] 🔄 Received stream event from provider (${timestamp}):`, event.data);
             
             // Update screen share active status when streams change
             const hasLocalScreenShare = !!provider.getScreenShareStream();
             const hasRemoteScreenShare = !!provider.getRemoteScreen(selectedPeer);
-            const newIsScreenShareActive = isScreenSharing || hasLocalScreenShare || hasRemoteScreenShare;
             
-            console.log('[DashboardPage] 🔍 Updating screen share status:', {
+            // Get the current screen sharing state from provider (this should be the source of truth)
+            const currentProviderScreenShareState = provider.isScreenSharingActive();
+            
+            // The new screen share active state should be based on actual streams, not the old state
+            const newIsScreenShareActive = hasLocalScreenShare || hasRemoteScreenShare;
+            
+            console.log(`[DashboardPage] 🔍 Updating screen share status (${timestamp}):`, {
                 isScreenSharing,
                 hasLocalScreenShare,
                 hasRemoteScreenShare,
                 selectedPeer,
+                currentProviderScreenShareState,
                 newIsScreenShareActive,
                 currentIsScreenShareActive: isScreenShareActive
             });
             
-            // Only update if the new state is different from current state
-            // This prevents overriding manual state changes
-            if (newIsScreenShareActive !== isScreenShareActive) {
-                console.log('[DashboardPage] 🔄 Screen share state changed, updating:', newIsScreenShareActive);
-                setIsScreenShareActive(newIsScreenShareActive);
-                
-                // Check mutual exclusivity when screen share becomes active (from remote peer)
-                if (newIsScreenShareActive) {
-                    console.log('[DashboardPage] 🖥️ Remote screen share detected, checking exclusivity');
-                    console.log('[DashboardPage] 🖥️ Current image URL:', currentImageUrlRef.current);
-                    console.log('[DashboardPage] 📥 TRIGGERING SCREEN SHARE EXCLUSIVITY CHECK');
-                    checkExclusivity('screenShare', true);
-                }
+            // Separate log for comparison to ensure it's visible
+            console.log(`[DashboardPage] 🔍 COMPARISON (${timestamp}): ${newIsScreenShareActive} !== ${isScreenShareActive} = ${newIsScreenShareActive !== isScreenShareActive}`);
+            console.log(`[DashboardPage] 🔍 VALUES (${timestamp}): newIsScreenShareActive=${newIsScreenShareActive} (${typeof newIsScreenShareActive}), isScreenShareActive=${isScreenShareActive} (${typeof isScreenShareActive})`);
+            
+        // Always update the screen share state based on actual stream presence
+        if (newIsScreenShareActive !== isScreenShareActive) {
+            console.log('[DashboardPage] 🔄 Screen share state changed, updating:', newIsScreenShareActive);
+            console.log(`[DashboardPage] 🔄 CALLING setIsScreenShareActive(${newIsScreenShareActive}) from handleStreamChange (${timestamp})`);
+            setIsScreenShareActive(newIsScreenShareActive);
+            
+            // Check mutual exclusivity when screen share becomes active (from remote peer)
+            if (newIsScreenShareActive) {
+                console.log('[DashboardPage] 🖥️ Remote screen share detected, checking exclusivity');
+                console.log('[DashboardPage] 🖥️ Current image URL:', currentImageUrlRef.current);
+                console.log('[DashboardPage] 📥 TRIGGERING SCREEN SHARE EXCLUSIVITY CHECK');
+                checkExclusivity('screenShare', true);
+            } else {
+                console.log('[DashboardPage] 🖥️ Screen share stopped, clearing any existing content');
+                // When screen share stops, we don't need to clear anything since it's just stopping
+            }
+        } else {
+            // CRITICAL FIX: Even if state appears unchanged, force update if stream was removed
+            // This handles the race condition where isScreenShareActive was already set to false
+            if (!newIsScreenShareActive && !hasLocalScreenShare && !hasRemoteScreenShare) {
+                console.log('[DashboardPage] 🔄 FORCING screen share state update due to stream removal (race condition fix)');
+                console.log(`[DashboardPage] 🔄 CALLING setIsScreenShareActive(false) from handleStreamChange (${timestamp}) - FORCED UPDATE`);
+                setIsScreenShareActive(false);
             } else {
                 console.log('[DashboardPage] 🔄 Screen share state unchanged, keeping current state');
             }
+        }
         };
 
         provider.addEventListener('stateChange', handleStateChange);
@@ -1978,11 +2014,13 @@ const DashboardPage = () => {
             try {
                 await provider.stopScreenShare();
                 setIsScreenSharing(false);
+                console.log(`[DashboardPage] 🔄 CALLING setIsScreenShareActive(false) from checkExclusivity (${Date.now()}) - stopping screen share due to ${newType}`);
                 setIsScreenShareActive(false);
                 console.log('[DashboardPage] ✅ Screen share stopped due to', newType, 'activation');
             } catch (error) {
                 console.error('[DashboardPage] Failed to stop screen share:', error);
                 setIsScreenSharing(false);
+                console.log(`[DashboardPage] 🔄 CALLING setIsScreenShareActive(false) from checkExclusivity error handler (${Date.now()})`);
                 setIsScreenShareActive(false);
             }
         }
@@ -2274,6 +2312,14 @@ const DashboardPage = () => {
             )}
             
             <div className="dashboard-content">
+                {/* Log the expected image loading flow */}
+                {console.log('🚨 [DashboardPage] 📏 EXPECTED IMAGE LOADING FLOW:', {
+                  step1: 'Image loads with natural dimensions (e.g., 2000x1500px)',
+                  step2: 'whiteboard-container expands to match image dimensions (2000x1500px)',
+                  step3: 'dashboard-content (1200x800px) shows scrollbars because child (2000x1500px) exceeds container',
+                  step4: 'User can scroll within dashboard-content to see full image',
+                  note: 'whiteboard-container should NOT be constrained to 1200x800px'
+                })}
                 
                 {/* Whiteboard Component - Handles both drawing and backgrounds (PDF/Images) */}
                {console.log('[DashboardPage] 🔍 Is whiteboard active?', isWhiteboardActive)}
@@ -2318,7 +2364,7 @@ const DashboardPage = () => {
                 <ScreenShareWindow
                     key="screen-share-stable"
                     screenShareStream={provider?.getScreenShareStream() || provider?.getRemoteScreen(selectedPeer)}
-                    isVisible={isScreenSharing || !!(provider?.getScreenShareStream() || provider?.getRemoteScreen(selectedPeer))}
+                    isVisible={isScreenShareActive}
                     position={{ top: '0', left: '0' }}
                     size={{ width: '1200px', height: '800px' }}
                     onStreamChange={(stream) => {

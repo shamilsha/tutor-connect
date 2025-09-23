@@ -86,6 +86,26 @@ A: When connect button clicked, it calls callback function onConnect(handleConne
        where it update the connection status as connected, this connectionstatus is passed as property inside ConnectionPanel, so
        when connectionstatus prop changed, it will automatically re-render the connectionPanel UI where the connectionstatus button color will be updated.
        
+Q:   Screen share star then stop, remote peer does not clear the screen
+A: Fix,
+Success! The Fix Worked!
+So the issue was indeed a combination of both problems:
+React State Management Race Condition: isScreenShareActive was being set to false by another function before handleStreamChange could process the stream removal, causing the comparison false !== false = false to skip the state update.
+ScreenShareWindow Component Logic: The component wasn't properly prioritizing the isVisible prop over stream existence checks.
+�� The Complete Fix:
+Fix 1: DashboardPage.jsx - Forced State Update
+Fix 2: ScreenShareWindow.jsx - Prioritized Visibility Logic
+📋 What This Means:
+✅ Peer 1 stops screen share → sends explicit stop message
+✅ Peer 2 receives stop signal → removes stream from WebRTC
+✅ Race condition handled → forced state update triggers re-render
+✅ ScreenShareWindow hides → prioritizes isVisible={false} prop
+✅ Mutual exclusivity works → screen share, images, and PDFs properly clear each other
+�� Key Lesson:
+The issue was multi-layered - it required fixes at both the state management level (DashboardPage) and the component rendering level (ScreenShareWindow). This is why my previous single-layer fixes didn't work.
+Great debugging session! The mutual exclusivity between screen sharing, images, and PDFs should now work correctly across all peers. 🚀
+Perfect! The screen share stop issue is now resolved. The mutual exclusivity between screen sharing, images, and PDFs should work correctly across all connected peers.
+
 
       
 

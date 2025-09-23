@@ -28,6 +28,36 @@ const ScreenShareWindow = ({
         }
     }, [screenShareStream, onStreamChange]);
 
+    // Monitor video dimensions and container expansion
+    useEffect(() => {
+        if (screenShareVideoRef.current && screenShareStream) {
+            const video = screenShareVideoRef.current;
+            const logDimensions = () => {
+                console.log('[ScreenShareWindow] 📏 Screen share video dimensions:', {
+                    videoWidth: video.videoWidth,
+                    videoHeight: video.videoHeight,
+                    displayWidth: video.offsetWidth,
+                    displayHeight: video.offsetHeight,
+                    containerWidth: size.width,
+                    containerHeight: size.height,
+                    naturalAspectRatio: video.videoWidth / video.videoHeight,
+                    displayAspectRatio: video.offsetWidth / video.offsetHeight,
+                    isCompressed: Math.abs((video.videoWidth / video.videoHeight) - (video.offsetWidth / video.offsetHeight)) > 0.01,
+                    exceedsWidth: video.videoWidth > parseInt(size.width),
+                    exceedsHeight: video.videoHeight > parseInt(size.height),
+                    shouldShowScrollbar: video.videoWidth > parseInt(size.width) || video.videoHeight > parseInt(size.height),
+                    scrollbarNeeded: video.videoWidth > parseInt(size.width) || video.videoHeight > parseInt(size.height) ? 'YES - Screen share exceeds container' : 'NO - Screen share fits in container'
+                });
+            };
+            video.addEventListener('loadedmetadata', logDimensions);
+            video.addEventListener('playing', logDimensions);
+            return () => {
+                video.removeEventListener('loadedmetadata', logDimensions);
+                video.removeEventListener('playing', logDimensions);
+            };
+        }
+    }, [screenShareStream, size]);
+
     // Handle video element stream assignment
     useEffect(() => {
         if (screenShareVideoRef.current) {
@@ -103,12 +133,25 @@ const ScreenShareWindow = ({
         });
     }
 
-    // Don't render if not visible or no stream
-    if (!isVisible || !screenShareStream) {
+    // Don't render if not visible - prioritize isVisible over stream existence
+    if (!isVisible) {
         if (debugMode) {
-            console.log('[ScreenShareWindow] 🖥️ Not rendering - conditions not met:', {
+            console.log('[ScreenShareWindow] 🖥️ Not rendering - isVisible is false:', {
                 isVisible,
-                hasStream: !!screenShareStream
+                hasStream: !!screenShareStream,
+                reason: 'isVisible is false - hiding component'
+            });
+        }
+        return null;
+    }
+    
+    // Also don't render if no stream (but only if isVisible is true)
+    if (!screenShareStream) {
+        if (debugMode) {
+            console.log('[ScreenShareWindow] 🖥️ Not rendering - no stream available:', {
+                isVisible,
+                hasStream: !!screenShareStream,
+                reason: 'No stream available'
             });
         }
         return null;
@@ -121,8 +164,8 @@ const ScreenShareWindow = ({
                 position: useRelativePositioning ? 'relative' : 'fixed',
                 top: position.top,
                 left: position.left,
-                width: size.width,
-                height: size.height,
+                width: 'auto', // Allow container to expand to match video dimensions
+                height: 'auto', // Allow container to expand to match video dimensions
                 background: '#000',
                 zIndex: useRelativePositioning ? 1 : 100,
                 display: 'flex',
@@ -130,7 +173,7 @@ const ScreenShareWindow = ({
                 justifyContent: 'flex-start',
                 border: '3px solid #ff6b6b',
                 boxSizing: 'border-box',
-                overflow: 'hidden'
+                overflow: 'visible' // Let dashboard-content handle scrolling
             }}
         >
             <video
@@ -139,9 +182,13 @@ const ScreenShareWindow = ({
                 playsInline
                 muted
                 style={{
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'cover',
+                    width: 'auto', // Allow video to maintain aspect ratio
+                    height: 'auto', // Allow video to maintain aspect ratio
+                    minWidth: '100%', // Ensure video is at least container width
+                    minHeight: '100%', // Ensure video is at least container height
+                    maxWidth: 'none', // Allow video to exceed container width
+                    maxHeight: 'none', // Allow video to exceed container height
+                    objectFit: 'contain', // Show full video content without distortion
                     background: '#000'
                 }}
             />

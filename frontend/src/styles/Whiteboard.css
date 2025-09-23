@@ -1,33 +1,40 @@
 .whiteboard-container {
-  display: flex;
-  flex-direction: column;
-  width: 1200px; /* Fixed width for consistency across peers */
-  height: 800px; /* Fixed height for consistency across peers */
-  background-color: rgba(230, 243, 255, 0.9); /* Semi-transparent light blue background for debugging */
-  border: 4px solid #8B4513; /* Thicker brown border for better visibility */
   position: relative; /* Relative positioning within dashboard-content */
   z-index: 1; /* Default z-index */
+  background-color: rgba(230, 243, 255, 0.9); /* Semi-transparent light blue background for debugging */
+  border: 4px solid #8B4513; /* Thicker brown border for better visibility */
   margin: 0; /* Remove all margins to ensure it starts at top */
   box-shadow: 0 0 15px rgba(139, 69, 19, 0.6); /* Brown glow for debugging */
-  /* Ensure the drawing surface starts at the top of the container */
-  padding-top: 0;
+  overflow: visible; /* Let dashboard-content handle scrolling */
+  box-sizing: border-box;
+  /* Allow whiteboard-container to expand to match its child dimensions exactly */
+  width: auto; /* Let it expand to match child dimensions */
+  height: auto; /* Let it expand to match child dimensions */
+  /* Remove min-width/min-height constraints to let it match child exactly */
 }
 
-/* Fixed size for all devices - no responsive scaling */
+/* Whiteboard container should match dashboard-content dimensions */
 @media (min-width: 768px) {
   .whiteboard-container {
-    width: 1200px; /* Same fixed width */
-    height: 800px; /* Same fixed height */
+    /* Dimensions already set in base class - no additional constraints needed */
   }
 }
 
-/* When screen sharing is active, overlay the screen share with fixed dimensions */
+/* When screen sharing is active, overlay the screen share with matching dimensions */
 .whiteboard-container.screen-share-overlay {
   position: absolute !important; /* Absolute positioning to overlay screen share */
   top: 0 !important;
   left: 0 !important;
-  width: 1200px !important; /* Fixed width to match drawing surface */
-  height: 800px !important; /* Fixed height to match drawing surface */
+  /* Allow inline styles to control dimensions - don't override with CSS */
+  /* width and height will be controlled by inline styles from JavaScript */
+  /* Remove ALL constraints to let it match screen share exactly */
+  min-width: unset !important; /* Remove any minimum width constraints */
+  min-height: unset !important; /* Remove any minimum height constraints */
+  max-width: unset !important; /* Remove any maximum width constraints */
+  max-height: unset !important; /* Remove any maximum height constraints */
+  /* CRITICAL: Allow whiteboard to exceed dashboard-content dimensions */
+  /* Don't set width/height here - let inline styles control it */
+  /* The inline styles will override any CSS constraints */
   background-color: transparent !important; /* Make container fully transparent during screen share */
   z-index: 2 !important; /* Above screen share (z-index: 1) */
   border: none !important; /* Remove border during screen share */
@@ -35,46 +42,7 @@
   pointer-events: all !important; /* Ensure drawing works */
 }
 
-.whiteboard-scroll-container {
-  overflow: auto;
-  position: relative;
-  background-color: #f0f8ff; /* Light blue background for drawing surface */
-  border: 2px solid #32CD32; /* Green border for visibility */
-  display: flex;
-  flex-direction: column;
-  width: 1200px; /* Fixed width to match container */
-  height: 800px; /* Fixed height to match container */
-  /* Ensure the scroll container starts at the top */
-  padding-top: 0;
-  margin-top: 0;
-}
-
-/* Fixed size for all devices - no responsive scaling */
-@media (min-width: 768px) {
-  .whiteboard-scroll-container {
-    width: 1200px; /* Same fixed width */
-    height: 800px; /* Same fixed height */
-  }
-}
-
-/* When screen sharing is active, make scroll container transparent */
-.whiteboard-container.screen-share-overlay .whiteboard-scroll-container {
-  background-color: transparent !important;
-  border: none !important;
-  overflow: hidden !important;
-  pointer-events: all !important;
-}
-
-/* When screen sharing is active, make all child divs transparent */
-.whiteboard-container.screen-share-overlay .whiteboard-scroll-container > div {
-  background-color: transparent !important;
-  border: none !important;
-}
-
-/* When screen sharing is active, make Konva Stage transparent */
-.whiteboard-container.screen-share-overlay .whiteboard-scroll-container canvas {
-  background: transparent !important;
-}
+/* Removed whiteboard-scroll-container styles - now handled by whiteboard-container */
 
 .pdf-controls {
   display: flex;

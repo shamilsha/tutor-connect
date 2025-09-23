@@ -1,7 +1,75 @@
-.dashboard-container {
+/* Universal box-sizing for all elements */
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+/* Allow html, body, and #root to automatically resize to contain their children */
+html, body {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    /* Remove any height/width constraints - let them size to content */
+    min-height: 100vh; /* Ensure minimum viewport height */
+    min-width: 100vw; /* Ensure minimum viewport width */
+    /* Auto-size to match child width */
+    width: fit-content; /* Automatically match child width */
+    height: auto; /* Let it size to content height */
+}
+
+/* #root should automatically size to contain its children */
+#root {
+    box-sizing: border-box;
+    /* Remove fixed dimensions - let it size to content */
+    min-height: 100vh; /* Ensure minimum viewport height */
+    min-width: 100vw; /* Ensure minimum viewport width */
+    /* Auto-size to match child width */
+    width: fit-content; /* Automatically match child width */
+    height: auto; /* Let it size to content height */
+}
+
+/* Only apply viewport constraints when dashboard is active - but still allow expansion */
+body.dashboard-active {
+    /* Keep minimum viewport size but allow expansion */
     min-height: 100vh;
+    min-width: 100vw;
+    /* Allow overflow for content that exceeds viewport */
+    overflow-x: auto; /* Allow horizontal scrolling if needed */
+    overflow-y: auto; /* Allow vertical scrolling if needed */
+}
+
+/* #root with dashboard-active should also allow expansion */
+#root.dashboard-active {
+    min-height: 100vh;
+    min-width: 100vw;
+    /* Allow expansion beyond viewport if content requires it */
+    overflow-x: auto;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+}
+
+.dashboard-container {
     background-color: #f8f9fa;
     padding-top: 0; /* No padding needed with sticky connection panel */
+    display: flex !important; /* Added !important */
+    flex-direction: column !important; /* Stack header and content vertically */
+    box-sizing: border-box;
+    min-height: 100vh; /* Ensure minimum height */
+    /* Auto-size to match child width */
+    width: fit-content; /* Automatically match child width */
+    height: auto; /* Let it size to content height */
+}
+
+/* Dashboard active should still allow expansion */
+.dashboard-container.dashboard-active {
+    min-height: 100vh; /* Ensure minimum viewport height */
+    min-width: 100vw; /* Ensure minimum viewport width */
+    /* Allow expansion beyond viewport if content requires it */
+    overflow: visible; /* Allow header and panels to be visible */
+    display: flex;
+    flex-direction: column;
+    /* Remove max-width/max-height constraints */
 }
 
 .dashboard-header {
@@ -14,6 +82,9 @@
     align-items: center;
     border: 3px solid #00FF00; /* Green border for debugging */
     box-shadow: 0 0 15px rgba(0, 255, 0, 0.8); /* Green glow for debugging */
+    flex: 0 0 auto; /* Don't grow or shrink */
+    z-index: 10; /* Ensure header is above other content */
+    position: relative; /* Ensure proper stacking */
 }
 
 .dashboard-header h1 {
@@ -72,14 +143,22 @@
 }
 
 .dashboard-content {
-    padding: 0; /* No padding */
-    margin: 0; /* No margins - flows naturally in document flow */
-    background-color: rgba(232, 244, 248, 0.8); /* Semi-transparent light blue background for debugging */
-    border: 3px solid #FF1493; /* Thicker pink border for better visibility */
-    position: relative; /* For absolute positioning of ScreenShareWindow */
-    min-height: 500px; /* Ensure minimum height for screen share and drawing surface */
-    z-index: 5; /* Higher z-index to see if it's overlaying */
-    box-shadow: 0 0 10px rgba(255, 20, 147, 0.5); /* Pink glow for debugging */
+    padding: 0 !important; /* No padding */
+    margin: 0 !important; /* No margins - flows naturally in document flow */
+    background-color: rgba(232, 244, 248, 0.8) !important; /* Semi-transparent light blue background for debugging */
+    border: 3px solid #FF1493 !important; /* Thicker pink border for better visibility */
+    position: relative !important; /* For absolute positioning of ScreenShareWindow */
+    width: 1200px !important; /* Fixed width */
+    height: 800px !important; /* Fixed height */
+    max-height: 800px !important; /* Prevent content from expanding beyond fixed height */
+    max-width: 1200px !important; /* Prevent content from expanding beyond fixed width */
+    overflow: auto !important; /* Show scrollbars when children exceed container size */
+    overflow-x: auto !important; /* Explicitly enable horizontal scrollbar */
+    overflow-y: auto !important; /* Explicitly enable vertical scrollbar */
+    flex: 0 0 800px !important; /* Fixed height, don't grow/shrink */
+    z-index: 5 !important; /* Higher z-index to see if it's overlaying */
+    box-shadow: 0 0 10px rgba(255, 20, 147, 0.5) !important; /* Pink glow for debugging */
+    box-sizing: border-box !important; /* Include border in width/height calculations */
 }
 
 
