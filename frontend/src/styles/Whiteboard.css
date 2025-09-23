@@ -67,7 +67,7 @@
 
 /* PDF Page specific styling to remove any default spacing */
 .pdf-page-container {
-  margin: 0 !important;
+  /* margin: 0 !important; - REMOVED to allow marginBottom for gaps */
   padding: 0 !important;
   display: block !important;
   line-height: 0 !important;
