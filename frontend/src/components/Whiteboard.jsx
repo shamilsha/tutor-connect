@@ -258,27 +258,75 @@ const Whiteboard = forwardRef(({
       case 'draw':
         if (data.shape) {
           if (data.shape.tool === 'pen') {
-            setLines(prev => [...prev, data.shape]);
+            if (backgroundType === 'pdf') {
+              const currentPageNum = getCurrentVisiblePage();
+              setPageLines(prev => ({
+                ...prev,
+                [currentPageNum]: [...(prev[currentPageNum] || []), data.shape]
+              }));
+            } else {
+              setLines(prev => [...prev, data.shape]);
+            }
           } else {
-            setShapes(prev => [...prev, data.shape]);
+            if (backgroundType === 'pdf') {
+              const currentPageNum = getCurrentVisiblePage();
+              setPageShapes(prev => ({
+                ...prev,
+                [currentPageNum]: [...(prev[currentPageNum] || []), data.shape]
+              }));
+            } else {
+              setShapes(prev => [...prev, data.shape]);
+            }
           }
         }
         break;
       case 'update':
         if (data.shape) {
           if (data.shape.tool === 'pen') {
-            setLines(prev => prev.map(line => line.id === data.shape.id ? data.shape : line));
+            if (backgroundType === 'pdf') {
+              const currentPageNum = getCurrentVisiblePage();
+              setPageLines(prev => ({
+                ...prev,
+                [currentPageNum]: prev[currentPageNum]?.map(line => line.id === data.shape.id ? data.shape : line) || []
+              }));
+            } else {
+              setLines(prev => prev.map(line => line.id === data.shape.id ? data.shape : line));
+            }
           } else {
-            setShapes(prev => prev.map(shape => shape.id === data.shape.id ? data.shape : shape));
+            if (backgroundType === 'pdf') {
+              const currentPageNum = getCurrentVisiblePage();
+              setPageShapes(prev => ({
+                ...prev,
+                [currentPageNum]: prev[currentPageNum]?.map(shape => shape.id === data.shape.id ? data.shape : shape) || []
+              }));
+            } else {
+              setShapes(prev => prev.map(shape => shape.id === data.shape.id ? data.shape : shape));
+            }
           }
         }
         break;
       case 'erase':
         if (data.shape) {
           if (data.shape.tool === 'pen') {
-            setLines(prev => prev.filter(line => line.id !== data.shape.id));
+            if (backgroundType === 'pdf') {
+              const currentPageNum = getCurrentVisiblePage();
+              setPageLines(prev => ({
+                ...prev,
+                [currentPageNum]: prev[currentPageNum]?.filter(line => line.id !== data.shape.id) || []
+              }));
+            } else {
+              setLines(prev => prev.filter(line => line.id !== data.shape.id));
+            }
           } else {
-            setShapes(prev => prev.filter(shape => shape.id !== data.shape.id));
+            if (backgroundType === 'pdf') {
+              const currentPageNum = getCurrentVisiblePage();
+              setPageShapes(prev => ({
+                ...prev,
+                [currentPageNum]: prev[currentPageNum]?.filter(shape => shape.id !== data.shape.id) || []
+              }));
+            } else {
+              setShapes(prev => prev.filter(shape => shape.id !== data.shape.id));
+            }
           }
         }
         break;
@@ -301,6 +349,13 @@ const Whiteboard = forwardRef(({
           setLines(data.state.lines || []);
           setShapes(data.state.shapes || []);
           setHistoryStep(data.state.historyStep || 0);
+          
+          // For PDFs, also update page-specific state if provided
+          if (backgroundType === 'pdf' && data.state.pageLines && data.state.pageShapes) {
+            setPageLines(data.state.pageLines);
+            setPageShapes(data.state.pageShapes);
+          }
+          
           // Also update history if it's provided
           if (data.state.history) {
             setHistory(data.state.history);
@@ -439,27 +494,46 @@ const Whiteboard = forwardRef(({
       console.log('[Whiteboard] 🖱️ MOUSE MOVE - Using corrected coordinates:', { correctedX, correctedY, offsetX, offsetY });
     }
 
-    // Only send cursor position when a tool is selected
+    // Only send cursor position when a tool is selected (throttled to avoid spam)
     if (currentTool) {
-      // Adjust coordinates for scroll position only for cursor display
-      const scrollContainer = containerRef.current;
-      const adjustedPoint = { ...point };
-      if (scrollContainer) {
-        adjustedPoint.x += scrollContainer.scrollLeft;
-        adjustedPoint.y += scrollContainer.scrollTop;
+      // Throttle cursor messages to avoid flooding the data channel
+      const now = Date.now();
+      if (!window.lastCursorTime || now - window.lastCursorTime > 100) { // Send max every 100ms
+        window.lastCursorTime = now;
+        // Adjust coordinates for scroll position only for cursor display
+        const scrollContainer = containerRef.current;
+        const adjustedPoint = { ...point };
+        if (scrollContainer) {
+          adjustedPoint.x += scrollContainer.scrollLeft;
+          adjustedPoint.y += scrollContainer.scrollTop;
+        }
+        sendWhiteboardMsg('cursor', { position: adjustedPoint });
       }
-      sendWhiteboardMsg('cursor', { position: adjustedPoint });
     }
 
     if (!isDrawing) return;
 
     if (currentTool === 'pen') {
-      let lastLine = lines[lines.length - 1];
-      const newLastLine = {
-        ...lastLine,
-        points: [...lastLine.points, correctedX, correctedY]
-      };
-      setLines(prev => [...prev.slice(0, -1), newLastLine]);
+      if (backgroundType === 'pdf') {
+        const currentPageNum = getCurrentVisiblePage();
+        const currentPageLines = pageLines[currentPageNum] || [];
+        let lastLine = currentPageLines[currentPageLines.length - 1];
+        const newLastLine = {
+          ...lastLine,
+          points: [...lastLine.points, correctedX, correctedY]
+        };
+        setPageLines(prev => ({
+          ...prev,
+          [currentPageNum]: [...prev[currentPageNum].slice(0, -1), newLastLine]
+        }));
+      } else {
+        let lastLine = lines[lines.length - 1];
+        const newLastLine = {
+          ...lastLine,
+          points: [...lastLine.points, correctedX, correctedY]
+        };
+        setLines(prev => [...prev.slice(0, -1), newLastLine]);
+      }
       // Send line update via WebRTC data channel
       sendWhiteboardMsg('update', { shape: newLastLine });
     } else if (selectedShape) {
@@ -467,49 +541,98 @@ const Whiteboard = forwardRef(({
       const dx = correctedX - startPoint.x;
       const dy = correctedY - startPoint.y;
       
-      const updatedShapes = shapes.map(shape => {
-        if (shape.id === selectedShape.id) {
-          switch (shape.type) {
-            case 'line':
-              if (DEBUG_MOUSE_MOVEMENT) {
-                console.log(`[Line Drawing] Mouse: (${correctedX}, ${correctedY}), Start: (${startPoint.x}, ${startPoint.y}), Delta: (${dx}, ${dy})`);
-              }
-              return {
-                ...shape,
-                points: [0, 0, dx, dy]  // Use relative coordinates from shape position
-              };
-            case 'circle':
-                  return {
-                    ...shape,
-                radius: Math.sqrt(dx * dx + dy * dy)
-              };
-            case 'ellipse':
-                  return {
-                    ...shape,
-                radiusX: Math.abs(dx),
-                radiusY: Math.abs(dy)
-              };
-            case 'rectangle':
-              return {
-                ...shape,
-                width: Math.abs(dx),
-                height: Math.abs(dy)
-              };
-            case 'triangle':
-              return {
-                ...shape,
-                width: Math.abs(dx),
-                height: Math.abs(dy)
-              };
-            default:
-              return shape;
+      if (backgroundType === 'pdf') {
+        const currentPageNum = getCurrentVisiblePage();
+        const currentPageShapes = pageShapes[currentPageNum] || [];
+        const updatedShapes = currentPageShapes.map(shape => {
+          if (shape.id === selectedShape.id) {
+            switch (shape.type) {
+              case 'line':
+                if (DEBUG_MOUSE_MOVEMENT) {
+                  console.log(`[Line Drawing] Mouse: (${correctedX}, ${correctedY}), Start: (${startPoint.x}, ${startPoint.y}), Delta: (${dx}, ${dy})`);
+                }
+                return {
+                  ...shape,
+                  points: [0, 0, dx, dy]  // Use relative coordinates from shape position
+                };
+              case 'circle':
+                    return {
+                      ...shape,
+                  radius: Math.sqrt(dx * dx + dy * dy)
+                };
+              case 'ellipse':
+                    return {
+                      ...shape,
+                  radiusX: Math.abs(dx),
+                  radiusY: Math.abs(dy)
+                };
+              case 'rectangle':
+                return {
+                  ...shape,
+                  width: Math.abs(dx),
+                  height: Math.abs(dy)
+                };
+              case 'triangle':
+                return {
+                  ...shape,
+                  width: Math.abs(dx),
+                  height: Math.abs(dy)
+                };
+              default:
+                return shape;
+            }
           }
-        }
-        return shape;
-      });
-      setShapes(updatedShapes);
+          return shape;
+        });
+        setPageShapes(prev => ({
+          ...prev,
+          [currentPageNum]: updatedShapes
+        }));
+      } else {
+        const updatedShapes = shapes.map(shape => {
+          if (shape.id === selectedShape.id) {
+            switch (shape.type) {
+              case 'line':
+                if (DEBUG_MOUSE_MOVEMENT) {
+                  console.log(`[Line Drawing] Mouse: (${correctedX}, ${correctedY}), Start: (${startPoint.x}, ${startPoint.y}), Delta: (${dx}, ${dy})`);
+                }
+                return {
+                  ...shape,
+                  points: [0, 0, dx, dy]  // Use relative coordinates from shape position
+                };
+              case 'circle':
+                    return {
+                      ...shape,
+                  radius: Math.sqrt(dx * dx + dy * dy)
+                };
+              case 'ellipse':
+                    return {
+                      ...shape,
+                  radiusX: Math.abs(dx),
+                  radiusY: Math.abs(dy)
+                };
+              case 'rectangle':
+                return {
+                  ...shape,
+                  width: Math.abs(dx),
+                  height: Math.abs(dy)
+                };
+              case 'triangle':
+                return {
+                  ...shape,
+                  width: Math.abs(dx),
+                  height: Math.abs(dy)
+                };
+              default:
+                return shape;
+            }
+          }
+          return shape;
+        });
+        setShapes(updatedShapes);
+      }
       // Send shape update via WebRTC data channel
-      sendWhiteboardMsg('update', { shape: updatedShapes.find(s => s.id === selectedShape.id) });
+      sendWhiteboardMsg('update', { shape: selectedShape });
     }
   };
 
@@ -520,7 +643,8 @@ const Whiteboard = forwardRef(({
       selectedShape: selectedShape?.id
     });
 
-    if (!currentTool) return;
+    // Ensure we have a default tool for drawing
+    const drawingTool = currentTool || 'pen';
 
     const stage = e.target.getStage();
     const point = stage.getPointerPosition();
@@ -541,7 +665,7 @@ const Whiteboard = forwardRef(({
     const stageScale = stage.scaleX();
     
     if (DEBUG_MOUSE_MOVEMENT) {
-      console.log('[Whiteboard] 🖱️ MOUSE DOWN - Starting drawing with tool:', currentTool, 'at position:', point);
+      console.log('[Whiteboard] 🖱️ MOUSE DOWN - Starting drawing with tool:', drawingTool, 'at position:', point);
       console.log('[Whiteboard] 🖱️ MOUSE DOWN - Stage dimensions:', { width: stage.width(), height: stage.height() });
       console.log('[Whiteboard] 🖱️ MOUSE DOWN - Container size:', containerSize);
       console.log('[Whiteboard] 🖱️ MOUSE DOWN - Native event coordinates:', { clientX: nativeX, clientY: nativeY });
@@ -563,7 +687,7 @@ const Whiteboard = forwardRef(({
       console.log('[Whiteboard] 🖱️ MOUSE DOWN - Using corrected coordinates:', { correctedX, correctedY, offsetX, offsetY });
     }
 
-    if (currentTool === 'pen') {
+    if (drawingTool === 'pen') {
       const newLine = {
         id: `${userId}-${Date.now()}-${uuidv4()}`,
         tool: 'pen',
@@ -574,15 +698,26 @@ const Whiteboard = forwardRef(({
         lineCap: 'round',
         lineJoin: 'round'
       };
-      setLines(prev => [...prev, newLine]);
+      
+      // For PDFs, add to page-specific lines
+      if (backgroundType === 'pdf') {
+        const currentPageNum = getCurrentVisiblePage();
+        setPageLines(prev => ({
+          ...prev,
+          [currentPageNum]: [...(prev[currentPageNum] || []), newLine]
+        }));
+      } else {
+        setLines(prev => [...prev, newLine]);
+      }
+      
       setIsDrawing(true);
       // Send line creation via WebRTC data channel
       sendWhiteboardMsg('draw', { shape: newLine });
     } else {
       const newShape = {
         id: `${userId}-${Date.now()}-${uuidv4()}`,
-        tool: currentTool,
-        type: currentTool,
+        tool: drawingTool,
+        type: drawingTool,
         x: correctedX,
         y: correctedY,
         stroke: currentColor,
@@ -593,7 +728,7 @@ const Whiteboard = forwardRef(({
       console.log('Creating new shape:', newShape);
 
       // Set specific properties based on shape type
-      switch (currentTool) {
+      switch (drawingTool) {
         case 'line':
           newShape.points = [0, 0, 0, 0];  // Initialize with relative coordinates for current layout
           break;
@@ -614,7 +749,17 @@ const Whiteboard = forwardRef(({
           break;
       }
 
-      setShapes(prev => [...prev, newShape]);
+      // For PDFs, add to page-specific shapes
+      if (backgroundType === 'pdf') {
+        const currentPageNum = getCurrentVisiblePage();
+        setPageShapes(prev => ({
+          ...prev,
+          [currentPageNum]: [...(prev[currentPageNum] || []), newShape]
+        }));
+      } else {
+        setShapes(prev => [...prev, newShape]);
+      }
+      
       setSelectedShape(newShape);
       setIsDrawing(true);
       startPointRef.current = { x: correctedX, y: correctedY };
@@ -687,7 +832,19 @@ const Whiteboard = forwardRef(({
     });
     
     const newHistory = history.slice(0, historyStep + 1);
-    newHistory.push({ lines: [...currentLines], shapes: [...currentShapes] });
+    
+    // For PDFs, include page-specific state in history
+    if (backgroundType === 'pdf') {
+      newHistory.push({ 
+        lines: [...currentLines], 
+        shapes: [...currentShapes],
+        pageLines: { ...pageLines },
+        pageShapes: { ...pageShapes }
+      });
+    } else {
+      newHistory.push({ lines: [...currentLines], shapes: [...currentShapes] });
+    }
+    
     setHistory(newHistory);
     setHistoryStep(newHistory.length - 1);
 
@@ -741,6 +898,13 @@ const Whiteboard = forwardRef(({
       // Simple approach - just update state directly
       setLines(prevState.lines);
       setShapes(prevState.shapes);
+      
+      // For PDFs, also restore page-specific state
+      if (backgroundType === 'pdf' && prevState.pageLines && prevState.pageShapes) {
+        setPageLines(prevState.pageLines);
+        setPageShapes(prevState.pageShapes);
+      }
+      
       setHistoryStep(newStep);
 
       console.log('[Whiteboard] ✅ State updates called - lines and shapes should be updated');
@@ -767,6 +931,13 @@ const Whiteboard = forwardRef(({
       // Simple approach - just update state directly
       setLines(state.lines);
       setShapes(state.shapes);
+      
+      // For PDFs, also restore page-specific state
+      if (backgroundType === 'pdf' && state.pageLines && state.pageShapes) {
+        setPageLines(state.pageLines);
+        setPageShapes(state.pageShapes);
+      }
+      
       setHistoryStep(newStep);
 
       // Send state via WebRTC data channel (like the backup version)
@@ -862,8 +1033,6 @@ const Whiteboard = forwardRef(({
       
       // Clear PDF-specific state when switching to image
       setPdfPages(0);
-      setPdfCurrentPage(1);
-      setPdfScale(1);
       
       // Clear PDF dimensions to prevent layout conflicts
       setBackgroundDimensions({ width: 0, height: 0 });
