@@ -8,6 +8,7 @@ import ConnectionPanel from './ConnectionPanel';
 import ChatPanel from './ChatPanel';
 import ConnectionStatusLight from './ConnectionStatusLight';
 import ScreenShareWindow from './ScreenShareWindow';
+import PDFNavigation from './PDFNavigation';
 import '../styles/DashboardPage.css';
 import { useCommunication } from '../context/CommunicationContext';
 import { WebSocketProvider } from '../services/WebSocketProvider';
@@ -86,6 +87,12 @@ const DashboardPage = () => {
     const [isVideoEnabled, setIsVideoEnabled] = useState(false);
     const [isScreenSharing, setIsScreenSharing] = useState(false);
     const [isScreenShareSupported, setIsScreenShareSupported] = useState(true);
+    
+    // PDF Navigation state
+    const [pdfCurrentPage, setPdfCurrentPage] = useState(1);
+    const [pdfTotalPages, setPdfTotalPages] = useState(0);
+    const [pdfScale, setPdfScale] = useState(1);
+    const [showPdfNavigation, setShowPdfNavigation] = useState(false);
     const [isWhiteboardActive, setIsWhiteboardActive] = useState(false);
     
     // Whiteboard toolbar state
@@ -110,6 +117,30 @@ const DashboardPage = () => {
     
     const handleWhiteboardBackgroundCleared = useCallback(() => {
         console.log('[DashboardPage] 🎨 Background file cleared from whiteboard');
+    }, []);
+    
+    // PDF Navigation handlers
+    const handlePdfPageChange = useCallback((page) => {
+        console.log('[DashboardPage] 📄 PDF page changed to:', page);
+        setPdfCurrentPage(page);
+    }, []);
+    
+    const handlePdfZoomIn = useCallback(() => {
+        setPdfScale(prev => Math.min(prev + 0.1, 3.0));
+    }, []);
+    
+    const handlePdfZoomOut = useCallback(() => {
+        setPdfScale(prev => Math.max(prev - 0.1, 0.5));
+    }, []);
+    
+    const handlePdfZoomReset = useCallback(() => {
+        setPdfScale(1);
+    }, []);
+    
+    const handlePdfPagesChange = useCallback((totalPages) => {
+        console.log('[DashboardPage] 📄 PDF total pages changed to:', totalPages);
+        setPdfTotalPages(totalPages);
+        setShowPdfNavigation(totalPages > 0);
     }, []);
     
     // Debug: Track state changes to identify what's causing re-renders
@@ -2070,8 +2101,28 @@ const DashboardPage = () => {
         // Check mutual exclusivity first
         await checkExclusivity('pdf', pdfFile);
         
-        // Note: PDF handling is done in Whiteboard component
-        // This function is for mutual exclusivity only
+        // Pass the PDF file to Whiteboard component
+        if (whiteboardImageUploadRef.current && whiteboardImageUploadRef.current.handleFileUpload) {
+            console.log('[DashboardPage] 📄 Passing PDF to Whiteboard component:', {
+                fileName: pdfFile.name,
+                fileSize: pdfFile.size,
+                fileType: pdfFile.type
+            });
+            // Create a synthetic event object for the Whiteboard component
+            const syntheticEvent = {
+                target: {
+                    files: [pdfFile]
+                }
+            };
+            console.log('[DashboardPage] 📄 Calling Whiteboard.handleFileUpload with synthetic event');
+            whiteboardImageUploadRef.current.handleFileUpload(syntheticEvent);
+            console.log('[DashboardPage] 📄 PDF successfully passed to Whiteboard component');
+        } else {
+            console.log('[DashboardPage] 📄 Whiteboard ref not available:', {
+                hasRef: !!whiteboardImageUploadRef.current,
+                hasHandleFileUpload: !!(whiteboardImageUploadRef.current && whiteboardImageUploadRef.current.handleFileUpload)
+            });
+        }
     };
 
     const handleImageSizeChange = (newSize) => {
@@ -2311,6 +2362,18 @@ const DashboardPage = () => {
                 />
             )}
             
+            {/* PDF Navigation - Above dashboard-content, can be positioned anywhere */}
+            <PDFNavigation
+                currentPage={pdfCurrentPage}
+                totalPages={pdfTotalPages}
+                onPageChange={handlePdfPageChange}
+                onZoomIn={handlePdfZoomIn}
+                onZoomOut={handlePdfZoomOut}
+                onZoomReset={handlePdfZoomReset}
+                scale={pdfScale}
+                isVisible={showPdfNavigation}
+            />
+            
             <div className="dashboard-content">
                 {/* Log the expected image loading flow */}
                 {console.log('🚨 [DashboardPage] 📏 EXPECTED IMAGE LOADING FLOW:', {
@@ -2357,6 +2420,11 @@ const DashboardPage = () => {
                        onClear={handleWhiteboardClear}
                        canUndo={canUndo}
                        canRedo={canRedo}
+                       // PDF Navigation props
+                       pdfCurrentPage={pdfCurrentPage}
+                       pdfScale={pdfScale}
+                       onPdfPageChange={handlePdfPageChange}
+                       onPdfPagesChange={handlePdfPagesChange}
                        ref={whiteboardImageUploadRef}
                    />
                )}

@@ -57,15 +57,20 @@ public class FileController {
                 return ResponseEntity.badRequest().body("File is empty");
             }
             
-            // Check file size (max 10MB)
-            if (file.getSize() > 10 * 1024 * 1024) {
-                return ResponseEntity.badRequest().body("File too large (max 10MB)");
+            // Check file size (max 50MB for PDFs, 10MB for images)
+            String contentType = file.getContentType();
+            long maxSize = (contentType != null && contentType.equals("application/pdf")) ? 
+                50 * 1024 * 1024 : 10 * 1024 * 1024;
+            
+            if (file.getSize() > maxSize) {
+                return ResponseEntity.badRequest().body("File too large (max " + 
+                    (maxSize / (1024 * 1024)) + "MB)");
             }
             
-            // Check file type (images only)
-            String contentType = file.getContentType();
-            if (contentType == null || !contentType.startsWith("image/")) {
-                return ResponseEntity.badRequest().body("Only image files are allowed");
+            // Check file type (images and PDFs allowed)
+            if (contentType == null || 
+                (!contentType.startsWith("image/") && !contentType.equals("application/pdf"))) {
+                return ResponseEntity.badRequest().body("Only image and PDF files are allowed");
             }
             
             // Upload file
@@ -112,6 +117,8 @@ public class FileController {
                 contentType = "image/jpeg";
             } else if (filename.toLowerCase().endsWith(".gif")) {
                 contentType = "image/gif";
+            } else if (filename.toLowerCase().endsWith(".pdf")) {
+                contentType = "application/pdf";
             }
             
             return ResponseEntity.ok()
@@ -127,6 +134,60 @@ public class FileController {
             return ResponseEntity.status(500).body(null);
         } catch (Exception e) {
             System.out.println("Download failed - Unexpected error: " + e.getMessage());
+            return ResponseEntity.status(500).body(null);
+        }
+    }
+    
+    @GetMapping("/proxy/{filename}")
+    public ResponseEntity<byte[]> proxyFile(@PathVariable String filename) {
+        try {
+            System.out.println("=== FileController.proxyFile ===");
+            System.out.println("Proxy requested for: " + filename);
+            
+            // Get CDN URL
+            String cdnUrl = staticWebAppsService.getCdnUrl(filename);
+            System.out.println("Fetching from CDN: " + cdnUrl);
+            
+            // Fetch file from CDN
+            java.net.URL url = new java.net.URL(cdnUrl);
+            java.net.HttpURLConnection connection = (java.net.HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(10000);
+            connection.setReadTimeout(30000);
+            
+            int responseCode = connection.getResponseCode();
+            if (responseCode != 200) {
+                System.out.println("CDN fetch failed with code: " + responseCode);
+                return ResponseEntity.notFound().build();
+            }
+            
+            // Read file content
+            java.io.InputStream inputStream = connection.getInputStream();
+            byte[] fileContent = inputStream.readAllBytes();
+            inputStream.close();
+            
+            // Determine content type based on file extension
+            String contentType = "application/octet-stream";
+            if (filename.toLowerCase().endsWith(".png")) {
+                contentType = "image/png";
+            } else if (filename.toLowerCase().endsWith(".jpg") || filename.toLowerCase().endsWith(".jpeg")) {
+                contentType = "image/jpeg";
+            } else if (filename.toLowerCase().endsWith(".gif")) {
+                contentType = "image/gif";
+            } else if (filename.toLowerCase().endsWith(".pdf")) {
+                contentType = "application/pdf";
+            }
+            
+            System.out.println("Proxy successful, content type: " + contentType + ", size: " + fileContent.length);
+            
+            return ResponseEntity.ok()
+                    .header("Content-Type", contentType)
+                    .header("Content-Disposition", "inline; filename=\"" + filename + "\"")
+                    .header("Cache-Control", "public, max-age=3600")
+                    .body(fileContent);
+                    
+        } catch (Exception e) {
+            System.out.println("Proxy failed: " + e.getMessage());
             return ResponseEntity.status(500).body(null);
         }
     }

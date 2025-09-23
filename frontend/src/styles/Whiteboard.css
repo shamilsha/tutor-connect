@@ -14,11 +14,7 @@
 }
 
 /* Whiteboard container should match dashboard-content dimensions */
-@media (min-width: 768px) {
-  .whiteboard-container {
-    /* Dimensions already set in base class - no additional constraints needed */
-  }
-}
+/* No additional media query styles needed - base class handles all cases */
 
 /* When screen sharing is active, overlay the screen share with matching dimensions */
 .whiteboard-container.screen-share-overlay {
@@ -67,4 +63,55 @@
 .pdf-controls span {
   font-size: 12px;
   color: #666;
+}
+
+/* PDF Page specific styling to remove any default spacing */
+.pdf-page-container {
+  margin: 0 !important;
+  padding: 0 !important;
+  display: block !important;
+  line-height: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.pdf-page-container > * {
+  margin: 0 !important;
+  padding: 0 !important;
+  display: block !important;
+  line-height: 0 !important;
+  box-sizing: border-box !important;
+}
+
+/* Ensure PDF pages have no default margins or padding */
+.react-pdf__Page {
+  margin: 0 !important;
+  padding: 0 !important;
+  display: block !important;
+  line-height: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.react-pdf__Page__canvas {
+  margin: 0 !important;
+  padding: 0 !important;
+  display: block !important;
+  box-sizing: border-box !important;
+}
+
+/* Remove any potential spacing from PDF document container */
+.react-pdf__Document {
+  margin: 0 !important;
+  padding: 0 !important;
+  display: block !important;
+  line-height: 0 !important;
+}
+
+/* Ensure no spacing in the PDF pages flex container */
+.pdf-pages-container {
+  margin: 0 !important;
+  padding: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  line-height: 0 !important;
 }

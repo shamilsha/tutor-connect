@@ -7,7 +7,8 @@ import '../styles/Whiteboard.css';
 import { pdfjs } from 'react-pdf';
 import { WebRTCProvider } from '../services/WebRTCProvider';
 
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+// Configure PDF.js worker - use local worker to avoid CORS issues
+pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
 
 const Whiteboard = forwardRef(({ 
   userId, 
@@ -35,12 +36,20 @@ const Whiteboard = forwardRef(({
   onClear = null,
   canUndo = false,
   canRedo = false,
+  // PDF Navigation props
+  pdfCurrentPage = 1,
+  pdfScale = 1,
+  onPdfPageChange = null,
+  onPdfPagesChange = null,
 }, ref) => {
   console.log('Whiteboard mounted with:', { userId, username, screenShareStream: !!screenShareStream, isScreenShareActive });
   
   // Drawing state
   const [lines, setLines] = useState([]);
   const [shapes, setShapes] = useState([]);
+  
+  // PDF render timing
+  const [pdfRenderStartTime, setPdfRenderStartTime] = useState(null);
   const [isDrawing, setIsDrawing] = useState(false);
   
   
@@ -69,6 +78,7 @@ const Whiteboard = forwardRef(({
   // Use dynamic container size from props
   const [currentContainerSize, setCurrentContainerSize] = useState(containerSize);
   const [pageShapes, setPageShapes] = useState({});
+  const [pageLines, setPageLines] = useState({});
   // State to track background dimensions
   const [backgroundDimensions, setBackgroundDimensions] = useState({ width: 0, height: 0 });
   // State to track screen share dimensions
@@ -847,8 +857,16 @@ const Whiteboard = forwardRef(({
       const result = await response.json();
       console.log('[Whiteboard] 🎨 Upload successful:', result);
       
-      // Use CDN URL for better performance
-      const imageUrl = result.url;
+      // Use backend proxy URL to avoid CORS issues
+      const imageUrl = `${backendUrl}/api/files/proxy/${result.filename}`;
+      
+      // Clear PDF-specific state when switching to image
+      setPdfPages(0);
+      setPdfCurrentPage(1);
+      setPdfScale(1);
+      
+      // Clear PDF dimensions to prevent layout conflicts
+      setBackgroundDimensions({ width: 0, height: 0 });
       
       // Set background (preserve existing drawings)
       setBackgroundFile(imageUrl);
@@ -889,6 +907,7 @@ const Whiteboard = forwardRef(({
   // Expose functions to parent component
   useImperativeHandle(ref, () => ({
     handleImageUpload: handleImageUpload,
+    handleFileUpload: handleFileUpload,
     clearBackground: () => {
       console.log('[Whiteboard] 🖥️ Clearing background due to screen share activation');
       setBackgroundFile(null);
@@ -896,21 +915,220 @@ const Whiteboard = forwardRef(({
     }
   }));
 
-  const handleFileUpload = (event) => {
+  const handleFileUpload = async (event) => {
+    const uploadStartTime = performance.now();
+    const absoluteStartTime = Date.now();
+    window.pdfUploadStartTime = absoluteStartTime;
+    console.log('[Whiteboard] 📄 PDF upload triggered via DashboardPage');
+    console.log('[Whiteboard] ⏱️ END-TO-END START TIME:', {
+      timestamp: new Date(absoluteStartTime).toISOString(),
+      performanceTime: uploadStartTime
+    });
+    
     const file = event.target.files[0];
     if (file) {
-      // Notify parent component for mutual exclusivity check
-      if (onFileUpload) {
-        onFileUpload(event);
+      console.log('[Whiteboard] 📄 PDF file received:', {
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        lastModified: file.lastModified
+      });
+      
+      // Note: onFileUpload not called for PDFs to avoid infinite loop
+      // Mutual exclusivity is handled by DashboardPage before calling this function
+      
+      // Upload PDF to backend and get CDN URL (same as images)
+      console.log('[Whiteboard] 📄 Starting PDF upload to backend for CDN URL');
+      try {
+        // Validate file type
+        if (file.type !== 'application/pdf') {
+          console.error('[Whiteboard] 📄 Invalid file type:', file.type);
+          return;
+        }
+        
+        // Validate file size (max 50MB for PDFs)
+        if (file.size > 50 * 1024 * 1024) {
+          console.error('[Whiteboard] 📄 File too large:', file.size);
+          return;
+        }
+        
+        console.log('[Whiteboard] 📄 Uploading PDF to backend...');
+        // Upload to backend (same as images)
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        const backendUrl = process.env.REACT_APP_BACKEND_URL || 'https://tutor-cancen-backend-bxepcjdqeca7f6bk.canadacentral-01.azurewebsites.net';
+        const uploadRequestStart = performance.now();
+        const response = await fetch(`${backendUrl}/api/files/upload`, {
+          method: 'POST',
+          body: formData
+        });
+        const uploadRequestEnd = performance.now();
+        
+        if (!response.ok) {
+          if (response.status === 400) {
+            throw new Error(`Backend doesn't support PDF uploads yet (400 Bad Request). Please ask Gemini to enable PDF support in the backend.`);
+          }
+          throw new Error(`Upload failed: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        const uploadEndTime = performance.now();
+        window.pdfUploadEndTime = Date.now();
+        console.log('[Whiteboard] 📄 PDF upload successful:', result);
+        console.log('[Whiteboard] ⏱️ UPLOAD TIMING:', {
+          totalUploadTime: `${(uploadEndTime - uploadStartTime).toFixed(2)}ms`,
+          networkRequestTime: `${(uploadRequestEnd - uploadRequestStart).toFixed(2)}ms`,
+          fileSize: `${(file.size / 1024 / 1024).toFixed(2)}MB`,
+          uploadSpeed: `${((file.size / 1024 / 1024) / ((uploadEndTime - uploadStartTime) / 1000)).toFixed(2)}MB/s`
+        });
+        
+        // Use backend proxy URL to avoid CORS issues
+        const pdfUrl = `${backendUrl}/api/files/proxy/${result.filename}`;
+        console.log('[Whiteboard] 📄 PDF proxy URL generated:', pdfUrl);
+        
+        // Clear image-specific state when switching to PDF
+        setBackgroundDimensions({ width: 0, height: 0 });
+        
+        // Set background (preserve existing drawings)
+        console.log('[Whiteboard] 📄 Setting PDF as background file with CDN URL');
+        setBackgroundFile(pdfUrl);
+        setBackgroundType('pdf');
+        
+        // Add to history with current state (preserve existing drawings)
+        addToHistory();
+        
+        // Send to remote peers (same as images)
+        if (webRTCProvider && selectedPeer) {
+          const peerSendStart = performance.now();
+          console.log('[Whiteboard] 📄 Sending PDF to remote peer:', { selectedPeer, pdfUrl });
+          console.log('[Whiteboard] 📤 SENDING PDF TO REMOTE PEER:', { peer: selectedPeer, pdfUrl });
+          webRTCProvider.sendWhiteboardMessage(selectedPeer, {
+            action: 'background',
+            background: {
+              file: pdfUrl,
+              type: 'pdf'
+            }
+          });
+          const peerSendEnd = performance.now();
+          console.log('[Whiteboard] 📄 PDF sent to remote peer successfully');
+          console.log('[Whiteboard] ⏱️ PEER SEND TIMING:', {
+            peerSendTime: `${(peerSendEnd - peerSendStart).toFixed(2)}ms`
+          });
+        } else {
+          console.log('[Whiteboard] 📄 Cannot send PDF to remote peer:', { 
+            hasWebRTCProvider: !!webRTCProvider, 
+            selectedPeer, 
+            pdfUrl 
+          });
+        }
+        
+        const totalEndTime = performance.now();
+        console.log('[Whiteboard] 📄 PDF upload and sharing completed successfully');
+        console.log('[Whiteboard] ⏱️ TOTAL PROCESSING TIME:', {
+          totalTime: `${(totalEndTime - uploadStartTime).toFixed(2)}ms`,
+          breakdown: {
+            upload: `${(uploadEndTime - uploadStartTime).toFixed(2)}ms`,
+            peerSend: webRTCProvider && selectedPeer ? `${(totalEndTime - uploadEndTime).toFixed(2)}ms` : 'N/A (no peer)'
+          }
+        });
+        
+      } catch (error) {
+        console.error('[Whiteboard] 📄 PDF upload failed:', error);
+        // Fallback: set file directly (won't work with remote peers)
+        console.log('[Whiteboard] 📄 Falling back to direct file setting (no remote sharing)');
+        setBackgroundFile(file);
+        setBackgroundType('pdf');
+        
+        // Add to history with current state (preserve existing drawings)
+        addToHistory();
       }
       
-      setBackgroundFile(file);
+      // Note: onPdfChange not called to avoid loop
+      // Mutual exclusivity is already handled by DashboardPage before calling this function
+    } else {
+      console.log('[Whiteboard] 📄 No file selected');
+    }
+  };
+
+  // NEW: Enhanced PDF upload with CDN support (optional)
+  const handleFileUploadWithCDN = async (event) => {
+    console.log('[Whiteboard] 📄 PDF upload with CDN started');
+    
+    const file = event.target.files[0];
+    if (!file) {
+      console.log('[Whiteboard] 📄 No file selected, returning');
+      return;
+    }
+    
+    console.log('[Whiteboard] 📄 PDF upload started:', file.name);
+    
+    try {
+      // Validate file type
+      if (file.type !== 'application/pdf') {
+        console.error('[Whiteboard] 📄 Invalid file type:', file.type);
+        return;
+      }
+      
+      // Validate file size (max 50MB for PDFs)
+      if (file.size > 50 * 1024 * 1024) {
+        console.error('[Whiteboard] 📄 File too large:', file.size);
+        return;
+      }
+      
+      // Upload to backend (same as images)
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const backendUrl = process.env.REACT_APP_BACKEND_URL || 'https://tutor-cancen-backend-bxepcjdqeca7f6bk.canadacentral-01.azurewebsites.net';
+      const response = await fetch(`${backendUrl}/api/files/upload`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Upload failed: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      console.log('[Whiteboard] 📄 PDF upload successful:', result);
+      
+      // Use CDN URL for better performance (same as images)
+      const pdfUrl = result.url;
+      
+      // Set background (preserve existing drawings)
+      setBackgroundFile(pdfUrl);
       setBackgroundType('pdf');
       
-      // Notify parent component about PDF change for mutual exclusivity
+      // Add to history with current state (preserve existing drawings)
+      addToHistory();
+      
+      // Notify parent component
       if (onPdfChange) {
-        onPdfChange(file);
+        onPdfChange(pdfUrl);
       }
+      
+      // Send to remote peers (same as images)
+      if (webRTCProvider && selectedPeer) {
+        console.log('[Whiteboard] 📄 Sending PDF to remote peer:', { selectedPeer, pdfUrl });
+        console.log('[Whiteboard] 📤 SENDING PDF TO REMOTE PEER:', { peer: selectedPeer, pdfUrl });
+        webRTCProvider.sendWhiteboardMessage(selectedPeer, {
+          action: 'background',
+          background: {
+            file: pdfUrl,
+            type: 'pdf'
+          }
+        });
+      } else {
+        console.log('[Whiteboard] 📄 Cannot send PDF to remote peer:', { 
+          hasWebRTCProvider: !!webRTCProvider, 
+          selectedPeer, 
+          pdfUrl 
+        });
+      }
+      
+    } catch (error) {
+      console.error('[Whiteboard] 📄 PDF upload failed:', error);
     }
   };
 
@@ -918,10 +1136,113 @@ const Whiteboard = forwardRef(({
     setCurrentPage(newPage);
   };
 
+  // Calculate page position including gaps for navigation
+  const getPagePosition = (pageNumber) => {
+    const pageHeight = 800; // Standard page height
+    const gap = 5; // Gap between pages
+    return (pageNumber - 1) * (pageHeight + gap);
+  };
+
+  // Scroll to specific page
+  const scrollToPage = (pageNumber) => {
+    const position = getPagePosition(pageNumber);
+    console.log('[Whiteboard] 📄 Scrolling to page', pageNumber, 'at position', position);
+    
+    // Find the dashboard-content element and scroll to position
+    const dashboardContent = document.querySelector('.dashboard-content');
+    if (dashboardContent) {
+      dashboardContent.scrollTo({
+        top: position,
+        behavior: 'smooth'
+      });
+    }
+  };
+
+  // Navigate to previous page
+  const goToPreviousPage = () => {
+    if (currentPage > 1) {
+      const newPage = currentPage - 1;
+      setCurrentPage(newPage);
+      scrollToPage(newPage);
+      // Notify parent component
+      if (onPdfPageChange) {
+        onPdfPageChange(newPage);
+      }
+    }
+  };
+
+  // Navigate to next page
+  const goToNextPage = () => {
+    if (currentPage < pdfPages) {
+      const newPage = currentPage + 1;
+      setCurrentPage(newPage);
+      scrollToPage(newPage);
+      // Notify parent component
+      if (onPdfPageChange) {
+        onPdfPageChange(newPage);
+      }
+    }
+  };
+
+  // Handle external page changes from PDFNavigation component
+  useEffect(() => {
+    if (pdfCurrentPage && pdfCurrentPage !== currentPage) {
+      setCurrentPage(pdfCurrentPage);
+      scrollToPage(pdfCurrentPage);
+    }
+  }, [pdfCurrentPage]);
+
+  // Get current visible page based on scroll position
+  const getCurrentVisiblePage = () => {
+    const dashboardContent = document.querySelector('.dashboard-content');
+    if (!dashboardContent) return 1;
+    
+    const scrollTop = dashboardContent.scrollTop;
+    const pageHeight = 800; // Standard page height
+    const gap = 5; // Gap between pages
+    
+    // Calculate which page is currently in view
+    const pageNumber = Math.floor(scrollTop / (pageHeight + gap)) + 1;
+    return Math.max(1, Math.min(pageNumber, pdfPages));
+  };
+
+  // Update current page when scrolling
+  useEffect(() => {
+    if (backgroundType === 'pdf' && pdfPages > 1) {
+      const dashboardContent = document.querySelector('.dashboard-content');
+      if (dashboardContent) {
+        const handleScroll = () => {
+          const visiblePage = getCurrentVisiblePage();
+          if (visiblePage !== currentPage) {
+            setCurrentPage(visiblePage);
+          }
+        };
+        
+        dashboardContent.addEventListener('scroll', handleScroll);
+        return () => dashboardContent.removeEventListener('scroll', handleScroll);
+      }
+    }
+  }, [backgroundType, pdfPages, currentPage]);
+
   const handleClear = () => {
+    if (backgroundType === 'pdf') {
+      // Clear drawings for current page only
+      const currentPageNum = getCurrentVisiblePage();
+      setPageLines(prev => ({
+        ...prev,
+        [currentPageNum]: []
+      }));
+      setPageShapes(prev => ({
+        ...prev,
+        [currentPageNum]: []
+      }));
+    } else {
+      // Clear all drawings for non-PDF backgrounds
       setLines([]);
-        setShapes([]);
+      setShapes([]);
+    }
     setSelectedShape(null);
+    
     addToHistory();
     
     // Send clear via WebRTC data channel
@@ -1068,29 +1389,151 @@ const Whiteboard = forwardRef(({
               backgroundColor: '#f5f5f5',
               display: 'flex',
               justifyContent: 'center',
-              alignItems: 'center'
+              alignItems: 'flex-start' // Start from top instead of center
             }}
           >
             {backgroundType === 'pdf' ? (
               <Document
                 file={backgroundFile}
+                onLoadStart={() => {
+                  const downloadStartTime = performance.now();
+                  console.log('[Whiteboard] ⏱️ PDF DOWNLOAD STARTED:', {
+                    url: backgroundFile,
+                    timestamp: downloadStartTime
+                  });
+                  // Store start time for later calculation
+                  window.pdfDownloadStartTime = downloadStartTime;
+                }}
                 onLoadSuccess={({ numPages }) => {
-                  console.log('PDF loaded successfully with', numPages, 'pages');
+                  const renderStartTime = performance.now();
+                  setPdfRenderStartTime(renderStartTime);
+                  window.pdfRenderStartTime = renderStartTime;
+                  const downloadTime = window.pdfDownloadStartTime ? 
+                    (renderStartTime - window.pdfDownloadStartTime) : null;
+                  
+                  console.log('[Whiteboard] 📄 PDF loaded successfully with', numPages, 'pages');
+                  if (downloadTime) {
+                    console.log('[Whiteboard] ⏱️ PDF DOWNLOAD TIMING:', {
+                      downloadTime: `${downloadTime.toFixed(2)}ms`,
+                      url: backgroundFile,
+                      fileSize: 'Unknown (from proxy)'
+                    });
+                  }
                   setPdfPages(numPages);
+                  
+                  // Notify parent component about PDF pages
+                  if (onPdfPagesChange) {
+                    onPdfPagesChange(numPages);
+                  }
+                  
+                  // Calculate total PDF height for all pages + gaps
+                  const pageHeight = 800; // Standard page height
+                  const gap = 6; // Gap between pages (6px as requested)
+                  const totalHeight = (pageHeight * numPages) + (gap * (numPages - 1));
+                  const pageWidth = backgroundDimensions.width > 0 ? backgroundDimensions.width * 0.9 : currentContainerSize.width * 0.9;
+                  
+                  console.log('[Whiteboard] 📄 PDF dimensions calculated:', {
+                    numPages,
+                    pageHeight,
+                    gap,
+                    totalHeight,
+                    pageWidth,
+                    willExceedContainer: totalHeight > 800,
+                    scrollbarsNeeded: totalHeight > 800 ? 'YES - PDF exceeds dashboard-content (800px)' : 'NO - PDF fits in container',
+                    spacingInfo: {
+                      gapBetweenPages: '6px',
+                      totalGaps: (numPages - 1) * 6,
+                      expectedTotalHeight: (pageHeight * numPages) + ((numPages - 1) * 6)
+                    }
+                  });
+                  
+                  // Set background dimensions to total PDF height
+                  setBackgroundDimensions({ 
+                    width: pageWidth, 
+                    height: totalHeight 
+                  });
+                  
+                  // Log container sizing for debugging
+                  console.log('[Whiteboard] 📄 Container will expand to:', {
+                    containerWidth: pageWidth,
+                    containerHeight: totalHeight,
+                    dashboardContentSize: '1200x800px',
+                    willShowScrollbars: totalHeight > 800
+                  });
+                  
+                  // Debug: Log actual dimensions after a short delay to see rendered size
+                  setTimeout(() => {
+                    const pdfContainer = document.querySelector('.pdf-pages-container');
+                    if (pdfContainer) {
+                      const rect = pdfContainer.getBoundingClientRect();
+                      const renderEndTime = performance.now();
+                      console.log('[Whiteboard] 📄 ACTUAL PDF CONTAINER DIMENSIONS:', {
+                        width: rect.width,
+                        height: rect.height,
+                        expectedHeight: totalHeight,
+                        difference: rect.height - totalHeight,
+                        hasExtraSpacing: rect.height > totalHeight
+                      });
+                      console.log('[Whiteboard] ⏱️ PDF RENDER TIMING:', {
+                        renderTime: pdfRenderStartTime ? `${(renderEndTime - pdfRenderStartTime).toFixed(2)}ms` : 'N/A',
+                        numPages: numPages,
+                        renderSpeed: pdfRenderStartTime ? `${(numPages / ((renderEndTime - pdfRenderStartTime) / 1000)).toFixed(2)} pages/sec` : 'N/A'
+                      });
+                    }
+                  }, 1000);
                 }}
                 onLoadError={(error) => {
-                  console.error('Error loading PDF:', error);
+                  console.error('[Whiteboard] 📄 Error loading PDF:', error);
                 }}
                 loading={<div>Loading PDF...</div>}
               >
-                <Page
-                  pageNumber={currentPage}
-                  width={backgroundDimensions.width > 0 ? backgroundDimensions.width * 0.9 : currentContainerSize.width * 0.9}
-                  renderTextLayer={false}
-                  renderAnnotationLayer={false}
-                  error={<div>Error loading page!</div>}
-                  loading={<div>Loading page...</div>}
-                />
+                {/* PDF Navigation is now handled by external PDFNavigation component */}
+
+                {/* Render ALL pages with 6px gaps between pages only */}
+                <div className="pdf-pages-container">
+                  {Array.from({ length: pdfPages }, (_, index) => (
+                    <div 
+                      key={index + 1} 
+                      className="pdf-page-container"
+                      style={{ 
+                        marginBottom: index < pdfPages - 1 ? '6px' : '0px' // 6px gap between pages, no gap after last page
+                      }}
+                    >
+                      <Page
+                        pageNumber={index + 1}
+                        width={backgroundDimensions.width > 0 ? backgroundDimensions.width * 0.9 : currentContainerSize.width * 0.9}
+                        renderTextLayer={false}
+                        renderAnnotationLayer={false}
+                        error={<div>Error loading page {index + 1}!</div>}
+                        loading={<div>Loading page {index + 1}...</div>}
+                        onLoadSuccess={() => {
+                          const pageRenderTime = performance.now();
+                          console.log(`[Whiteboard] ⏱️ PAGE ${index + 1} RENDERED:`, {
+                            pageNumber: index + 1,
+                            renderTime: pdfRenderStartTime ? `${(pageRenderTime - pdfRenderStartTime).toFixed(2)}ms` : 'N/A',
+                            cumulativeTime: `${(pageRenderTime - (window.pdfDownloadStartTime || pdfRenderStartTime || 0)).toFixed(2)}ms`
+                          });
+                          
+                          // Log end-to-end timing for the last page
+                          if (index + 1 === pdfPages) {
+                            const absoluteEndTime = Date.now();
+                            const totalEndToEndTime = absoluteEndTime - window.pdfUploadStartTime;
+                            console.log('[Whiteboard] ⏱️ END-TO-END COMPLETE:', {
+                              totalTime: `${totalEndToEndTime}ms`,
+                              totalTimeSeconds: `${(totalEndToEndTime / 1000).toFixed(2)}s`,
+                              timestamp: new Date(absoluteEndTime).toISOString(),
+                              breakdown: {
+                                upload: `${(window.pdfUploadEndTime - window.pdfUploadStartTime).toFixed(2)}ms`,
+                                render: `${(pageRenderTime - window.pdfRenderStartTime).toFixed(2)}ms`,
+                                total: `${totalEndToEndTime}ms`
+                              }
+                            });
+                          }
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
               </Document>
             ) : backgroundType === 'image' ? (
               <img
@@ -1186,32 +1629,53 @@ const Whiteboard = forwardRef(({
           onClick={handleClick}
         >
             <Layer>
-              {/* Render lines */}
-              {lines.map((line, index) => (
-                <Line
-                  key={line.id || index}
-                  points={line.points}
-                  stroke={line.stroke}
-                  strokeWidth={line.strokeWidth}
-                  lineCap={line.lineCap}
-                  lineJoin={line.lineJoin}
-                  draggable={!currentTool}
-                  onClick={() => setSelectedShape(line)}
-                />
-              ))}
+              {/* Render lines - page-specific for PDF, all for others */}
+              {(backgroundType === 'pdf' ? 
+                // For PDF: render all page lines
+                Object.entries(pageLines).flatMap(([pageNum, pageLines]) => 
+                  pageLines.map((line, index) => (
+                    <Line
+                      key={`page-${pageNum}-line-${line.id || index}`}
+                      points={line.points}
+                      stroke={line.stroke}
+                      strokeWidth={line.strokeWidth}
+                      lineCap={line.lineCap}
+                      lineJoin={line.lineJoin}
+                      draggable={!currentTool}
+                      onClick={() => setSelectedShape(line)}
+                    />
+                  ))
+                ) :
+                // For non-PDF: render all lines
+                lines.map((line, index) => (
+                  <Line
+                    key={line.id || index}
+                    points={line.points}
+                    stroke={line.stroke}
+                    strokeWidth={line.strokeWidth}
+                    lineCap={line.lineCap}
+                    lineJoin={line.lineJoin}
+                    draggable={!currentTool}
+                    onClick={() => setSelectedShape(line)}
+                  />
+                ))
+              )}
 
-              {/* Render shapes */}
-              {shapes.map((shape, index) => {
-                const commonProps = {
-                  key: shape.id || index,
-                  x: shape.x,
-                  y: shape.y,
-                  stroke: shape.stroke,
-                  strokeWidth: shape.strokeWidth,
-                  fill: shape.fill,
-                  draggable: !currentTool,
-                  onClick: () => setSelectedShape(shape)
-                };
+              {/* Render shapes - page-specific for PDF, all for others */}
+              {(backgroundType === 'pdf' ? 
+                // For PDF: render all page shapes
+                Object.entries(pageShapes).flatMap(([pageNum, pageShapes]) => 
+                  pageShapes.map((shape, index) => {
+                    const commonProps = {
+                      key: `page-${pageNum}-shape-${shape.id || index}`,
+                      x: shape.x,
+                      y: shape.y,
+                      stroke: shape.stroke,
+                      strokeWidth: shape.strokeWidth,
+                      fill: shape.fill,
+                      draggable: !currentTool,
+                      onClick: () => setSelectedShape(shape)
+                    };
 
                 switch (shape.type) {
                   case 'line':
@@ -1259,7 +1723,69 @@ const Whiteboard = forwardRef(({
                   default:
                     return null;
                 }
-              })}
+                  })
+                ) :
+                // For non-PDF: render all shapes
+                shapes.map((shape, index) => {
+                  const commonProps = {
+                    key: shape.id || index,
+                    x: shape.x,
+                    y: shape.y,
+                    stroke: shape.stroke,
+                    strokeWidth: shape.strokeWidth,
+                    fill: shape.fill,
+                    draggable: !currentTool,
+                    onClick: () => setSelectedShape(shape)
+                  };
+
+                  switch (shape.type) {
+                    case 'line':
+                      return (
+                        <Line
+                          {...commonProps}
+                          points={shape.points}
+                        />
+                      );
+                    case 'circle':
+                      return (
+                        <Circle
+                          {...commonProps}
+                          radius={shape.radius}
+                        />
+                      );
+                    case 'ellipse':
+                      return (
+                        <Ellipse
+                          {...commonProps}
+                          radiusX={shape.radiusX}
+                          radiusY={shape.radiusY}
+                        />
+                      );
+                    case 'rectangle':
+                      return (
+                        <Rect
+                          {...commonProps}
+                          width={shape.width}
+                          height={shape.height}
+                        />
+                      );
+                    case 'triangle':
+                      return (
+                        <Group {...commonProps}>
+                        <Line
+                            points={[0, shape.height, shape.width / 2, 0, shape.width, shape.height]}
+                            closed
+                            stroke={shape.stroke}
+                            strokeWidth={shape.strokeWidth}
+                            fill={shape.fill}
+                          />
+                        </Group>
+                      );
+                    default:
+                      return null;
+                  }
+                })
+              )}
 
               {/* Render remote cursors */}
               {Array.from(cursors.entries()).map(([userId, cursor]) => (
