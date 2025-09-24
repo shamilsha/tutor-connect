@@ -10,6 +10,21 @@ import { WebRTCProvider } from '../services/WebRTCProvider';
 // Configure PDF.js worker - use local worker to avoid CORS issues
 pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
 
+// Logging system for Whiteboard
+const LOG_LEVELS = { ERROR: 0, WARN: 1, INFO: 2, DEBUG: 3, VERBOSE: 4 };
+const LOG_LEVEL = process.env.REACT_APP_LOG_LEVEL || 'INFO';
+
+const log = (level, component, message, data = null) => {
+  if (LOG_LEVELS[level] <= LOG_LEVELS[LOG_LEVEL]) {
+    const prefix = `[${component}] ${level}:`;
+    if (data) {
+      console.log(prefix, message, data);
+    } else {
+      console.log(prefix, message);
+    }
+  }
+};
+
 const Whiteboard = forwardRef(({ 
   userId, 
   username, 
@@ -42,7 +57,7 @@ const Whiteboard = forwardRef(({
   onPdfPageChange = null,
   onPdfPagesChange = null,
 }, ref) => {
-  console.log('Whiteboard mounted with:', { userId, username, screenShareStream: !!screenShareStream, isScreenShareActive });
+  log('INFO', 'Whiteboard', 'Component mounted', { userId, username, screenShareStream: !!screenShareStream, isScreenShareActive });
   
   // Drawing state
   const [lines, setLines] = useState([]);
@@ -63,7 +78,7 @@ const Whiteboard = forwardRef(({
   const [historyStep, setHistoryStep] = useState(0);
   
   // Log current state after all state variables are declared
-  console.log('[Whiteboard] 🔍 Current state on mount:', { lines: lines.length, shapes: shapes.length, historyStep, historyLength: history.length });
+  log('DEBUG', 'Whiteboard', 'Current state on mount', { lines: lines.length, shapes: shapes.length, historyStep, historyLength: history.length });
   
   const [defaultFill, setDefaultFill] = useState(false);
   const [strokeColor, setStrokeColor] = useState(currentColor);
@@ -85,7 +100,7 @@ const Whiteboard = forwardRef(({
   const [screenShareDimensions, setScreenShareDimensions] = useState({ width: 0, height: 0 });
 
   // Debug flag to control verbose logging
-  const DEBUG_MOUSE_MOVEMENT = false; // Set to true to enable mouse movement logs
+  const DEBUG_MOUSE_MOVEMENT = LOG_LEVEL === 'VERBOSE'; // Enable mouse movement logs in VERBOSE mode
 
   // Refs
   const startPointRef = useRef(null);
@@ -103,20 +118,20 @@ const Whiteboard = forwardRef(({
   // Update container size when prop changes
   useEffect(() => {
     setCurrentContainerSize(containerSize);
-    console.log('[Whiteboard] 📏 Container size updated:', containerSize);
+    log('DEBUG', 'Whiteboard', 'Container size updated', containerSize);
   }, [containerSize]);
 
 
   // WebRTC setup
   useEffect(() => {
     if (webRTCProvider && selectedPeer) {
-      console.log('[Whiteboard] 🎨 Setting up data channel communication with peer:', selectedPeer);
+      log('INFO', 'Whiteboard', 'Setting up data channel communication with peer', selectedPeer);
       webRTCProviderRef.current = webRTCProvider;
       selectedPeerRef.current = selectedPeer;
 
       const handleWhiteboardMessage = (event) => {
         const { data } = event;
-        console.log('[Whiteboard] 📨 Received whiteboard message:', data);
+        log('DEBUG', 'Whiteboard', 'Received whiteboard message', data);
         handleRemoteWhiteboardUpdate(data);
       };
 
@@ -130,7 +145,7 @@ const Whiteboard = forwardRef(({
 
   // Container size tracking - use dynamic dimensions
   useEffect(() => {
-    console.log('[Whiteboard] 📏 Using dynamic container size:', { 
+    log('DEBUG', 'Whiteboard', 'Using dynamic container size', { 
       width: currentContainerSize.width, 
       height: currentContainerSize.height,
       isScreenShareActive
@@ -139,7 +154,7 @@ const Whiteboard = forwardRef(({
 
   // Track background dimensions changes
   useEffect(() => {
-    console.log('[Whiteboard] 📏 Background dimensions changed:', {
+    log('DEBUG', 'Whiteboard', 'Background dimensions changed', {
       backgroundDimensions,
       currentContainerSize,
       isScreenShareActive,
@@ -163,7 +178,7 @@ const Whiteboard = forwardRef(({
   
   // Log dimension changes for debugging
   useEffect(() => {
-    console.log('[Whiteboard] 📏 DIMENSION DEBUG:', {
+    log('DEBUG', 'Whiteboard', 'Dimension debug', {
       isScreenShareActive,
       screenShareDimensions,
       backgroundDimensions,
@@ -195,7 +210,7 @@ const Whiteboard = forwardRef(({
         
         // Safety check to prevent infinite polling
         if (pollCount > maxPolls) {
-          console.log('[Whiteboard] 📏 Polling timeout - screen share video dimensions not available');
+          log('WARN', 'Whiteboard', 'Polling timeout - screen share video dimensions not available');
           return;
         }
         
@@ -207,7 +222,7 @@ const Whiteboard = forwardRef(({
             const displayWidth = screenShareVideo.offsetWidth;
             const displayHeight = screenShareVideo.offsetHeight;
             
-            console.log('[Whiteboard] 📏 Checking screen share video dimensions:', {
+            log('DEBUG', 'Whiteboard', 'Checking screen share video dimensions', {
               videoWidth,
               videoHeight,
               displayWidth,
@@ -219,8 +234,8 @@ const Whiteboard = forwardRef(({
             });
             
             if (videoWidth > 0 && videoHeight > 0) {
-              console.log('[Whiteboard] 📏 Screen share video ORIGINAL dimensions detected:', { videoWidth, videoHeight });
-              console.log('[Whiteboard] 📏 SETTING screenShareDimensions to:', { width: videoWidth, height: videoHeight });
+              log('DEBUG', 'Whiteboard', 'Screen share video ORIGINAL dimensions detected', { videoWidth, videoHeight });
+              log('DEBUG', 'Whiteboard', 'SETTING screenShareDimensions', { width: videoWidth, height: videoHeight });
               setScreenShareDimensions({ width: videoWidth, height: videoHeight });
               return; // Stop polling once we get dimensions
             }
@@ -228,7 +243,7 @@ const Whiteboard = forwardRef(({
           // Continue polling if dimensions not available yet
           timeoutId = setTimeout(pollForDimensions, 100);
         } catch (error) {
-          console.error('[Whiteboard] 📏 Error polling for screen share dimensions:', error);
+          log('ERROR', 'Whiteboard', 'Error polling for screen share dimensions', error);
         }
       };
       
@@ -250,7 +265,7 @@ const Whiteboard = forwardRef(({
 
   // Handle remote whiteboard updates
   const handleRemoteWhiteboardUpdate = (data) => {
-    console.log('[Whiteboard] 📨 Processing remote whiteboard update:', data);
+    log('DEBUG', 'Whiteboard', 'Processing remote whiteboard update', data);
     
     // Note: clearBackground messages now handled via checkExclusivity() approach
     
@@ -377,20 +392,20 @@ const Whiteboard = forwardRef(({
         break;
         case 'background':
           if (data.background) {
-            console.log('[Whiteboard] 🎨 Received background update:', data.background);
-            console.log('[Whiteboard] 📥 RECEIVED BACKGROUND FROM REMOTE:', { 
+            log('INFO', 'Whiteboard', 'Received background update', data.background);
+            log('INFO', 'Whiteboard', 'Received background from remote', { 
               type: data.background.type, 
               file: data.background.file
             });
             
             // Check mutual exclusivity when receiving background from remote peer
             if (data.background.type === 'image' && onImageChange) {
-              console.log('[Whiteboard] 🎨 Remote image received, checking exclusivity');
-              console.log('[Whiteboard] 📥 TRIGGERING IMAGE EXCLUSIVITY CHECK:', data.background.file);
+              log('INFO', 'Whiteboard', 'Remote image received, checking exclusivity');
+              log('INFO', 'Whiteboard', 'Triggering image exclusivity check', data.background.file);
               onImageChange(data.background.file);
             } else if (data.background.type === 'pdf' && onPdfChange) {
-              console.log('[Whiteboard] 📄 Remote PDF received, checking exclusivity');
-              console.log('[Whiteboard] 📥 TRIGGERING PDF EXCLUSIVITY CHECK:', data.background.file);
+              log('INFO', 'Whiteboard', 'Remote PDF received, checking exclusivity');
+              log('INFO', 'Whiteboard', 'Triggering PDF exclusivity check', data.background.file);
               onPdfChange(data.background.file);
             }
             
@@ -400,14 +415,14 @@ const Whiteboard = forwardRef(({
           break;
       // Note: clearBackground case removed - now using checkExclusivity() approach
       default:
-        console.log('[Whiteboard] Unknown action:', data.action);
+        log('WARN', 'Whiteboard', 'Unknown action', data.action);
     }
   };
 
   // Generic function to send whiteboard messages via WebRTC data channel
   const sendWhiteboardMsg = async (action, data = {}) => {
     if (!webRTCProviderRef.current || !selectedPeerRef.current) {
-      console.log('[Whiteboard] No datachannel available, skipping message:', action);
+      log('WARN', 'Whiteboard', 'No datachannel available, skipping message', action);
       return;
     }
 
@@ -449,7 +464,7 @@ const Whiteboard = forwardRef(({
 
       // Add stack trace to see where the message is being sent from
       const stack = new Error().stack;
-      console.log('[Whiteboard] 🎨 Sending whiteboard message via data channel:', {
+      log('DEBUG', 'Whiteboard', 'Sending whiteboard message via data channel', {
         action,
         userId,
         username,
@@ -458,7 +473,7 @@ const Whiteboard = forwardRef(({
       
       await webRTCProviderRef.current.sendWhiteboardMessage(selectedPeerRef.current, message);
     } catch (error) {
-      console.error('[Whiteboard] Error sending whiteboard message:', error);
+      log('ERROR', 'Whiteboard', 'Error sending whiteboard message', error);
     }
   };
 
@@ -483,15 +498,15 @@ const Whiteboard = forwardRef(({
       const stageTransform = stageContainer.style.transform;
       const stageScale = stage.scaleX();
       
-      console.log('[Whiteboard] 🖱️ MOUSE MOVE - Native event coordinates:', { clientX: nativeX, clientY: nativeY });
-      console.log('[Whiteboard] 🖱️ MOUSE MOVE - Stage rect:', { left: stageRect.left, top: stageRect.top });
-      console.log('[Whiteboard] 🖱️ MOUSE MOVE - Stage container rect:', { left: stageContainerRect.left, top: stageContainerRect.top });
-      console.log('[Whiteboard] 🖱️ MOUSE MOVE - Stage transform:', stageTransform);
-      console.log('[Whiteboard] 🖱️ MOUSE MOVE - Stage scale:', stageScale);
-      console.log('[Whiteboard] 🖱️ MOUSE MOVE - Calculated offset:', { offsetX, offsetY });
-      console.log('[Whiteboard] 🖱️ MOUSE MOVE - Konva point vs offset:', { konvaX: point.x, konvaY: point.y, offsetX, offsetY });
-      console.log('[Whiteboard] 🖱️ MOUSE MOVE - Coordinate difference:', { diffX: point.x - offsetX, diffY: point.y - offsetY });
-      console.log('[Whiteboard] 🖱️ MOUSE MOVE - Using corrected coordinates:', { correctedX, correctedY, offsetX, offsetY });
+      log('VERBOSE', 'Whiteboard', 'Mouse move - Native event coordinates', { clientX: nativeX, clientY: nativeY });
+      log('VERBOSE', 'Whiteboard', 'Mouse move - Stage rect', { left: stageRect.left, top: stageRect.top });
+      log('VERBOSE', 'Whiteboard', 'Mouse move - Stage container rect', { left: stageContainerRect.left, top: stageContainerRect.top });
+      log('VERBOSE', 'Whiteboard', 'Mouse move - Stage transform', stageTransform);
+      log('VERBOSE', 'Whiteboard', 'Mouse move - Stage scale', stageScale);
+      log('VERBOSE', 'Whiteboard', 'Mouse move - Calculated offset', { offsetX, offsetY });
+      log('VERBOSE', 'Whiteboard', 'Mouse move - Konva point vs offset', { konvaX: point.x, konvaY: point.y, offsetX, offsetY });
+      log('VERBOSE', 'Whiteboard', 'Mouse move - Coordinate difference', { diffX: point.x - offsetX, diffY: point.y - offsetY });
+      log('VERBOSE', 'Whiteboard', 'Mouse move - Using corrected coordinates', { correctedX, correctedY, offsetX, offsetY });
     }
 
     // Only send cursor position when a tool is selected (throttled to avoid spam)
@@ -549,7 +564,7 @@ const Whiteboard = forwardRef(({
             switch (shape.type) {
               case 'line':
                 if (DEBUG_MOUSE_MOVEMENT) {
-                  console.log(`[Line Drawing] Mouse: (${correctedX}, ${correctedY}), Start: (${startPoint.x}, ${startPoint.y}), Delta: (${dx}, ${dy})`);
+                  log('VERBOSE', 'Whiteboard', 'Line drawing mouse', { correctedX, correctedY, startX: startPoint.x, startY: startPoint.y, deltaX: dx, deltaY: dy });
                 }
                 return {
                   ...shape,
@@ -594,7 +609,7 @@ const Whiteboard = forwardRef(({
             switch (shape.type) {
               case 'line':
                 if (DEBUG_MOUSE_MOVEMENT) {
-                  console.log(`[Line Drawing] Mouse: (${correctedX}, ${correctedY}), Start: (${startPoint.x}, ${startPoint.y}), Delta: (${dx}, ${dy})`);
+                  log('VERBOSE', 'Whiteboard', 'Line drawing mouse', { correctedX, correctedY, startX: startPoint.x, startY: startPoint.y, deltaX: dx, deltaY: dy });
                 }
                 return {
                   ...shape,
@@ -637,7 +652,7 @@ const Whiteboard = forwardRef(({
   };
 
   const handleMouseDown = (e) => {
-    console.log('[Whiteboard] 🖱️ MOUSE DOWN - Current state:', {
+    log('VERBOSE', 'Whiteboard', 'Mouse down - Current state', {
       tool: currentTool,
       isDrawing,
       selectedShape: selectedShape?.id
@@ -665,17 +680,17 @@ const Whiteboard = forwardRef(({
     const stageScale = stage.scaleX();
     
     if (DEBUG_MOUSE_MOVEMENT) {
-      console.log('[Whiteboard] 🖱️ MOUSE DOWN - Starting drawing with tool:', drawingTool, 'at position:', point);
-      console.log('[Whiteboard] 🖱️ MOUSE DOWN - Stage dimensions:', { width: stage.width(), height: stage.height() });
-      console.log('[Whiteboard] 🖱️ MOUSE DOWN - Container size:', containerSize);
-      console.log('[Whiteboard] 🖱️ MOUSE DOWN - Native event coordinates:', { clientX: nativeX, clientY: nativeY });
-      console.log('[Whiteboard] 🖱️ MOUSE DOWN - Stage rect:', { left: stageRect.left, top: stageRect.top, width: stageRect.width, height: stageRect.height });
-      console.log('[Whiteboard] 🖱️ MOUSE DOWN - Stage container rect:', { left: stageContainerRect.left, top: stageContainerRect.top, width: stageContainerRect.width, height: stageContainerRect.height });
-      console.log('[Whiteboard] 🖱️ MOUSE DOWN - Stage transform:', stageTransform);
-      console.log('[Whiteboard] 🖱️ MOUSE DOWN - Stage scale:', stageScale);
-      console.log('[Whiteboard] 🖱️ MOUSE DOWN - Calculated offset:', { offsetX, offsetY });
-      console.log('[Whiteboard] 🖱️ MOUSE DOWN - Konva point vs offset:', { konvaX: point.x, konvaY: point.y, offsetX, offsetY });
-      console.log('[Whiteboard] 🖱️ MOUSE DOWN - Coordinate difference:', { diffX: point.x - offsetX, diffY: point.y - offsetY });
+      log('VERBOSE', 'Whiteboard', 'Mouse down - Starting drawing with tool', { drawingTool, position: point });
+      log('VERBOSE', 'Whiteboard', 'Mouse down - Stage dimensions', { width: stage.width(), height: stage.height() });
+      log('VERBOSE', 'Whiteboard', 'Mouse down - Container size', containerSize);
+      log('VERBOSE', 'Whiteboard', 'Mouse down - Native event coordinates', { clientX: nativeX, clientY: nativeY });
+      log('VERBOSE', 'Whiteboard', 'Mouse down - Stage rect', { left: stageRect.left, top: stageRect.top, width: stageRect.width, height: stageRect.height });
+      log('VERBOSE', 'Whiteboard', 'Mouse down - Stage container rect', { left: stageContainerRect.left, top: stageContainerRect.top, width: stageContainerRect.width, height: stageContainerRect.height });
+      log('VERBOSE', 'Whiteboard', 'Mouse down - Stage transform', stageTransform);
+      log('VERBOSE', 'Whiteboard', 'Mouse down - Stage scale', stageScale);
+      log('VERBOSE', 'Whiteboard', 'Mouse down - Calculated offset', { offsetX, offsetY });
+      log('VERBOSE', 'Whiteboard', 'Mouse down - Konva point vs offset', { konvaX: point.x, konvaY: point.y, offsetX, offsetY });
+      log('VERBOSE', 'Whiteboard', 'Mouse down - Coordinate difference', { diffX: point.x - offsetX, diffY: point.y - offsetY });
     }
 
     // Calculate corrected coordinates to account for Stage positioning offset
@@ -684,7 +699,7 @@ const Whiteboard = forwardRef(({
     const correctedY = offsetY; // Use calculated offset for Y coordinate
     
     if (DEBUG_MOUSE_MOVEMENT) {
-      console.log('[Whiteboard] 🖱️ MOUSE DOWN - Using corrected coordinates:', { correctedX, correctedY, offsetX, offsetY });
+      log('VERBOSE', 'Whiteboard', 'Mouse down - Using corrected coordinates', { correctedX, correctedY, offsetX, offsetY });
     }
 
     if (drawingTool === 'pen') {
@@ -725,7 +740,7 @@ const Whiteboard = forwardRef(({
         fill: defaultFill ? currentColor : 'transparent'
       };
 
-      console.log('Creating new shape:', newShape);
+      log('DEBUG', 'Whiteboard', 'Creating new shape', newShape);
 
       // Set specific properties based on shape type
       switch (drawingTool) {
@@ -764,7 +779,7 @@ const Whiteboard = forwardRef(({
       setIsDrawing(true);
       startPointRef.current = { x: correctedX, y: correctedY };
       if (DEBUG_MOUSE_MOVEMENT) {
-        console.log('[Whiteboard] 🖱️ MOUSE DOWN - Set startPoint to:', { x: correctedX, y: correctedY });
+        log('VERBOSE', 'Whiteboard', 'Mouse down - Set startPoint', { x: correctedX, y: correctedY });
       }
       
       // Send shape creation via WebRTC data channel
@@ -774,7 +789,7 @@ const Whiteboard = forwardRef(({
 
   const handleMouseUp = (e) => {
     if (DEBUG_MOUSE_MOVEMENT) {
-      console.log('[Whiteboard] 🖱️ MOUSE UP - Current state:', {
+      log('VERBOSE', 'Whiteboard', 'Mouse up - Current state', {
         isDrawing,
         tool: currentTool,
         selectedShape: selectedShape?.id,
@@ -787,17 +802,17 @@ const Whiteboard = forwardRef(({
     setIsDrawing(false);
       setSelectedShape(null);
     if (DEBUG_MOUSE_MOVEMENT) {
-      console.log('[Whiteboard] 🖱️ MOUSE UP - Set isDrawing=false, selectedShape=null');
+      log('VERBOSE', 'Whiteboard', 'Mouse up - Set isDrawing=false, selectedShape=null');
     }
     startPointRef.current = null;
     if (DEBUG_MOUSE_MOVEMENT) {
-      console.log('[Whiteboard] 🖱️ MOUSE UP - Cleared startPoint');
+      log('VERBOSE', 'Whiteboard', 'Mouse up - Cleared startPoint');
     }
   };
 
   const handleClick = (e) => {
     if (DEBUG_MOUSE_MOVEMENT) {
-      console.log('[Whiteboard] 🖱️ CLICK - Current state:', {
+      log('VERBOSE', 'Whiteboard', 'Click - Current state', {
         tool: currentTool,
         isDrawing,
         selectedShape: selectedShape?.id,
@@ -809,7 +824,7 @@ const Whiteboard = forwardRef(({
     // If a tool is active, don't handle click (let mouse up handle it)
     if (currentTool) {
       if (DEBUG_MOUSE_MOVEMENT) {
-        console.log('[Whiteboard] 🖱️ CLICK - Tool is active, returning early. Tool:', currentTool);
+        log('VERBOSE', 'Whiteboard', 'Click - Tool is active, returning early', currentTool);
       }
       return;
     }
@@ -824,7 +839,7 @@ const Whiteboard = forwardRef(({
   };
 
   const addToHistory = (currentLines = lines, currentShapes = shapes) => {
-    console.log('[Whiteboard] Adding to history:', { 
+    log('DEBUG', 'Whiteboard', 'Adding to history', { 
       currentHistoryLength: history.length, 
       currentHistoryStep: historyStep,
       linesCount: currentLines.length,
@@ -848,7 +863,7 @@ const Whiteboard = forwardRef(({
     setHistory(newHistory);
     setHistoryStep(newHistory.length - 1);
 
-    console.log('[Whiteboard] History updated:', { 
+    log('DEBUG', 'Whiteboard', 'History updated', { 
       newHistoryLength: newHistory.length, 
       newHistoryStep: newHistory.length - 1 
     });
@@ -875,7 +890,7 @@ const Whiteboard = forwardRef(({
         JSON.stringify(currentHistoryEntry.shapes) !== JSON.stringify(shapes);
       
       if (hasChanged && (lines.length > 0 || shapes.length > 0)) {
-        console.log('[Whiteboard] 🎨 Adding to history after drawing completion');
+        log('DEBUG', 'Whiteboard', 'Adding to history after drawing completion');
         addToHistory();
       }
     }
@@ -883,17 +898,17 @@ const Whiteboard = forwardRef(({
 
 
   const handleUndo = () => {
-    console.log('[Whiteboard] 🎨 Undo function called', { historyStep, historyLength: history.length });
-    console.log('[Whiteboard] 🔍 Current history:', history);
+    log('DEBUG', 'Whiteboard', 'Undo function called', { historyStep, historyLength: history.length });
+    log('DEBUG', 'Whiteboard', 'Current history', history);
     
     if (historyStep > 0) {
       const newStep = historyStep - 1;
       const prevState = history[newStep];
-      console.log('[Whiteboard] Undoing to step:', newStep, 'state:', prevState);
-      console.log('[Whiteboard] 🔍 Current lines before undo:', lines.length);
-      console.log('[Whiteboard] 🔍 Current shapes before undo:', shapes.length);
-      console.log('[Whiteboard] 🔍 New lines after undo:', prevState.lines.length);
-      console.log('[Whiteboard] 🔍 New shapes after undo:', prevState.shapes.length);
+      log('DEBUG', 'Whiteboard', 'Undoing to step', { newStep, state: prevState });
+      log('DEBUG', 'Whiteboard', 'Current lines before undo', lines.length);
+      log('DEBUG', 'Whiteboard', 'Current shapes before undo', shapes.length);
+      log('DEBUG', 'Whiteboard', 'New lines after undo', prevState.lines.length);
+      log('DEBUG', 'Whiteboard', 'New shapes after undo', prevState.shapes.length);
       
       // Simple approach - just update state directly
       setLines(prevState.lines);
@@ -907,7 +922,7 @@ const Whiteboard = forwardRef(({
       
       setHistoryStep(newStep);
 
-      console.log('[Whiteboard] ✅ State updates called - lines and shapes should be updated');
+      log('DEBUG', 'Whiteboard', 'State updates called - lines and shapes should be updated');
 
       // Send state via WebRTC data channel (like the backup version)
       sendWhiteboardMsg('state', { 
@@ -919,7 +934,7 @@ const Whiteboard = forwardRef(({
         }
       });
     } else {
-      console.log('[Whiteboard] Cannot undo - already at first step');
+      log('DEBUG', 'Whiteboard', 'Cannot undo - already at first step');
     }
   };
 
@@ -954,18 +969,18 @@ const Whiteboard = forwardRef(({
 
   // Handle undo/redo from toolbar
   useEffect(() => {
-    console.log('[Whiteboard] Setting up undo ref:', { onUndo, hasCurrent: onUndo?.current !== undefined });
+    log('DEBUG', 'Whiteboard', 'Setting up undo ref', { onUndo, hasCurrent: onUndo?.current !== undefined });
     if (onUndo) {
       onUndo.current = handleUndo;
-      console.log('[Whiteboard] Undo function set in ref');
+      log('DEBUG', 'Whiteboard', 'Undo function set in ref');
     }
   }, [onUndo, handleUndo]);
 
   useEffect(() => {
-    console.log('[Whiteboard] Setting up redo ref:', { onRedo, hasCurrent: onRedo?.current !== undefined });
+    log('DEBUG', 'Whiteboard', 'Setting up redo ref', { onRedo, hasCurrent: onRedo?.current !== undefined });
     if (onRedo) {
       onRedo.current = handleRedo;
-      console.log('[Whiteboard] Redo function set in ref');
+      log('DEBUG', 'Whiteboard', 'Redo function set in ref');
     }
   }, [onRedo, handleRedo]);
 
@@ -983,7 +998,7 @@ const Whiteboard = forwardRef(({
 
 
   const handleImageUpload = async (event) => {
-    console.log('[Whiteboard] 🎨 File input change event triggered:', { 
+    log('DEBUG', 'Whiteboard', 'File input change event triggered', { 
       hasFiles: event.target.files.length > 0, 
       fileCount: event.target.files.length,
       isScreenShareActive,
@@ -992,22 +1007,22 @@ const Whiteboard = forwardRef(({
     
     const file = event.target.files[0];
     if (!file) {
-      console.log('[Whiteboard] 🎨 No file selected, returning');
+      log('DEBUG', 'Whiteboard', 'No file selected, returning');
       return;
     }
     
-    console.log('[Whiteboard] 🎨 Image upload started:', file.name);
+    log('INFO', 'Whiteboard', 'Image upload started', file.name);
     
     try {
       // Validate file type
       if (!file.type.startsWith('image/')) {
-        console.error('[Whiteboard] 🎨 Invalid file type:', file.type);
+        log('ERROR', 'Whiteboard', 'Invalid file type', file.type);
         return;
       }
       
       // Validate file size (max 10MB)
       if (file.size > 10 * 1024 * 1024) {
-        console.error('[Whiteboard] 🎨 File too large:', file.size);
+        log('ERROR', 'Whiteboard', 'File too large', file.size);
         return;
       }
       
@@ -1026,7 +1041,7 @@ const Whiteboard = forwardRef(({
       }
       
       const result = await response.json();
-      console.log('[Whiteboard] 🎨 Upload successful:', result);
+      log('INFO', 'Whiteboard', 'Upload successful', result);
       
       // Use backend proxy URL to avoid CORS issues
       const imageUrl = `${backendUrl}/api/files/proxy/${result.filename}`;
@@ -1054,8 +1069,8 @@ const Whiteboard = forwardRef(({
       
       // Send to remote peers
         if (webRTCProvider && selectedPeer) {
-          console.log('[Whiteboard] 🎨 Sending image to remote peer:', { selectedPeer, imageUrl });
-          console.log('[Whiteboard] 📤 SENDING IMAGE TO REMOTE PEER:', { peer: selectedPeer, imageUrl });
+          log('INFO', 'Whiteboard', 'Sending image to remote peer', { selectedPeer, imageUrl });
+          log('INFO', 'Whiteboard', 'Sending image to remote peer', { peer: selectedPeer, imageUrl });
           webRTCProvider.sendWhiteboardMessage(selectedPeer, {
             action: 'background',
             background: {
@@ -1064,7 +1079,7 @@ const Whiteboard = forwardRef(({
             }
           });
         } else {
-          console.log('[Whiteboard] 🎨 Cannot send image to remote peer:', { 
+          log('WARN', 'Whiteboard', 'Cannot send image to remote peer', { 
             hasWebRTCProvider: !!webRTCProvider, 
             selectedPeer, 
             imageUrl 
@@ -1072,13 +1087,13 @@ const Whiteboard = forwardRef(({
         }
       
     } catch (error) {
-      console.error('[Whiteboard] 🎨 Upload failed:', error);
+      log('ERROR', 'Whiteboard', 'Upload failed', error);
     }
   };
 
   // Helper function to clear all drawings
   const clearAllDrawings = () => {
-    console.log('[Whiteboard] 🎨 Clearing all drawings');
+    log('INFO', 'Whiteboard', 'Clearing all drawings');
     setLines([]);
     setShapes([]);
     setPageLines({});
@@ -1108,7 +1123,7 @@ const Whiteboard = forwardRef(({
              Object.keys(pageLines).length > 0 || Object.keys(pageShapes).length > 0;
     };
     
-    console.log('[Whiteboard] 🌐 Global functions exposed:', {
+    log('DEBUG', 'Whiteboard', 'Global functions exposed', {
       clearDrawings: 'Clear all drawings',
       getDrawingState: 'Get current drawing state',
       hasDrawings: 'Check if there are any drawings'
@@ -1126,7 +1141,7 @@ const Whiteboard = forwardRef(({
     handleImageUpload: handleImageUpload,
     handleFileUpload: handleFileUpload,
     clearBackground: () => {
-      console.log('[Whiteboard] 🖥️ Clearing background due to screen share activation');
+      log('INFO', 'Whiteboard', 'Clearing background due to screen share activation');
       setBackgroundFile(null);
       setBackgroundType(null);
       
@@ -1140,15 +1155,15 @@ const Whiteboard = forwardRef(({
     const uploadStartTime = performance.now();
     const absoluteStartTime = Date.now();
     window.pdfUploadStartTime = absoluteStartTime;
-    console.log('[Whiteboard] 📄 PDF upload triggered via DashboardPage');
-    console.log('[Whiteboard] ⏱️ END-TO-END START TIME:', {
+    log('INFO', 'Whiteboard', 'PDF upload triggered via DashboardPage');
+    log('DEBUG', 'Whiteboard', 'End-to-end start time', {
       timestamp: new Date(absoluteStartTime).toISOString(),
       performanceTime: uploadStartTime
     });
     
     const file = event.target.files[0];
     if (file) {
-      console.log('[Whiteboard] 📄 PDF file received:', {
+      log('INFO', 'Whiteboard', 'PDF file received', {
         name: file.name,
         size: file.size,
         type: file.type,
@@ -1159,21 +1174,21 @@ const Whiteboard = forwardRef(({
       // Mutual exclusivity is handled by DashboardPage before calling this function
       
       // Upload PDF to backend and get CDN URL (same as images)
-      console.log('[Whiteboard] 📄 Starting PDF upload to backend for CDN URL');
+      log('INFO', 'Whiteboard', 'Starting PDF upload to backend for CDN URL');
       try {
         // Validate file type
         if (file.type !== 'application/pdf') {
-          console.error('[Whiteboard] 📄 Invalid file type:', file.type);
+          log('ERROR', 'Whiteboard', 'Invalid file type', file.type);
           return;
         }
         
         // Validate file size (max 50MB for PDFs)
         if (file.size > 50 * 1024 * 1024) {
-          console.error('[Whiteboard] 📄 File too large:', file.size);
+          log('ERROR', 'Whiteboard', 'File too large', file.size);
           return;
         }
         
-        console.log('[Whiteboard] 📄 Uploading PDF to backend...');
+        log('INFO', 'Whiteboard', 'Uploading PDF to backend');
         // Upload to backend (same as images)
         const formData = new FormData();
         formData.append('file', file);
@@ -1196,8 +1211,8 @@ const Whiteboard = forwardRef(({
         const result = await response.json();
         const uploadEndTime = performance.now();
         window.pdfUploadEndTime = Date.now();
-        console.log('[Whiteboard] 📄 PDF upload successful:', result);
-        console.log('[Whiteboard] ⏱️ UPLOAD TIMING:', {
+        log('INFO', 'Whiteboard', 'PDF upload successful', result);
+        log('DEBUG', 'Whiteboard', 'Upload timing', {
           totalUploadTime: `${(uploadEndTime - uploadStartTime).toFixed(2)}ms`,
           networkRequestTime: `${(uploadRequestEnd - uploadRequestStart).toFixed(2)}ms`,
           fileSize: `${(file.size / 1024 / 1024).toFixed(2)}MB`,
@@ -1206,7 +1221,7 @@ const Whiteboard = forwardRef(({
         
         // Use backend proxy URL to avoid CORS issues
         const pdfUrl = `${backendUrl}/api/files/proxy/${result.filename}`;
-        console.log('[Whiteboard] 📄 PDF proxy URL generated:', pdfUrl);
+        log('INFO', 'Whiteboard', 'PDF proxy URL generated', pdfUrl);
         
         // Clear image-specific state when switching to PDF
         setBackgroundDimensions({ width: 0, height: 0 });
@@ -1215,7 +1230,7 @@ const Whiteboard = forwardRef(({
         clearAllDrawings();
         
         // Set background (preserve existing drawings)
-        console.log('[Whiteboard] 📄 Setting PDF as background file with CDN URL');
+        log('INFO', 'Whiteboard', 'Setting PDF as background file with CDN URL');
         setBackgroundFile(pdfUrl);
         setBackgroundType('pdf');
         
@@ -1225,8 +1240,8 @@ const Whiteboard = forwardRef(({
         // Send to remote peers (same as images)
         if (webRTCProvider && selectedPeer) {
           const peerSendStart = performance.now();
-          console.log('[Whiteboard] 📄 Sending PDF to remote peer:', { selectedPeer, pdfUrl });
-          console.log('[Whiteboard] 📤 SENDING PDF TO REMOTE PEER:', { peer: selectedPeer, pdfUrl });
+          log('INFO', 'Whiteboard', 'Sending PDF to remote peer', { selectedPeer, pdfUrl });
+          log('INFO', 'Whiteboard', 'Sending PDF to remote peer', { peer: selectedPeer, pdfUrl });
           webRTCProvider.sendWhiteboardMessage(selectedPeer, {
             action: 'background',
             background: {
@@ -1235,12 +1250,12 @@ const Whiteboard = forwardRef(({
             }
           });
           const peerSendEnd = performance.now();
-          console.log('[Whiteboard] 📄 PDF sent to remote peer successfully');
-          console.log('[Whiteboard] ⏱️ PEER SEND TIMING:', {
+          log('INFO', 'Whiteboard', 'PDF sent to remote peer successfully');
+          log('DEBUG', 'Whiteboard', 'Peer send timing', {
             peerSendTime: `${(peerSendEnd - peerSendStart).toFixed(2)}ms`
           });
         } else {
-          console.log('[Whiteboard] 📄 Cannot send PDF to remote peer:', { 
+          log('WARN', 'Whiteboard', 'Cannot send PDF to remote peer', { 
             hasWebRTCProvider: !!webRTCProvider, 
             selectedPeer, 
             pdfUrl 
@@ -1248,8 +1263,8 @@ const Whiteboard = forwardRef(({
         }
         
         const totalEndTime = performance.now();
-        console.log('[Whiteboard] 📄 PDF upload and sharing completed successfully');
-        console.log('[Whiteboard] ⏱️ TOTAL PROCESSING TIME:', {
+        log('INFO', 'Whiteboard', 'PDF upload and sharing completed successfully');
+        log('DEBUG', 'Whiteboard', 'Total processing time', {
           totalTime: `${(totalEndTime - uploadStartTime).toFixed(2)}ms`,
           breakdown: {
             upload: `${(uploadEndTime - uploadStartTime).toFixed(2)}ms`,
@@ -1258,9 +1273,9 @@ const Whiteboard = forwardRef(({
         });
         
       } catch (error) {
-        console.error('[Whiteboard] 📄 PDF upload failed:', error);
+        log('ERROR', 'Whiteboard', 'PDF upload failed', error);
         // Fallback: set file directly (won't work with remote peers)
-        console.log('[Whiteboard] 📄 Falling back to direct file setting (no remote sharing)');
+        log('WARN', 'Whiteboard', 'Falling back to direct file setting (no remote sharing)');
         setBackgroundFile(file);
         setBackgroundType('pdf');
         
@@ -1271,32 +1286,32 @@ const Whiteboard = forwardRef(({
       // Note: onPdfChange not called to avoid loop
       // Mutual exclusivity is already handled by DashboardPage before calling this function
     } else {
-      console.log('[Whiteboard] 📄 No file selected');
+      log('DEBUG', 'Whiteboard', 'No file selected');
     }
   };
 
   // NEW: Enhanced PDF upload with CDN support (optional)
   const handleFileUploadWithCDN = async (event) => {
-    console.log('[Whiteboard] 📄 PDF upload with CDN started');
+    log('INFO', 'Whiteboard', 'PDF upload with CDN started');
     
     const file = event.target.files[0];
     if (!file) {
-      console.log('[Whiteboard] 📄 No file selected, returning');
+      log('DEBUG', 'Whiteboard', 'No file selected, returning');
       return;
     }
     
-    console.log('[Whiteboard] 📄 PDF upload started:', file.name);
+    log('INFO', 'Whiteboard', 'PDF upload started', file.name);
     
     try {
       // Validate file type
       if (file.type !== 'application/pdf') {
-        console.error('[Whiteboard] 📄 Invalid file type:', file.type);
+        log('ERROR', 'Whiteboard', 'Invalid file type', file.type);
         return;
       }
       
       // Validate file size (max 50MB for PDFs)
       if (file.size > 50 * 1024 * 1024) {
-        console.error('[Whiteboard] 📄 File too large:', file.size);
+        log('ERROR', 'Whiteboard', 'File too large', file.size);
         return;
       }
       
@@ -1315,7 +1330,7 @@ const Whiteboard = forwardRef(({
       }
       
       const result = await response.json();
-      console.log('[Whiteboard] 📄 PDF upload successful:', result);
+      log('INFO', 'Whiteboard', 'PDF upload successful', result);
       
       // Use CDN URL for better performance (same as images)
       const pdfUrl = result.url;
@@ -1334,8 +1349,8 @@ const Whiteboard = forwardRef(({
       
       // Send to remote peers (same as images)
       if (webRTCProvider && selectedPeer) {
-        console.log('[Whiteboard] 📄 Sending PDF to remote peer:', { selectedPeer, pdfUrl });
-        console.log('[Whiteboard] 📤 SENDING PDF TO REMOTE PEER:', { peer: selectedPeer, pdfUrl });
+        log('INFO', 'Whiteboard', 'Sending PDF to remote peer', { selectedPeer, pdfUrl });
+        log('INFO', 'Whiteboard', 'Sending PDF to remote peer', { peer: selectedPeer, pdfUrl });
         webRTCProvider.sendWhiteboardMessage(selectedPeer, {
           action: 'background',
           background: {
@@ -1344,7 +1359,7 @@ const Whiteboard = forwardRef(({
           }
         });
       } else {
-        console.log('[Whiteboard] 📄 Cannot send PDF to remote peer:', { 
+        log('WARN', 'Whiteboard', 'Cannot send PDF to remote peer', { 
           hasWebRTCProvider: !!webRTCProvider, 
           selectedPeer, 
           pdfUrl 
@@ -1352,7 +1367,7 @@ const Whiteboard = forwardRef(({
       }
       
     } catch (error) {
-      console.error('[Whiteboard] 📄 PDF upload failed:', error);
+      log('ERROR', 'Whiteboard', 'PDF upload failed', error);
     }
   };
 
@@ -1370,7 +1385,7 @@ const Whiteboard = forwardRef(({
   // Scroll to specific page
   const scrollToPage = (pageNumber) => {
     const position = getPagePosition(pageNumber);
-    console.log('[Whiteboard] 📄 Scrolling to page', pageNumber, 'at position', position);
+    log('INFO', 'Whiteboard', 'Scrolling to page', { pageNumber, position });
     
     // Find the dashboard-content element and scroll to position
     const dashboardContent = document.querySelector('.dashboard-content');
@@ -1480,7 +1495,7 @@ const Whiteboard = forwardRef(({
     });
   };
 
-  console.log('[Whiteboard] 🎨 Rendering whiteboard with toolbar:', {
+  log('DEBUG', 'Whiteboard', 'Rendering whiteboard with toolbar', {
             userId,
             username,
     isScreenShareActive,
@@ -1490,7 +1505,7 @@ const Whiteboard = forwardRef(({
   });
 
   // Debug transparency issues
-  console.log('[Whiteboard] 🔍 TRANSPARENCY DEBUG:', {
+  log('DEBUG', 'Whiteboard', 'Transparency debug', {
     isScreenShareActive,
     containerBackgroundColor: isScreenShareActive ? 'transparent' : 'rgba(230, 243, 255, 0.9)',
     scrollContainerBackgroundColor: isScreenShareActive ? 'transparent' : '#f0f8ff',
@@ -1506,7 +1521,7 @@ const Whiteboard = forwardRef(({
     if (containerRef.current) {
       const container = containerRef.current;
       const computedStyle = window.getComputedStyle(container);
-      console.log('[Whiteboard] 🔍 COMPUTED STYLES DEBUG:', {
+      log('DEBUG', 'Whiteboard', 'Computed styles debug', {
         containerBackgroundColor: computedStyle.backgroundColor,
         containerBorder: computedStyle.border,
         containerBoxShadow: computedStyle.boxShadow,
@@ -1519,7 +1534,7 @@ const Whiteboard = forwardRef(({
 
       // Debug all child elements
       const children = container.children;
-      console.log('[Whiteboard] 🔍 CHILD ELEMENTS DEBUG:', {
+      log('DEBUG', 'Whiteboard', 'Child elements debug', {
         childCount: children.length,
         children: Array.from(children).map((child, index) => ({
           index,
@@ -1538,7 +1553,7 @@ const Whiteboard = forwardRef(({
       const whiteboardContainer = container.parentElement;
       if (whiteboardContainer) {
         const whiteboardComputedStyle = window.getComputedStyle(whiteboardContainer);
-        console.log('[Whiteboard] 🔍 WHITEBOARD CONTAINER DEBUG:', {
+        log('DEBUG', 'Whiteboard', 'Whiteboard container debug', {
           className: whiteboardContainer.className,
           backgroundColor: whiteboardComputedStyle.backgroundColor,
           border: whiteboardComputedStyle.border,
@@ -1571,7 +1586,7 @@ const Whiteboard = forwardRef(({
               ? `${backgroundDimensions.height}px` 
               : currentContainerSize.height;
           
-          console.log('[Whiteboard] 📏 APPLYING container dimensions:', {
+          log('DEBUG', 'Whiteboard', 'Applying container dimensions', {
             isScreenShareActive,
             screenShareDimensions,
             backgroundDimensions,
@@ -1622,7 +1637,7 @@ const Whiteboard = forwardRef(({
                 file={backgroundFile}
                 onLoadStart={() => {
                   const downloadStartTime = performance.now();
-                  console.log('[Whiteboard] ⏱️ PDF DOWNLOAD STARTED:', {
+                  log('DEBUG', 'Whiteboard', 'PDF download started', {
                     url: backgroundFile,
                     timestamp: downloadStartTime
                   });
@@ -1636,9 +1651,9 @@ const Whiteboard = forwardRef(({
                   const downloadTime = window.pdfDownloadStartTime ? 
                     (renderStartTime - window.pdfDownloadStartTime) : null;
                   
-                  console.log('[Whiteboard] 📄 PDF loaded successfully with', numPages, 'pages');
+                  log('INFO', 'Whiteboard', 'PDF loaded successfully with pages', numPages);
                   if (downloadTime) {
-                    console.log('[Whiteboard] ⏱️ PDF DOWNLOAD TIMING:', {
+                    log('DEBUG', 'Whiteboard', 'PDF download timing', {
                       downloadTime: `${downloadTime.toFixed(2)}ms`,
                       url: backgroundFile,
                       fileSize: 'Unknown (from proxy)'
@@ -1663,7 +1678,7 @@ const Whiteboard = forwardRef(({
                   const estimatedGapSpace = (numPages - 1) * gap; // Total space taken by gaps
                   const estimatedTotalHeight = estimatedContentHeight + estimatedGapSpace + 20; // Add gaps + 20px for padding
                   
-                  console.log('[Whiteboard] 📄 PDF dimensions calculated:', {
+                  log('DEBUG', 'Whiteboard', 'PDF dimensions calculated', {
                     numPages,
                     pageWidth,
                     willExceedContainer: true,
@@ -1681,7 +1696,7 @@ const Whiteboard = forwardRef(({
                   });
                   
                   // Log container sizing for debugging
-                  console.log('[Whiteboard] 📄 Container will expand to:', {
+                  log('DEBUG', 'Whiteboard', 'Container will expand to', {
                     containerWidth: pageWidth,
                     containerHeight: 'Will be calculated when pages render',
                     dashboardContentSize: '1200x800px',
@@ -1694,14 +1709,14 @@ const Whiteboard = forwardRef(({
                     if (pdfContainer) {
                       const rect = pdfContainer.getBoundingClientRect();
                       const renderEndTime = performance.now();
-                      console.log('[Whiteboard] 📄 ACTUAL PDF CONTAINER DIMENSIONS:', {
+                      log('DEBUG', 'Whiteboard', 'Actual PDF container dimensions', {
                         width: rect.width,
                         height: rect.height,
                         expectedHeight: 'Will be calculated when pages render',
                         difference: 'N/A - using dynamic calculation',
                         hasExtraSpacing: 'N/A - using dynamic calculation'
                       });
-                      console.log('[Whiteboard] ⏱️ PDF RENDER TIMING:', {
+                      log('DEBUG', 'Whiteboard', 'PDF render timing', {
                         renderTime: pdfRenderStartTime ? `${(renderEndTime - pdfRenderStartTime).toFixed(2)}ms` : 'N/A',
                         numPages: numPages,
                         renderSpeed: pdfRenderStartTime ? `${(numPages / ((renderEndTime - pdfRenderStartTime) / 1000)).toFixed(2)} pages/sec` : 'N/A'
@@ -1738,7 +1753,7 @@ const Whiteboard = forwardRef(({
                         loading={<div>Loading page {index + 1}...</div>}
                         onLoadSuccess={(page) => {
                           const pageRenderTime = performance.now();
-                          console.log(`[Whiteboard] ⏱️ PAGE ${index + 1} RENDERED:`, {
+                          log('DEBUG', 'Whiteboard', `Page ${index + 1} rendered`, {
                             pageNumber: index + 1,
                             renderTime: pdfRenderStartTime ? `${(pageRenderTime - pdfRenderStartTime).toFixed(2)}ms` : 'N/A',
                             cumulativeTime: `${(pageRenderTime - (window.pdfDownloadStartTime || pdfRenderStartTime || 0)).toFixed(2)}ms`
@@ -1746,7 +1761,7 @@ const Whiteboard = forwardRef(({
                           
                           // Get actual PDF page dimensions from metadata
                           if (page && page.originalWidth && page.originalHeight) {
-                            console.log(`[Whiteboard] 📄 PAGE ${index + 1} PDF METADATA:`, {
+                            log('DEBUG', 'Whiteboard', `Page ${index + 1} PDF metadata`, {
                               originalWidth: page.originalWidth,
                               originalHeight: page.originalHeight,
                               scale: page.scale,
@@ -1761,7 +1776,7 @@ const Whiteboard = forwardRef(({
                             const scale = currentPageWidth / page.originalWidth;
                             const actualPageHeight = page.originalHeight * scale;
                             
-                            console.log(`[Whiteboard] 📄 PAGE ${index + 1} CALCULATED DIMENSIONS:`, {
+                            log('DEBUG', 'Whiteboard', `Page ${index + 1} calculated dimensions`, {
                               pdfOriginalWidth: page.originalWidth,
                               pdfOriginalHeight: page.originalHeight,
                               renderedWidth: currentPageWidth,
@@ -1781,7 +1796,7 @@ const Whiteboard = forwardRef(({
                               height: totalHeight
                             }));
                             
-                            console.log(`[Whiteboard] 📄 UPDATED BACKGROUND DIMENSIONS FROM PDF METADATA:`, {
+                            log('DEBUG', 'Whiteboard', 'Updated background dimensions from PDF metadata', {
                               width: currentPageWidth,
                               height: totalHeight,
                               contentHeight: contentHeight,
@@ -1821,7 +1836,7 @@ const Whiteboard = forwardRef(({
                                 const dashboardContent = document.querySelector('.dashboard-content');
                                 const dashboardRect = dashboardContent?.getBoundingClientRect();
                                 
-                                console.log('[Whiteboard] 📏 ACTUAL DOM DIMENSIONS:', {
+                                log('DEBUG', 'Whiteboard', 'Actual DOM dimensions', {
                                   reactPdfHeight: docRect.height,
                                   pdfContainerHeight: containerRect.height,
                                   parentDivHeight: parentRect.height,
@@ -1841,14 +1856,14 @@ const Whiteboard = forwardRef(({
                               }
                             }, 500);
                           } else {
-                            console.log(`[Whiteboard] 📄 PAGE ${index + 1} - No PDF metadata available, using fallback`);
+                            log('WARN', 'Whiteboard', `Page ${index + 1} - No PDF metadata available, using fallback`);
                           }
                           
                           // Log end-to-end timing for the last page
                           if (index + 1 === pdfPages) {
                             const absoluteEndTime = Date.now();
                             const totalEndToEndTime = absoluteEndTime - window.pdfUploadStartTime;
-                            console.log('[Whiteboard] ⏱️ END-TO-END COMPLETE:', {
+                            log('DEBUG', 'Whiteboard', 'End-to-end complete', {
                               totalTime: `${totalEndToEndTime}ms`,
                               totalTimeSeconds: `${(totalEndToEndTime / 1000).toFixed(2)}s`,
                               timestamp: new Date(absoluteEndTime).toISOString(),
@@ -1879,7 +1894,7 @@ const Whiteboard = forwardRef(({
                   const img = e.target;
                   const naturalWidth = img.naturalWidth;
                   const naturalHeight = img.naturalHeight;
-                  console.log('[Whiteboard] 🖼️ Image loaded successfully:', {
+                  log('INFO', 'Whiteboard', 'Image loaded successfully', {
                     src: backgroundFile,
                     naturalWidth,
                     naturalHeight,
@@ -1888,7 +1903,7 @@ const Whiteboard = forwardRef(({
                   });
                   
                   // Set background dimensions to image's natural size
-                  console.log('[Whiteboard] 📏 Setting background dimensions to image natural size:', {
+                  log('DEBUG', 'Whiteboard', 'Setting background dimensions to image natural size', {
                     width: naturalWidth,
                     height: naturalHeight,
                     previousDimensions: backgroundDimensions
@@ -1896,11 +1911,11 @@ const Whiteboard = forwardRef(({
                   setBackgroundDimensions({ width: naturalWidth, height: naturalHeight });
                   
                   // Log container size changes
-                  console.log('[Whiteboard] 📏 Container dimensions will change from:', {
+                  log('DEBUG', 'Whiteboard', 'Container dimensions will change from', {
                     currentWidth: currentContainerSize.width,
                     currentHeight: currentContainerSize.height
                   });
-                  console.log('[Whiteboard] 📏 Container dimensions will change to:', {
+                  log('DEBUG', 'Whiteboard', 'Container dimensions will change to', {
                     newWidth: naturalWidth,
                     newHeight: naturalHeight,
                     exceedsDashboardContent: naturalWidth > 1200 || naturalHeight > 800,
@@ -1921,7 +1936,7 @@ const Whiteboard = forwardRef(({
               : backgroundDimensions.width > 0 
                 ? backgroundDimensions.width 
                 : currentContainerSize.width;
-            console.log('[Whiteboard] 📏 STAGE WIDTH SET:', {
+            log('DEBUG', 'Whiteboard', 'Stage width set', {
               isScreenShareActive,
               screenShareDimensions,
               backgroundDimensions,
@@ -1936,7 +1951,7 @@ const Whiteboard = forwardRef(({
               : backgroundDimensions.height > 0 
                 ? backgroundDimensions.height 
                 : currentContainerSize.height;
-            console.log('[Whiteboard] 📏 STAGE HEIGHT SET:', {
+            log('DEBUG', 'Whiteboard', 'Stage height set', {
               isScreenShareActive,
               screenShareDimensions,
               backgroundDimensions,
