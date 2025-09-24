@@ -14,30 +14,21 @@ import { useCommunication } from '../context/CommunicationContext';
 import { WebSocketProvider } from '../services/WebSocketProvider';
 import { getBuildDisplay } from '../utils/buildVersion';
 
-// Utility function to properly log objects with fallbacks
-const safeLog = (label, obj, fallback = 'No data') => {
-    try {
-        if (obj === null) {
-            console.log(label, 'null');
-        } else if (obj === undefined) {
-            console.log(label, 'undefined');
-        } else if (typeof obj === 'object') {
-            // Try to stringify the object to see its contents
-            const stringified = JSON.stringify(obj, null, 2);
-            console.log(label, {
-                type: typeof obj,
-                constructor: obj.constructor?.name || 'Unknown',
-                keys: Object.keys(obj),
-                stringified: stringified,
-                raw: obj
-            });
-        } else {
-            console.log(label, obj);
-        }
-    } catch (error) {
-        console.log(label, `[Error logging object: ${error.message}]`, obj);
+// Logging system
+const LOG_LEVELS = { ERROR: 0, WARN: 1, INFO: 2, DEBUG: 3, VERBOSE: 4 };
+const LOG_LEVEL = process.env.REACT_APP_LOG_LEVEL || 'INFO';
+
+const log = (level, component, message, data = null) => {
+  if (LOG_LEVELS[level] <= LOG_LEVELS[LOG_LEVEL]) {
+    const prefix = `[${component}] ${level}:`;
+    if (data) {
+      console.log(prefix, message, data);
+    } else {
+      console.log(prefix, message);
     }
+  }
 };
+
 
 const DashboardPage = () => {
     const [isWebSocketConnected, setIsWebSocketConnected] = useState(false);
@@ -58,10 +49,10 @@ const DashboardPage = () => {
             );
             
             if (!isSupported) {
-                console.warn('[DashboardPage] ⚠️ WebRTC not fully supported on this device');
+                log('WARN', 'DashboardPage', 'WebRTC not fully supported on this device');
                 setError('Your browser does not fully support video calling features. Some features may not work properly.');
             } else {
-                console.log('[DashboardPage] ✅ WebRTC is supported on this device');
+                log('INFO', 'DashboardPage', 'WebRTC is supported on this device');
             }
         };
         
@@ -116,12 +107,12 @@ const DashboardPage = () => {
     }, []);
     
     const handleWhiteboardBackgroundCleared = useCallback(() => {
-        console.log('[DashboardPage] 🎨 Background file cleared from whiteboard');
+        log('INFO', 'DashboardPage', 'Background file cleared from whiteboard');
     }, []);
     
     // PDF Navigation handlers
     const handlePdfPageChange = useCallback((page) => {
-        console.log('[DashboardPage] 📄 PDF page changed to:', page);
+        log('INFO', 'DashboardPage', 'PDF page changed to', { page });
         setPdfCurrentPage(page);
     }, []);
     
@@ -138,7 +129,7 @@ const DashboardPage = () => {
     }, []);
     
     const handlePdfPagesChange = useCallback((totalPages) => {
-        console.log('[DashboardPage] 📄 PDF total pages changed to:', totalPages);
+        log('INFO', 'DashboardPage', 'PDF total pages changed to', { totalPages });
         setPdfTotalPages(totalPages);
         setShowPdfNavigation(totalPages > 0);
     }, []);
@@ -183,7 +174,7 @@ const DashboardPage = () => {
         });
         
         if (changedStates.length > 0) {
-            console.log('[DashboardPage] 🔍 State changes detected:', JSON.stringify(changedStates, null, 2));
+            log('DEBUG', 'DashboardPage', 'State changes detected', { changedStates });
         }
         
         prevStateRef.current = currentState;
@@ -220,26 +211,26 @@ const DashboardPage = () => {
     // Function to clear selectedPeer with automatic timestamp saving for logout detection
     const clearSelectedPeer = (reason = 'unknown') => {
         if (selectedPeer) {
-            console.log(`%c[DashboardPage] 🧹 CLEARING SELECTED PEER: ${selectedPeer} (reason: ${reason})`, 'font-weight: bold; color: orange;');
+            log('WARN', 'DashboardPage', 'CLEARING SELECTED PEER', { selectedPeer, reason });
             // Save selectedPeer with timestamp before clearing it for logout detection
             disconnectedPeerRef.current = {
                 peerId: selectedPeer,
                 timestamp: Date.now()
             };
             setSelectedPeer('');
-            console.log(`%c[DashboardPage] 🧹 SELECTED PEER SAVED FOR LOGOUT DETECTION:`, 'font-weight: bold; color: blue;', disconnectedPeerRef.current);
+            log('INFO', 'DashboardPage', 'SELECTED PEER SAVED FOR LOGOUT DETECTION', { disconnectedPeer: disconnectedPeerRef.current });
         }
     };
 
     // Function to properly clean up streams before setting provider to null
     const cleanupStreamsAndSetProviderNull = (reason = 'unknown') => {
         const userFriendlyReason = getLogoutReasonMessage(reason);
-        console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: ${userFriendlyReason}`, 'font-weight: bold; color: orange;');
+        log('WARN', 'DashboardPage', 'STREAM CLEANUP', { reason: userFriendlyReason });
         
         try {
             // Check if provider exists and has streams
             if (provider) {
-                console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Provider exists, checking for streams`, 'font-weight: bold; color: blue;');
+                log('DEBUG', 'DashboardPage', 'STREAM CLEANUP: Provider exists, checking for streams');
                 
                 // Try to get local streams from provider if possible
                 try {
@@ -248,42 +239,42 @@ const DashboardPage = () => {
                     const localScreenStream = provider.getLocalScreenStream();
                     
                     if (localVideoStream) {
-                        console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Stopping local video stream`, 'font-weight: bold; color: orange;');
+                        log('WARN', 'DashboardPage', 'STREAM CLEANUP: Stopping local video stream');
                         localVideoStream.getTracks().forEach(track => {
                             try {
                                 track.stop();
-                                console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Stopped local video track`, 'font-weight: bold; color: orange;');
+                                log('WARN', 'DashboardPage', 'STREAM CLEANUP: Stopped local video track');
                             } catch (trackError) {
-                                console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Video track already stopped (normal during ${userFriendlyReason.toLowerCase()})`, 'font-weight: bold; color: blue;');
+                                log('DEBUG', 'DashboardPage', 'STREAM CLEANUP: Video track already stopped (normal during cleanup)', { reason: userFriendlyReason.toLowerCase() });
                             }
                         });
                     }
                     
                     if (localAudioStream) {
-                        console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Stopping local audio stream`, 'font-weight: bold; color: orange;');
+                        log('WARN', 'DashboardPage', 'STREAM CLEANUP: Stopping local audio stream');
                         localAudioStream.getTracks().forEach(track => {
                             try {
                                 track.stop();
-                                console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Stopped local audio track`, 'font-weight: bold; color: orange;');
+                                log('WARN', 'DashboardPage', 'STREAM CLEANUP: Stopped local audio track');
                             } catch (trackError) {
-                                console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Audio track already stopped (normal during ${userFriendlyReason.toLowerCase()})`, 'font-weight: bold; color: blue;');
+                                log('DEBUG', 'DashboardPage', 'STREAM CLEANUP: Audio track already stopped (normal during cleanup)', { reason: userFriendlyReason.toLowerCase() });
                             }
                         });
                     }
                     
                     if (localScreenStream) {
-                        console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Stopping local screen stream`, 'font-weight: bold; color: orange;');
+                        log('WARN', 'DashboardPage', 'STREAM CLEANUP: Stopping local screen stream');
                         localScreenStream.getTracks().forEach(track => {
                             try {
                                 track.stop();
-                                console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Stopped local screen track`, 'font-weight: bold; color: orange;');
+                                log('WARN', 'DashboardPage', 'STREAM CLEANUP: Stopped local screen track');
                             } catch (trackError) {
-                                console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Screen track already stopped (normal during ${userFriendlyReason.toLowerCase()})`, 'font-weight: bold; color: blue;');
+                                log('DEBUG', 'DashboardPage', 'STREAM CLEANUP: Screen track already stopped (normal during cleanup)', { reason: userFriendlyReason.toLowerCase() });
                             }
                         });
                     }
                 } catch (error) {
-                    console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Provider streams already cleaned up (normal during ${userFriendlyReason.toLowerCase()})`, 'font-weight: bold; color: blue;');
+                    log('DEBUG', 'DashboardPage', 'STREAM CLEANUP: Provider streams already cleaned up (normal during cleanup)', { reason: userFriendlyReason.toLowerCase() });
                 }
             }
             
@@ -292,34 +283,34 @@ const DashboardPage = () => {
                 const videoElements = document.querySelectorAll('video');
                 videoElements.forEach((video, index) => {
                     if (video.srcObject) {
-                        console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Clearing video element ${index}`, 'font-weight: bold; color: orange;');
+                        log('WARN', 'DashboardPage', 'STREAM CLEANUP: Clearing video element', { index });
                         try {
                             const stream = video.srcObject;
                             if (stream && stream.getTracks) {
                                 stream.getTracks().forEach(track => {
                                     try {
                                         track.stop();
-                                        console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Stopped track: ${track.kind}`, 'font-weight: bold; color: orange;');
+                                        log('WARN', 'DashboardPage', 'STREAM CLEANUP: Stopped track', { kind: track.kind });
                                     } catch (trackError) {
-                                        console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Track already stopped (normal during ${userFriendlyReason.toLowerCase()})`, 'font-weight: bold; color: blue;');
+                                        log('DEBUG', 'DashboardPage', 'STREAM CLEANUP: Track already stopped (normal during cleanup)', { reason: userFriendlyReason.toLowerCase() });
                                     }
                                 });
                             }
                             video.srcObject = null;
                         } catch (videoError) {
-                            console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Video element already cleared (normal during ${userFriendlyReason.toLowerCase()})`, 'font-weight: bold; color: blue;');
+                            log('DEBUG', 'DashboardPage', 'STREAM CLEANUP: Video element already cleared (normal during cleanup)', { reason: userFriendlyReason.toLowerCase() });
                         }
                     }
                 });
             } catch (videoCleanupError) {
-                console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: Video elements already cleaned up (normal during ${userFriendlyReason.toLowerCase()})`, 'font-weight: bold; color: blue;');
+                log('DEBUG', 'DashboardPage', 'STREAM CLEANUP: Video elements already cleaned up (normal during cleanup)', { reason: userFriendlyReason.toLowerCase() });
             }
             
-            console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: ${userFriendlyReason} completed successfully`, 'font-weight: bold; color: green;');
+            log('INFO', 'DashboardPage', 'STREAM CLEANUP completed successfully', { reason: userFriendlyReason });
             setProvider(null);
             
         } catch (error) {
-            console.log(`%c[DashboardPage] 🎥 STREAM CLEANUP: ${userFriendlyReason} completed with minor cleanup issues (this is normal)`, 'font-weight: bold; color: blue;');
+            log('INFO', 'DashboardPage', 'STREAM CLEANUP completed with minor cleanup issues (this is normal)', { reason: userFriendlyReason });
             // Still set provider to null even if cleanup fails
             setProvider(null);
         }
@@ -343,16 +334,16 @@ const DashboardPage = () => {
 
     // Simple logout detection function
     const handlePeerLogout = async (loggedOutPeerId) => {
-        console.log(`%c[DashboardPage] 👋 PEER LOGOUT DETECTED: ${loggedOutPeerId}`, 'font-weight: bold; color: orange; font-size: 14px;');
+        log('WARN', 'DashboardPage', 'PEER LOGOUT DETECTED', { loggedOutPeerId });
         
         // Clear the saved peer since we've detected and handled the logout
         disconnectedPeerRef.current = null;
         handledLogoutPeersRef.current.add(loggedOutPeerId);
-        console.log(`%c[DashboardPage] 👋 CLEARED SAVED PEER after logout detection`, 'font-weight: bold; color: blue;');
-        console.log(`%c[DashboardPage] 👋 MARKED PEER ${loggedOutPeerId} as logout handled`, 'font-weight: bold; color: blue;');
+        log('INFO', 'DashboardPage', 'CLEARED SAVED PEER after logout detection');
+        log('INFO', 'DashboardPage', 'MARKED PEER as logout handled', { loggedOutPeerId });
         
         // Debug: Check provider state
-        console.log(`%c[DashboardPage] 👋 DEBUG: Provider state during logout:`, 'font-weight: bold; color: purple;', {
+        log('DEBUG', 'DashboardPage', 'DEBUG: Provider state during logout', {
             provider: provider,
             providerExists: !!provider,
             providerType: typeof provider
@@ -360,7 +351,7 @@ const DashboardPage = () => {
         
         // Disconnect gracefully from the logged out peer
         if (provider) {
-            console.log(`%c[DashboardPage] 👋 Disconnecting from logged out peer: ${loggedOutPeerId}`, 'font-weight: bold; color: blue;');
+            log('INFO', 'DashboardPage', 'Disconnecting from logged out peer', { loggedOutPeerId });
             
             // Use existing disconnect logic but don't send disconnect message
             // The other peer already logged out, so no need to notify them
@@ -368,26 +359,26 @@ const DashboardPage = () => {
                 provider.destroy();
                 cleanupStreamsAndSetProviderNull('logout_disconnect');
                 reset();
-                console.log(`%c[DashboardPage] 👋 ✅ Graceful disconnect from logged out peer completed`, 'font-weight: bold; color: green;');
+                log('INFO', 'DashboardPage', 'Graceful disconnect from logged out peer completed');
             } catch (error) {
-                console.warn('[DashboardPage] Error during logout disconnect:', error);
+                log('WARN', 'DashboardPage', 'Error during logout disconnect', error);
                 // Still reset the UI even if disconnect fails
                 cleanupStreamsAndSetProviderNull('logout_disconnect_error');
                 reset();
             }
         } else {
-            console.log(`%c[DashboardPage] 👋 No provider to disconnect, but ensuring proper cleanup for logged out peer: ${loggedOutPeerId}`, 'font-weight: bold; color: blue;');
+            log('INFO', 'DashboardPage', 'No provider to disconnect, but ensuring proper cleanup for logged out peer', { loggedOutPeerId });
             
             // CRITICAL: Even without provider, we need to ensure proper disconnect flow
             // The WebRTC connection might have been cleaned up already, but we still need to
             // trigger the proper disconnect sequence to clean up any remaining state
-            console.log(`%c[DashboardPage] 👋 FORCING DISCONNECT FLOW: Calling performDisconnect for logged out peer`, 'font-weight: bold; color: orange;');
+            log('WARN', 'DashboardPage', 'FORCING DISCONNECT FLOW: Calling performDisconnect for logged out peer');
             try {
                 // Call the disconnect method directly to ensure proper cleanup
                 await performDisconnect(false); // false = responder side (we're responding to peer logout)
-                console.log(`%c[DashboardPage] 👋 ✅ FORCED DISCONNECT COMPLETED for logged out peer`, 'font-weight: bold; color: green;');
+                log('INFO', 'DashboardPage', 'FORCED DISCONNECT COMPLETED for logged out peer');
             } catch (error) {
-                console.warn(`%c[DashboardPage] ⚠️ Error during forced disconnect for logged out peer:`, 'font-weight: bold; color: yellow;', error);
+                log('WARN', 'DashboardPage', 'Error during forced disconnect for logged out peer', error);
                 // Still reset the UI even if forced disconnect fails
                 reset();
             }
@@ -396,10 +387,10 @@ const DashboardPage = () => {
         // Stream cleanup is now handled by cleanupStreamsAndSetProviderNull function when provider is destroyed
         
         // FALLBACK: Always ensure UI is reset after logout detection
-        console.log(`%c[DashboardPage] 👋 FALLBACK: Ensuring UI reset after logout detection`, 'font-weight: bold; color: red;');
+        log('WARN', 'DashboardPage', 'FALLBACK: Ensuring UI reset after logout detection');
         setTimeout(() => {
             if (isPeerConnected || isConnecting) {
-                console.log(`%c[DashboardPage] 👋 FALLBACK: UI still shows connected state, forcing reset`, 'font-weight: bold; color: red;');
+                log('WARN', 'DashboardPage', 'FALLBACK: UI still shows connected state, forcing reset');
                 reset();
             }
         }, 100);
@@ -419,12 +410,12 @@ const DashboardPage = () => {
     const destroyProvider = async (providerInstance) => {
         if (providerInstance) {
             try {
-                console.log('[DashboardPage] 🔄 Destroying provider instance');
+                log('INFO', 'DashboardPage', 'Destroying provider instance');
                 providerInstance.destroy();
                 // Add a small delay to ensure the destroy operation completes
                 await new Promise(resolve => setTimeout(resolve, 100));
             } catch (error) {
-                console.warn('[DashboardPage] ⚠️ Error destroying provider:', error);
+                log('WARN', 'DashboardPage', 'Error destroying provider', error);
             }
         }
     };
@@ -433,7 +424,7 @@ const DashboardPage = () => {
     useEffect(() => {
         return () => {
             if (provider) {
-                console.log('[DashboardPage] 🧹 Cleaning up WebRTC provider on provider change');
+                log('INFO', 'DashboardPage', 'Cleaning up WebRTC provider on provider change');
                 WebRTCProvider.clearAllInstances();
                 WebRTCProvider.clearActiveInstance(); // Clear the active instance reference
             }
@@ -484,7 +475,7 @@ const DashboardPage = () => {
                 isSupported = false;
             }
             
-            console.log('[DashboardPage] 🖥️ Screen share support check:', {
+            log('DEBUG', 'DashboardPage', 'Screen share support check', {
                 hasGetDisplayMedia,
                 isMobile,
                 isIOS,
@@ -503,8 +494,8 @@ const DashboardPage = () => {
 
     // Initialize user and WebSocket connection
     useEffect(() => {
-        console.log('[DashboardPage] 🔄 Component mounted');
-        console.log('[DashboardPage] 📦 Build version:', getBuildDisplay());
+        log('INFO', 'DashboardPage', 'Component mounted');
+        log('INFO', 'DashboardPage', 'Build version', { version: getBuildDisplay() });
 
         // Get user email from localStorage
         const user = JSON.parse(localStorage.getItem('user'));
@@ -528,13 +519,13 @@ const DashboardPage = () => {
 
             // Check if WebSocket is already connected and set status accordingly
             if (wsProvider.isConnected) {
-                console.log('[DashboardPage] WebSocket is already connected, setting status to connected');
+                log('INFO', 'DashboardPage', 'WebSocket is already connected, setting status to connected');
                 setIsWebSocketConnected(true);
                 setError(null);
             } else {
                 // Connect WebSocket if not already connected
                 wsProvider.connect().catch(error => {
-                    console.error('[DashboardPage] Failed to connect to WebSocket:', error);
+                    log('ERROR', 'DashboardPage', 'Failed to connect to WebSocket', error);
                     setError('Failed to connect to server. Please try again later.');
                 });
             }
@@ -551,7 +542,7 @@ const DashboardPage = () => {
     // Component unmount cleanup
     useEffect(() => {
         return () => {
-            console.log('[DashboardPage] 🧹 Component unmounting, performing cleanup');
+            log('INFO', 'DashboardPage', 'Component unmounting, performing cleanup');
             // Clean up message handler if it exists
             if (messageHandlerRef.current) {
                 signalingService?.removeMessageHandler(messageHandlerRef.current);
@@ -570,7 +561,7 @@ const DashboardPage = () => {
 
     // Function to handle removal of connected peer (logout detection)
     const removeConnectedPeer = (removedPeerId) => {
-        console.log('%c[DashboardPage] 👋 CONNECTED PEER REMOVED - Peer no longer available:', 'font-weight: bold; color: red; font-size: 14px;', {
+        log('WARN', 'DashboardPage', 'CONNECTED PEER REMOVED - Peer no longer available', {
             removedPeerId: removedPeerId,
             connectedPeer: connectedPeerRef.current,
             selectedPeer: selectedPeer,
@@ -582,26 +573,26 @@ const DashboardPage = () => {
         });
         
         // Set graceful disconnect flag to prevent "unexpected disconnect" error
-        console.log('%c[DashboardPage] 🏷️ SETTING GRACEFUL DISCONNECT FLAG for peer logout', 'font-weight: bold; color: purple;');
+        log('INFO', 'DashboardPage', 'SETTING GRACEFUL DISCONNECT FLAG for peer logout');
         setIsGracefulDisconnect(true);
         
         // Disconnect gracefully from the logged-out peer
         if (provider) {
-            console.log('%c[DashboardPage] 🔌 DISCONNECTING from logged-out peer (responder side)', 'font-weight: bold; color: orange;');
+            log('WARN', 'DashboardPage', 'DISCONNECTING from logged-out peer (responder side)');
             try {
                 // OWNERSHIP: DashboardPage owns WebRTCProvider - call disconnect for cleanup
-                console.log('%c[DashboardPage] 🔌 Calling provider.disconnect() - DashboardPage owns provider', 'font-weight: bold; color: blue;');
+                log('INFO', 'DashboardPage', 'Calling provider.disconnect() - DashboardPage owns provider');
                 provider.disconnect(removedPeerId, false); // false = not initiator, use detected peer
-                console.log('%c[DashboardPage] ✅ Disconnect from logged-out peer completed', 'font-weight: bold; color: green;');
+                log('INFO', 'DashboardPage', 'Disconnect from logged-out peer completed');
             } catch (error) {
-                console.warn('%c[DashboardPage] ⚠️ Error disconnecting from logged-out peer:', 'font-weight: bold; color: yellow;', error);
+                log('WARN', 'DashboardPage', 'Error disconnecting from logged-out peer', error);
             }
         } else {
-            console.log('%c[DashboardPage] ⚠️ No provider available for disconnect (peer already logged out)', 'font-weight: bold; color: yellow;');
+            log('INFO', 'DashboardPage', 'No provider available for disconnect (peer already logged out)');
         }
         
         // Reset to logged-in state
-        console.log('%c[DashboardPage] 🔄 RESETTING TO LOGGED-IN STATE after peer logout', 'font-weight: bold; color: blue;');
+        log('INFO', 'DashboardPage', 'RESETTING TO LOGGED-IN STATE after peer logout');
         setIsPeerConnected(false);
         setIsConnecting(false);
         setShowChat(false);
@@ -618,18 +609,18 @@ const DashboardPage = () => {
         clearSelectedPeer('peer_logout_cleanup');
         disconnectedPeerRef.current = null;
         
-        console.log('%c[DashboardPage] ✅ Successfully returned to logged-in state after peer logout', 'font-weight: bold; color: green;');
+        log('INFO', 'DashboardPage', 'Successfully returned to logged-in state after peer logout');
     };
 
     // Define handlePeerListUpdate outside useEffect so it can be accessed by other functions
     const handlePeerListUpdate = async (peers) => {
         const user = userRef.current;
         if (!user) {
-            console.log('[DashboardPage] No user data available for peer list handler');
+            log('WARN', 'DashboardPage', 'No user data available for peer list handler');
             return;
         }
 
-        console.log(`%c[DashboardPage] 📨 PEER LIST UPDATE RECEIVED:`, 'font-weight: bold; color: blue; font-size: 14px;', {
+        log('INFO', 'DashboardPage', 'PEER LIST UPDATE RECEIVED', {
             currentUser: user.id,
             receivedPeers: peers,
             timestamp: new Date().toISOString(),
@@ -646,7 +637,7 @@ const DashboardPage = () => {
                 name: `Peer ${peerId}`
             }));
 
-        console.log('%c[DashboardPage] 🔍 FILTERED PEER LIST:', 'font-weight: bold; color: blue;', {
+        log('DEBUG', 'DashboardPage', 'FILTERED PEER LIST', {
             filteredPeers: filteredPeers,
             currentUser: user.id
         });
@@ -658,19 +649,19 @@ const DashboardPage = () => {
             
             // If within 2 seconds and peer is not in the updated list = logout
             if (timeSinceCleared <= 2000 && !filteredPeers.some(p => p.id === peerId)) {
-                console.log(`%c[DashboardPage] 👋 PEER ${peerId} LOGGED OUT (detected within ${timeSinceCleared}ms)`, 'font-weight: bold; color: red; font-size: 14px;');
+                log('WARN', 'DashboardPage', 'PEER LOGGED OUT (detected within timeout)', { peerId, timeSinceCleared });
                 await handlePeerLogout(peerId);
                 // Note: handlePeerLogout() will clear disconnectedPeerRef.current
             } else if (timeSinceCleared > 2000) {
                 // More than 2 seconds = just a normal disconnect, clear the ref
-                console.log(`%c[DashboardPage] 🔌 Normal disconnect detected (${timeSinceCleared}ms ago)`, 'font-weight: bold; color: blue;');
+                log('INFO', 'DashboardPage', 'Normal disconnect detected', { timeSinceCleared });
                 disconnectedPeerRef.current = null;
             }
         }
         
         // Check if current selectedPeer is missing from updated list (immediate logout detection)
         if (selectedPeer && !filteredPeers.some(p => p.id === selectedPeer)) {
-            console.log(`%c[DashboardPage] 👋 CONNECTED PEER ${selectedPeer} LOGGED OUT (immediate detection)`, 'font-weight: bold; color: red; font-size: 14px;');
+            log('WARN', 'DashboardPage', 'CONNECTED PEER LOGGED OUT (immediate detection)', { selectedPeer });
             await handlePeerLogout(selectedPeer);
         }
         
@@ -682,30 +673,30 @@ const DashboardPage = () => {
     useEffect(() => {
         const user = userRef.current;
         if (!user) {
-            console.log('[DashboardPage] No user data available for peer list handler');
+            log('WARN', 'DashboardPage', 'No user data available for peer list handler');
             return;
         }
 
-        console.log('[DashboardPage] Setting up peer list handler for user:', user.id);
+        log('INFO', 'DashboardPage', 'Setting up peer list handler for user', { userId: user.id });
 
         // Set up handlers in signaling service
         if (signalingService) {
-            console.log('[DashboardPage] Registering peer list handler with signaling service');
+            log('INFO', 'DashboardPage', 'Registering peer list handler with signaling service');
             signalingService.onPeerListUpdate = handlePeerListUpdate;
             
             // Set up incoming connection handler
             signalingService.onIncomingConnection = async (message) => {
-                console.log('%c[DashboardPage] 🟢 CONNECT RECEIVED from peer (responder side):', 'font-weight: bold; color: green;', message.from);
-                console.log('[DashboardPage] 🔄 Incoming connection detected:', message.type, 'from peer', message.from);
+                log('INFO', 'DashboardPage', 'CONNECT RECEIVED from peer (responder side)', { from: message.from });
+                log('INFO', 'DashboardPage', 'Incoming connection detected', { type: message.type, from: message.from });
                 
                 // Always create a fresh WebRTC provider for incoming connections
                 if (message.type === 'initiate') {
                     try {
-                        console.log('[DashboardPage] 🔄 Creating fresh WebRTC provider for incoming connection');
+                        log('INFO', 'DashboardPage', 'Creating fresh WebRTC provider for incoming connection');
                         
                         // Prevent multiple simultaneous provider creation
                         if (isCreatingProvider) {
-                            console.log('[DashboardPage] ⚠️ Provider creation already in progress for incoming connection, skipping');
+                            log('INFO', 'DashboardPage', 'Provider creation already in progress for incoming connection, skipping');
                             return;
                         }
                         
@@ -717,19 +708,19 @@ const DashboardPage = () => {
                         
                         // Destroy any existing provider first to ensure clean state
                         if (provider) {
-                            console.log('[DashboardPage] 🔄 Destroying existing provider before creating new one for incoming connection');
+                            log('INFO', 'DashboardPage', 'Destroying existing provider before creating new one for incoming connection');
                             
                             // OWNERSHIP: DashboardPage owns WebRTCProvider - manage its cleanup
                             try {
-                                console.log('%c[DashboardPage] 🧹 DashboardPage managing WebRTCProvider cleanup', 'font-weight: bold; color: blue;');
+                                log('INFO', 'DashboardPage', 'DashboardPage managing WebRTCProvider cleanup');
                                 
                                 // DashboardPage removes the message handler (it owns the provider)
                                 if (signalingService) {
                                     const handlerId = provider.getMessageHandlerId();
                                     if (handlerId !== null) {
-                                        console.log(`%c[DashboardPage] 🧹 REMOVING HANDLER ${handlerId} (DashboardPage owns provider)`, 'font-weight: bold; color: orange;');
+                                        log('INFO', 'DashboardPage', 'REMOVING HANDLER (DashboardPage owns provider)', { handlerId });
                                         const removed = signalingService.removeMessageHandler(handlerId);
-                                        console.log(`%c[DashboardPage] 🧹 HANDLER REMOVAL RESULT: ${removed}`, 'font-weight: bold; color: orange;');
+                                        log('INFO', 'DashboardPage', 'HANDLER REMOVAL RESULT', { removed });
                                     }
                                 }
                                 
@@ -738,11 +729,11 @@ const DashboardPage = () => {
                                 // Add a small delay to ensure the destroy operation completes
                                 await new Promise(resolve => setTimeout(resolve, 100));
                             } catch (error) {
-                                console.warn('[DashboardPage] ⚠️ Error destroying existing provider for incoming connection:', error);
+                                log('WARN', 'DashboardPage', 'Error destroying existing provider for incoming connection', error);
                             }
                         }
                         
-                        console.log('%c[DashboardPage] 🚀 CREATING WEBRTC PROVIDER for incoming connection', 'font-weight: bold; color: green; font-size: 14px;');
+                        log('INFO', 'DashboardPage', 'CREATING WEBRTC PROVIDER for incoming connection');
                         const rtcProvider = new WebRTCProvider({
                             userId: user.id,
                             iceServers: [
@@ -765,7 +756,7 @@ const DashboardPage = () => {
                         rtcProvider.setSignalingService(signalingService);
                         setProvider(rtcProvider); // Set provider directly
                     } catch (error) {
-                        console.error('[DashboardPage] ❌ Error creating provider for incoming connection:', error);
+                        log('ERROR', 'DashboardPage', 'Error creating provider for incoming connection', error);
                         setIsConnecting(false);
                     } finally {
                         setIsCreatingProvider(false);
@@ -775,8 +766,7 @@ const DashboardPage = () => {
             
             // Set up disconnect message handler
             signalingService.onDisconnectMessage = async (message) => {
-                console.log('%c[DashboardPage] 🔴 DISCONNECT RECEIVED from peer (responder side):', 'font-weight: bold; color: red;', message.from, 'reason:', message.reason);
-                console.log('[DashboardPage] 📥 DISCONNECT RECEIVED from peer (responder side):', message.from, 'reason:', message.reason);
+                log('WARN', 'DashboardPage', 'DISCONNECT RECEIVED from peer (responder side)', { from: message.from, reason: message.reason });
                 
                 // Responder side - received disconnect message from peer
                 // Don't send disconnect message back, just clean up local resources
@@ -784,11 +774,11 @@ const DashboardPage = () => {
             };
             
         } else {
-            console.warn('[DashboardPage] No signaling service available for peer list updates');
+            log('WARN', 'DashboardPage', 'No signaling service available for peer list updates');
         }
 
         return () => {
-            console.log('[DashboardPage] Cleaning up peer list handler');
+            log('INFO', 'DashboardPage', 'Cleaning up peer list handler');
             if (signalingService) {
                 signalingService.onPeerListUpdate = null;
                 signalingService.onIncomingConnection = null;
@@ -800,10 +790,10 @@ const DashboardPage = () => {
     // Auto-select single peer when available, and clear selection when no peers available
     useEffect(() => {
         if (peerList.length === 1 && !selectedPeer && !isPeerConnected && !isConnecting) {
-            console.log('[DashboardPage] Auto-selecting single available peer:', peerList[0].id);
+            log('INFO', 'DashboardPage', 'Auto-selecting single available peer', { peerId: peerList[0].id });
             setSelectedPeer(peerList[0].id);
         } else if (peerList.length === 0 && selectedPeer) {
-            console.log('[DashboardPage] No peers available, clearing selected peer');
+            log('INFO', 'DashboardPage', 'No peers available, clearing selected peer');
             clearSelectedPeer('no_peers_available');
         }
     }, [peerList, selectedPeer, isPeerConnected, isConnecting]);
@@ -813,26 +803,26 @@ const DashboardPage = () => {
         // Cleanup function to destroy provider when it changes or component unmounts
         return () => {
             if (provider) {
-                console.log('[DashboardPage] 🔄 Cleaning up WebRTC provider on unmount/change');
+                log('INFO', 'DashboardPage', 'Cleaning up WebRTC provider on unmount/change');
                 
                 // OWNERSHIP: DashboardPage owns WebRTCProvider - manage its cleanup
                 try {
-                    console.log('%c[DashboardPage] 🧹 DashboardPage managing WebRTCProvider cleanup', 'font-weight: bold; color: blue;');
+                    log('INFO', 'DashboardPage', 'DashboardPage managing WebRTCProvider cleanup');
                     
                     // DashboardPage removes the message handler (it owns the provider)
                     if (signalingService) {
                         const handlerId = provider.getMessageHandlerId();
                         if (handlerId !== null) {
-                            console.log(`%c[DashboardPage] 🧹 REMOVING HANDLER ${handlerId} (DashboardPage owns provider)`, 'font-weight: bold; color: orange;');
+                            log('INFO', 'DashboardPage', 'REMOVING HANDLER (DashboardPage owns provider)', { handlerId });
                             const removed = signalingService.removeMessageHandler(handlerId);
-                            console.log(`%c[DashboardPage] 🧹 HANDLER REMOVAL RESULT: ${removed}`, 'font-weight: bold; color: orange;');
+                            log('INFO', 'DashboardPage', 'HANDLER REMOVAL RESULT', { removed });
                         }
                     }
                     
                     // Then destroy the provider
                     provider.destroy();
                 } catch (error) {
-                    console.warn('[DashboardPage] ⚠️ Error during provider cleanup:', error);
+                    log('WARN', 'DashboardPage', 'Error during provider cleanup', error);
                 }
             }
         };
@@ -847,20 +837,20 @@ const DashboardPage = () => {
 
         const handleStateChange = (event) => {
             const timestamp = Date.now();
-            console.log(`[DashboardPage] 🔄 Received stateChange event from provider (${timestamp}):`, event.data);
+            log('DEBUG', 'DashboardPage', 'Received stateChange event from provider', { timestamp, data: event.data });
             
             // Update media state based on provider state
             const newAudioState = provider.getLocalAudioState();
             const newVideoState = provider.getLocalVideoState();
             const newScreenShareState = provider.isScreenSharingActive();
             
-            console.log(`[DashboardPage] 🔄 StateChange updating states (${timestamp}):`, {
+            log('DEBUG', 'DashboardPage', 'StateChange updating states', { timestamp, states: {
                 audio: newAudioState,
                 video: newVideoState,
                 screenShare: newScreenShareState,
                 currentIsScreenShareActive: isScreenShareActive,
                 note: 'Screen share state will be handled by handleStreamChange only'
-            });
+            }});
             
             setIsAudioEnabled(newAudioState);
             setIsVideoEnabled(newVideoState);
@@ -870,7 +860,7 @@ const DashboardPage = () => {
 
         const handleStreamChange = (event) => {
             const timestamp = Date.now();
-            console.log(`[DashboardPage] 🔄 Received stream event from provider (${timestamp}):`, event.data);
+            log('DEBUG', 'DashboardPage', 'Received stream event from provider', { timestamp, data: event.data });
             
             // Update screen share active status when streams change
             const hasLocalScreenShare = !!provider.getScreenShareStream();
@@ -882,7 +872,7 @@ const DashboardPage = () => {
             // The new screen share active state should be based on actual streams, not the old state
             const newIsScreenShareActive = hasLocalScreenShare || hasRemoteScreenShare;
             
-            console.log(`[DashboardPage] 🔍 Updating screen share status (${timestamp}):`, {
+            log('DEBUG', 'DashboardPage', 'Updating screen share status', { timestamp, status: {
                 isScreenSharing,
                 hasLocalScreenShare,
                 hasRemoteScreenShare,
@@ -890,37 +880,37 @@ const DashboardPage = () => {
                 currentProviderScreenShareState,
                 newIsScreenShareActive,
                 currentIsScreenShareActive: isScreenShareActive
-            });
+            }});
             
             // Separate log for comparison to ensure it's visible
-            console.log(`[DashboardPage] 🔍 COMPARISON (${timestamp}): ${newIsScreenShareActive} !== ${isScreenShareActive} = ${newIsScreenShareActive !== isScreenShareActive}`);
-            console.log(`[DashboardPage] 🔍 VALUES (${timestamp}): newIsScreenShareActive=${newIsScreenShareActive} (${typeof newIsScreenShareActive}), isScreenShareActive=${isScreenShareActive} (${typeof isScreenShareActive})`);
+            log('DEBUG', 'DashboardPage', 'COMPARISON', { timestamp, comparison: `${newIsScreenShareActive} !== ${isScreenShareActive} = ${newIsScreenShareActive !== isScreenShareActive}` });
+            log('DEBUG', 'DashboardPage', 'VALUES', { timestamp, values: { newIsScreenShareActive, newIsScreenShareActiveType: typeof newIsScreenShareActive, isScreenShareActive, isScreenShareActiveType: typeof isScreenShareActive } });
             
         // Always update the screen share state based on actual stream presence
         if (newIsScreenShareActive !== isScreenShareActive) {
-            console.log('[DashboardPage] 🔄 Screen share state changed, updating:', newIsScreenShareActive);
-            console.log(`[DashboardPage] 🔄 CALLING setIsScreenShareActive(${newIsScreenShareActive}) from handleStreamChange (${timestamp})`);
+            log('INFO', 'DashboardPage', 'Screen share state changed, updating', { newIsScreenShareActive });
+            log('DEBUG', 'DashboardPage', 'CALLING setIsScreenShareActive from handleStreamChange', { newIsScreenShareActive, timestamp });
             setIsScreenShareActive(newIsScreenShareActive);
             
             // Check mutual exclusivity when screen share becomes active (from remote peer)
             if (newIsScreenShareActive) {
-                console.log('[DashboardPage] 🖥️ Remote screen share detected, checking exclusivity');
-                console.log('[DashboardPage] 🖥️ Current image URL:', currentImageUrlRef.current);
-                console.log('[DashboardPage] 📥 TRIGGERING SCREEN SHARE EXCLUSIVITY CHECK');
+                log('INFO', 'DashboardPage', 'Remote screen share detected, checking exclusivity');
+                log('DEBUG', 'DashboardPage', 'Current image URL', { currentImageUrl: currentImageUrlRef.current });
+                log('INFO', 'DashboardPage', 'TRIGGERING SCREEN SHARE EXCLUSIVITY CHECK');
                 checkExclusivity('screenShare', true);
             } else {
-                console.log('[DashboardPage] 🖥️ Screen share stopped, clearing any existing content');
+                log('INFO', 'DashboardPage', 'Screen share stopped, clearing any existing content');
                 // When screen share stops, we don't need to clear anything since it's just stopping
             }
         } else {
             // CRITICAL FIX: Even if state appears unchanged, force update if stream was removed
             // This handles the race condition where isScreenShareActive was already set to false
             if (!newIsScreenShareActive && !hasLocalScreenShare && !hasRemoteScreenShare) {
-                console.log('[DashboardPage] 🔄 FORCING screen share state update due to stream removal (race condition fix)');
-                console.log(`[DashboardPage] 🔄 CALLING setIsScreenShareActive(false) from handleStreamChange (${timestamp}) - FORCED UPDATE`);
+                log('WARN', 'DashboardPage', 'FORCING screen share state update due to stream removal (race condition fix)');
+                log('DEBUG', 'DashboardPage', 'CALLING setIsScreenShareActive(false) from handleStreamChange - FORCED UPDATE', { timestamp });
                 setIsScreenShareActive(false);
             } else {
-                console.log('[DashboardPage] 🔄 Screen share state unchanged, keeping current state');
+                log('DEBUG', 'DashboardPage', 'Screen share state unchanged, keeping current state');
             }
         }
         };
@@ -946,7 +936,7 @@ const DashboardPage = () => {
                 const dashboardContent = document.querySelector('.dashboard-content');
                 const videoChat = document.querySelector('.video-chat');
                 
-                console.log('🔍 Measuring elements:', {
+                log('DEBUG', 'DashboardPage', 'Measuring elements', {
                     dashboardContentFound: !!dashboardContent,
                     videoChatFound: !!videoChat,
                     dashboardContentClasses: dashboardContent?.className,
@@ -959,9 +949,9 @@ const DashboardPage = () => {
                     const height = Math.round(rect.height);
                     dashboardContent.setAttribute('data-width', `${width}px`);
                     dashboardContent.setAttribute('data-height', `${height}px`);
-                    console.log('Dashboard Content dimensions:', width, 'x', height);
+                    log('DEBUG', 'DashboardPage', 'Dashboard Content dimensions', { width, height });
                 } else {
-                    console.log('❌ Dashboard Content element not found');
+                    log('DEBUG', 'DashboardPage', 'Dashboard Content element not found');
                 }
                 
                 if (videoChat) {
@@ -970,17 +960,17 @@ const DashboardPage = () => {
                     const height = Math.round(rect.height);
                     videoChat.setAttribute('data-width', `${width}px`);
                     videoChat.setAttribute('data-height', `${height}px`);
-                    console.log('Video Chat dimensions:', width, 'x', height);
+                    log('DEBUG', 'DashboardPage', 'Video Chat dimensions', { width, height });
                 } else {
-                    console.log('❌ Video Chat element not found - checking all video-chat elements...');
+                    log('DEBUG', 'DashboardPage', 'Video Chat element not found - checking all video-chat elements...');
                     const allVideoChats = document.querySelectorAll('.video-chat');
-                    console.log('Found video-chat elements:', allVideoChats.length);
+                    log('DEBUG', 'DashboardPage', 'Found video-chat elements', { count: allVideoChats.length });
                     allVideoChats.forEach((el, index) => {
-                        console.log(`Video-chat ${index}:`, {
+                        log('DEBUG', 'DashboardPage', 'Video-chat element details', { index, details: {
                             className: el.className,
                             id: el.id,
                             visible: el.offsetParent !== null
-                        });
+                        }});
                     });
                 }
             };
@@ -1107,7 +1097,7 @@ const DashboardPage = () => {
             }
         };
         
-        console.log('🔍 Debug Info:', debugInfo);
+        log('DEBUG', 'DashboardPage', 'Debug Info', debugInfo);
         setShowDebugPopup(true);
         
         // Auto-hide after 10 seconds
@@ -1119,7 +1109,7 @@ const DashboardPage = () => {
         // Connection event listener
         const connectionHandler = (event) => {
             const state = event.data.state;
-            console.log(`[DashboardPage] Connection state changed:`, state);
+            log('INFO', 'DashboardPage', 'Connection state changed', { state });
             
             if (state === 'connected') {
                 setIsPeerConnected(true);
@@ -1130,7 +1120,7 @@ const DashboardPage = () => {
                 
                 // Automatically enable whiteboard when connection is established
                 if (!isWhiteboardActive) {
-                    console.log('[DashboardPage] 🎨 Auto-enabling whiteboard on connection');
+                    log('INFO', 'DashboardPage', 'Auto-enabling whiteboard on connection');
                     setIsWhiteboardActive(true);
                 }
                 
@@ -1140,8 +1130,8 @@ const DashboardPage = () => {
                 
         // Send current image state to newly connected peer
         if (currentImageUrlRef.current && provider && selectedPeer) {
-            console.log('[DashboardPage] 🎨 Sending current image to newly connected peer:', currentImageUrlRef.current);
-            console.log('[DashboardPage] 📤 SENDING IMAGE TO PEER:', { peer: selectedPeer, imageUrl: currentImageUrlRef.current });
+            log('INFO', 'DashboardPage', 'Sending current image to newly connected peer', { imageUrl: currentImageUrlRef.current });
+            log('INFO', 'DashboardPage', 'SENDING IMAGE TO PEER', { peer: selectedPeer, imageUrl: currentImageUrlRef.current });
             provider.sendWhiteboardMessage(selectedPeer, {
                 action: 'background',
                 background: {
@@ -1151,7 +1141,7 @@ const DashboardPage = () => {
             });
         }
                 
-                console.log('%c[DashboardPage] 🔗 CONNECTION ESTABLISHED:', 'font-weight: bold; color: green;', {
+                log('INFO', 'DashboardPage', 'CONNECTION ESTABLISHED', {
                     selectedPeer: selectedPeer,
                     clearedDisconnectedPeer: true,
                     clearedHandledLogoutPeers: true
@@ -1172,7 +1162,7 @@ const DashboardPage = () => {
                         peerId: selectedPeer,
                         timestamp: Date.now()
                     };
-                    console.log('%c[DashboardPage] 🔌 CONNECTION LOST - Saved peer for logout detection:', 'font-weight: bold; color: red;', {
+                    log('WARN', 'DashboardPage', 'CONNECTION LOST - Saved peer for logout detection', {
                         disconnectedPeer: disconnectedPeerRef.current,
                         reason: 'Will check if peer is missing from updated list within 2 seconds'
                     });
@@ -1186,32 +1176,32 @@ const DashboardPage = () => {
                 
                 // Destroy provider on disconnect or failure to ensure fresh instance for retry
                 if (state === 'failed' || state === 'disconnected') {
-                    console.log(`[DashboardPage] Connection ${state} - destroying provider for retry`);
+                    log('INFO', 'DashboardPage', 'Connection destroying provider for retry', { state });
                     
                     // Check if we've already handled a logout for this peer to prevent duplicate cleanup
                     const isLogoutHandled = selectedPeer && handledLogoutPeersRef.current.has(selectedPeer);
                     if (isLogoutHandled) {
-                        console.log(`%c[DashboardPage] 🚫 SKIPPING STREAM CLEANUP - Logout already handled for peer ${selectedPeer}`, 'font-weight: bold; color: orange;');
+                        log('INFO', 'DashboardPage', 'SKIPPING STREAM CLEANUP - Logout already handled for peer', { selectedPeer });
                     } else {
-                        console.log(`%c[DashboardPage] 🎥 PROCEEDING WITH STREAM CLEANUP - No logout detected yet for peer ${selectedPeer}`, 'font-weight: bold; color: blue;');
+                        log('INFO', 'DashboardPage', 'PROCEEDING WITH STREAM CLEANUP - No logout detected yet for peer', { selectedPeer });
                         cleanupStreamsAndSetProviderNull(`connection_${state}`); // Clean up streams before setting provider to null
                     }
                     
                     // Only show error message for unexpected disconnections
-                    console.log(`%c[DashboardPage] 🔍 CONNECTION STATE CHANGE: ${state}, isGracefulDisconnect: ${isGracefulDisconnect}`, 'font-weight: bold; color: blue;');
-                    console.log(`%c[DashboardPage] 🔍 DISCONNECT FLAG DEBUG: flag=${isGracefulDisconnect}, state=${state}`, 'font-weight: bold; color: purple;');
+                    log('INFO', 'DashboardPage', 'CONNECTION STATE CHANGE', { state, isGracefulDisconnect });
+                    log('DEBUG', 'DashboardPage', 'DISCONNECT FLAG DEBUG', { flag: isGracefulDisconnect, state });
                     
                     if (state === 'failed') {
                         // Failed connections are always unexpected
-                        console.log('[DashboardPage] Failed connection - showing error message');
+                        log('WARN', 'DashboardPage', 'Failed connection - showing error message');
                         setError('Connection failed. This may be due to network issues or firewall restrictions. Please try reconnecting.');
                     } else if (state === 'disconnected' && !isGracefulDisconnect) {
                         // Only show "Connection lost" for unexpected disconnections
-                        console.log('%c[DashboardPage] ❌ Unexpected disconnect - showing error message', 'font-weight: bold; color: red;');
+                        log('WARN', 'DashboardPage', 'Unexpected disconnect - showing error message');
                         setError('Connection lost. Please try reconnecting.');
                     } else if (state === 'disconnected' && isGracefulDisconnect) {
                         // Graceful disconnect - clear any existing error and don't show new error
-                        console.log('%c[DashboardPage] ✅ Graceful disconnect detected - not showing error message', 'font-weight: bold; color: green;');
+                        log('INFO', 'DashboardPage', 'Graceful disconnect detected - not showing error message');
                         setError(null);
                     }
                 }
@@ -1223,7 +1213,7 @@ const DashboardPage = () => {
         rtcProvider.addEventListener('connection', connectionHandler);
 
         const errorHandler = (event) => {
-            console.error('[DashboardPage] WebRTC error:', event.data);
+            log('ERROR', 'DashboardPage', 'WebRTC error', event.data);
             
             // Provide more specific error messages for common issues
             let errorMessage = event.data.message;
@@ -1242,32 +1232,32 @@ const DashboardPage = () => {
 
         const messageHandler = (event) => {
             // Enhanced debugging to identify message structure issues
-            console.group('[DashboardPage] 🔍 Message Event Debug');
-            safeLog('Event type:', event.type);
-            safeLog('Event peerId:', event.peerId);
-            safeLog('Event data type:', typeof event.data);
-            safeLog('Event data:', event.data);
+            log('DEBUG', 'DashboardPage', 'Message Event Debug');
+            log('DEBUG', 'DashboardPage', 'Event type', { eventType: event.type });
+            log('DEBUG', 'DashboardPage', 'Event peerId', { peerId: event.peerId });
+            log('DEBUG', 'DashboardPage', 'Event data type', { dataType: typeof event.data });
+            log('DEBUG', 'DashboardPage', 'Event data', event.data);
             
             // Try to show the actual message content
             if (event.data) {
-                safeLog('Data keys:', Object.keys(event.data));
-                safeLog('Data content:', event.data);
+                log('DEBUG', 'DashboardPage', 'Data keys', { keys: Object.keys(event.data) });
+                log('DEBUG', 'DashboardPage', 'Data content', event.data);
                 
                 // Try to stringify the data to see its actual content
                 try {
-                    safeLog('Stringified data:', JSON.stringify(event.data, null, 2));
+                    log('DEBUG', 'DashboardPage', 'Stringified data', { stringified: JSON.stringify(event.data, null, 2) });
                 } catch (e) {
-                    safeLog('Could not stringify data:', e);
+                    log('WARN', 'DashboardPage', 'Could not stringify data', e);
                 }
             } else {
-                console.log('No data in event');
+                log('DEBUG', 'DashboardPage', 'No data in event');
             }
             
             // Log the full event object structure
-            safeLog('Full event object:', event);
-            safeLog('Event constructor:', event.constructor.name);
-            safeLog('Event prototype chain:', Object.getPrototypeOf(event));
-            console.groupEnd();
+            log('DEBUG', 'DashboardPage', 'Full event object', event);
+            log('DEBUG', 'DashboardPage', 'Event constructor', { constructor: event.constructor.name });
+            log('DEBUG', 'DashboardPage', 'Event prototype chain', { prototypeChain: Object.getPrototypeOf(event) });
+            // End debug group
             
             try {
                 const messageData = event.data;
@@ -1277,7 +1267,7 @@ const DashboardPage = () => {
                     timestamp: messageData.timestamp || new Date().toISOString()
                 }]);
             } catch (error) {
-                console.error('[DashboardPage] Error processing received message:', error);
+                log('ERROR', 'DashboardPage', 'Error processing received message', error);
             }
         };
         
@@ -1289,7 +1279,7 @@ const DashboardPage = () => {
     const handleConnect = async () => {
         // Safety check: Perform cleanup if we're in a corrupted state
         if (provider && !isPeerConnected && !isConnecting) {
-            console.log('%c[DashboardPage] ⚠️ DETECTED CORRUPTED STATE - Performing cleanup before connect', 'font-weight: bold; color: orange;');
+            log('WARN', 'DashboardPage', 'DETECTED CORRUPTED STATE - Performing cleanup before connect');
             performComprehensiveCleanup('corrupted_state_before_connect');
         }
         
@@ -1300,7 +1290,7 @@ const DashboardPage = () => {
 
         // Prevent multiple simultaneous provider creation
         if (isCreatingProvider) {
-            console.log('[DashboardPage] ⚠️ Provider creation already in progress, skipping');
+            log('INFO', 'DashboardPage', 'Provider creation already in progress, skipping');
             return;
         }
 
@@ -1312,15 +1302,15 @@ const DashboardPage = () => {
 
             // Destroy any existing provider first to ensure clean state
             if (provider) {
-                console.log('[DashboardPage] 🔄 Destroying existing provider before creating new one');
+                log('INFO', 'DashboardPage', 'Destroying existing provider before creating new one');
                 
                 // Clean up message handler before destroying provider
                 if (signalingService) {
                     const handlerId = provider.getMessageHandlerId();
                     if (handlerId !== null) {
-                        console.log(`%c[DashboardPage] 🧹 REMOVING EXISTING HANDLER ${handlerId} before creating new provider`, 'font-weight: bold; color: orange; font-size: 14px;');
+                        log('INFO', 'DashboardPage', 'REMOVING EXISTING HANDLER before creating new provider', { handlerId });
                         const removed = signalingService.removeMessageHandler(handlerId);
-                        console.log(`%c[DashboardPage] 🧹 EXISTING HANDLER REMOVAL RESULT: ${removed}`, 'font-weight: bold; color: orange; font-size: 14px;');
+                        log('INFO', 'DashboardPage', 'EXISTING HANDLER REMOVAL RESULT', { removed });
                     }
                 }
                 
@@ -1329,33 +1319,33 @@ const DashboardPage = () => {
                     // Add a small delay to ensure the destroy operation completes
                     await new Promise(resolve => setTimeout(resolve, 100));
                 } catch (error) {
-                    console.warn('[DashboardPage] ⚠️ Error destroying existing provider:', error);
+                    log('WARN', 'DashboardPage', 'Error destroying existing provider', error);
                 }
             }
             
             // Reset signaling service to ensure clean state
             if (signalingService) {
-                console.log('[DashboardPage] 🔄 Resetting signaling service before creating new provider');
+                log('INFO', 'DashboardPage', 'Resetting signaling service before creating new provider');
                 signalingService.reset();
                 // Add a small delay to ensure the reset operation completes
                 await new Promise(resolve => setTimeout(resolve, 100));
                 
                 // Re-register peer list handler after reset
-                console.log('[DashboardPage] 🔄 Re-registering peer list handler after signaling service reset');
+                log('INFO', 'DashboardPage', 'Re-registering peer list handler after signaling service reset');
                 const user = userRef.current;
                 if (user) {
                     signalingService.onPeerListUpdate = handlePeerListUpdate;
                     signalingService.onIncomingConnection = async (message) => {
-                        console.log('[DashboardPage] 🔄 Incoming connection detected after reset:', message.type, 'from peer', message.from);
+                        log('INFO', 'DashboardPage', 'Incoming connection detected after reset', { type: message.type, from: message.from });
                         
                         // Always create a fresh WebRTC provider for incoming connections
                         if (message.type === 'initiate') {
                             try {
-                                console.log('[DashboardPage] 🔄 Creating fresh WebRTC provider for incoming connection after reset');
+                                log('INFO', 'DashboardPage', 'Creating fresh WebRTC provider for incoming connection after reset');
                                 
                                 // Prevent multiple simultaneous provider creation
                                 if (isCreatingProvider) {
-                                    console.log('[DashboardPage] ⚠️ Provider creation already in progress for incoming connection after reset, skipping');
+                                    log('WARN', 'DashboardPage', 'Provider creation already in progress for incoming connection after reset, skipping');
                                     return;
                                 }
                                 
@@ -1367,15 +1357,15 @@ const DashboardPage = () => {
                                 
                                 // Destroy any existing provider first to ensure clean state
                                 if (provider) {
-                                    console.log('[DashboardPage] 🔄 Destroying existing provider before creating new one for incoming connection after reset');
+                                    log('INFO', 'DashboardPage', 'Destroying existing provider before creating new one for incoming connection after reset');
                                     
                                     // Clean up message handler before destroying provider
                                     if (signalingService) {
                                         const handlerId = provider.getMessageHandlerId();
                                         if (handlerId !== null) {
-                                            console.log(`%c[DashboardPage] 🧹 REMOVING EXISTING HANDLER ${handlerId} before creating new provider for incoming connection after reset`, 'font-weight: bold; color: orange; font-size: 14px;');
+                                            log('INFO', 'DashboardPage', `REMOVING EXISTING HANDLER ${handlerId} before creating new provider for incoming connection after reset`);
                                             const removed = signalingService.removeMessageHandler(handlerId);
-                                            console.log(`%c[DashboardPage] 🧹 EXISTING HANDLER REMOVAL RESULT: ${removed}`, 'font-weight: bold; color: orange; font-size: 14px;');
+                                            log('INFO', 'DashboardPage', `EXISTING HANDLER REMOVAL RESULT: ${removed}`);
                                         }
                                     }
                                     
@@ -1384,11 +1374,11 @@ const DashboardPage = () => {
                                         // Add a small delay to ensure the destroy operation completes
                                         await new Promise(resolve => setTimeout(resolve, 100));
                                     } catch (error) {
-                                        console.warn('[DashboardPage] ⚠️ Error destroying existing provider for incoming connection after reset:', error);
+                                        log('WARN', 'DashboardPage', 'Error destroying existing provider for incoming connection after reset', error);
                                     }
                                 }
                                 
-                                console.log('%c[DashboardPage] 🚀 CREATING WEBRTC PROVIDER for incoming connection after reset', 'font-weight: bold; color: green; font-size: 14px;');
+                                log('INFO', 'DashboardPage', 'CREATING WEBRTC PROVIDER for incoming connection after reset');
                                 const rtcProvider = new WebRTCProvider({
                                     userId: user.id,
                                     iceServers: [
@@ -1411,7 +1401,7 @@ const DashboardPage = () => {
                                 rtcProvider.setSignalingService(signalingService);
                                 setProvider(rtcProvider); // Set provider directly
                             } catch (error) {
-                                console.error('[DashboardPage] ❌ Error creating provider for incoming connection after reset:', error);
+                                log('ERROR', 'DashboardPage', 'Error creating provider for incoming connection after reset', error);
                                 setIsConnecting(false);
                             } finally {
                                 setIsCreatingProvider(false);
@@ -1423,12 +1413,12 @@ const DashboardPage = () => {
             }
 
             // Always create a fresh WebRTC provider for clean connection
-            console.log('[DashboardPage] 🔄 Creating fresh WebRTC provider for connection');
+            log('INFO', 'DashboardPage', 'Creating fresh WebRTC provider for connection');
             const user = userRef.current;
             const currentTimestamp = Date.now();
             setActiveProviderTimestamp(currentTimestamp);
             
-            console.log('%c[DashboardPage] 🚀 CREATING WEBRTC PROVIDER for connect button', 'font-weight: bold; color: green; font-size: 14px;');
+            log('INFO', 'DashboardPage', 'CREATING WEBRTC PROVIDER for connect button');
             
             let rtcProvider;
             try {
@@ -1447,7 +1437,7 @@ const DashboardPage = () => {
                     ]
                 });
             } catch (error) {
-                console.error('[DashboardPage] ❌ Failed to create WebRTC provider:', error);
+                log('ERROR', 'DashboardPage', 'Failed to create WebRTC provider', error);
                 setError('Failed to initialize connection. This might be due to browser compatibility issues.');
                 return;
             }
@@ -1463,7 +1453,7 @@ const DashboardPage = () => {
             await rtcProvider.connect(selectedPeer);
             
         } catch (error) {
-            console.error('[DashboardPage] ❌ Connection error:', error);
+            log('ERROR', 'DashboardPage', 'Connection error', error);
             setError(error.message);
             setIsConnecting(false);
         } finally {
@@ -1476,16 +1466,16 @@ const DashboardPage = () => {
         try {
             const disconnectType = isInitiator ? 'initiator side' : 'responder side';
             if (isInitiator) {
-                console.log('%c[DashboardPage] 🔴 DISCONNECT STARTED from initiator side', 'font-weight: bold; color: red;');
+                log('INFO', 'DashboardPage', 'DISCONNECT STARTED from initiator side');
             } else {
-                console.log('%c[DashboardPage] 🔴 DISCONNECT STARTED from responder side', 'font-weight: bold; color: red;');
+                log('INFO', 'DashboardPage', 'DISCONNECT STARTED from responder side');
             }
-            console.log(`[DashboardPage] 🔴 DISCONNECT STARTED from ${disconnectType}`);
+            log('INFO', 'DashboardPage', `DISCONNECT STARTED from ${disconnectType}`);
             
             // Mark this as a graceful disconnect (peer initiated)
-            console.log(`%c[DashboardPage] 🏷️ SETTING GRACEFUL DISCONNECT FLAG: ${isInitiator ? 'initiator' : 'responder'}`, 'font-weight: bold; color: purple;');
+            log('INFO', 'DashboardPage', `SETTING GRACEFUL DISCONNECT FLAG: ${isInitiator ? 'initiator' : 'responder'}`);
             setIsGracefulDisconnect(true);
-            console.log(`%c[DashboardPage] 🏷️ GRACEFUL DISCONNECT FLAG SET TO: true`, 'font-weight: bold; color: purple;');
+            log('INFO', 'DashboardPage', 'GRACEFUL DISCONNECT FLAG SET TO: true');
             
             // CRITICAL: Wait for the state update to be applied before proceeding
             // This ensures the connection state change handler sees the correct flag value
@@ -1494,32 +1484,32 @@ const DashboardPage = () => {
             // Send disconnect message to peer (only if initiator)
             if (isInitiator && signalingService && selectedPeer) {
                 try {
-                    console.log(`[DashboardPage] 📤 Sending disconnect message to peer ${selectedPeer}`);
+                    log('INFO', 'DashboardPage', `Sending disconnect message to peer ${selectedPeer}`);
                     signalingService.send({
                         type: 'disconnect',
                         from: userRef.current?.id,
                         to: selectedPeer,
                         data: { timestamp: Date.now() }
                     });
-                    console.log(`[DashboardPage] ✅ Disconnect message sent to peer ${selectedPeer}`);
+                    log('INFO', 'DashboardPage', `Disconnect message sent to peer ${selectedPeer}`);
                 } catch (error) {
-                    console.warn('[DashboardPage] Failed to send disconnect message:', error);
+                    log('WARN', 'DashboardPage', 'Failed to send disconnect message', error);
                 }
             } else if (!isInitiator) {
-                console.log(`[DashboardPage] 🔄 Responder side - not sending disconnect message to peer ${selectedPeer}`);
+                log('INFO', 'DashboardPage', `Responder side - not sending disconnect message to peer ${selectedPeer}`);
             }
             
             // STEP 1: Stop all media resources BEFORE disconnecting
-            console.log('%c[DashboardPage] 🛑 STOPPING ALL MEDIA RESOURCES before disconnect', 'font-weight: bold; color: orange; font-size: 14px;');
+            log('INFO', 'DashboardPage', 'STOPPING ALL MEDIA RESOURCES before disconnect');
             
             // Stop screen share before disconnect if it's active
             if (isScreenSharing && provider) {
-                console.log('[DashboardPage] 🖥️ Stopping screen share before disconnect');
+                log('INFO', 'DashboardPage', 'Stopping screen share before disconnect');
                 try {
                     await provider.stopScreenShare();
                     setIsScreenSharing(false);
                 } catch (error) {
-                    console.warn('[DashboardPage] Failed to stop screen share during disconnect:', error);
+                    log('WARN', 'DashboardPage', 'Failed to stop screen share during disconnect', error);
                 }
             }
             
@@ -1527,35 +1517,35 @@ const DashboardPage = () => {
             // 1. Clear all audio, video, screen resources
             // 2. Reset remote resources (remote peer will clear its resources)
             if (provider) {
-                console.log('%c[DashboardPage] 🔌 DISCONNECTING WEBRTC from peer', 'font-weight: bold; color: orange; font-size: 14px;');
+                log('INFO', 'DashboardPage', 'DISCONNECTING WEBRTC from peer');
                 
                 // CRITICAL: Remove event listeners BEFORE disconnecting to prevent delayed events (especially on responder side)
-                console.log(`%c[DashboardPage] 🔌 REMOVING EVENT LISTENERS before disconnect (${disconnectType})`, 'font-weight: bold; color: orange;');
+                log('INFO', 'DashboardPage', `REMOVING EVENT LISTENERS before disconnect (${disconnectType})`);
                 try {
                     const handlers = webRTCEventHandlersRef.current;
                     if (handlers.connection) {
                         provider.removeEventListener('connection', handlers.connection);
-                        console.log(`%c[DashboardPage] 🔌 ✅ Removed connection event listener (${disconnectType})`, 'font-weight: bold; color: green;');
+                        log('INFO', 'DashboardPage', `Removed connection event listener (${disconnectType})`);
                     }
                     if (handlers.error) {
                         provider.removeEventListener('error', handlers.error);
-                        console.log(`%c[DashboardPage] 🔌 ✅ Removed error event listener (${disconnectType})`, 'font-weight: bold; color: green;');
+                        log('INFO', 'DashboardPage', `Removed error event listener (${disconnectType})`);
                     }
                     if (handlers.message) {
                         provider.removeEventListener('message', handlers.message);
-                        console.log(`%c[DashboardPage] 🔌 ✅ Removed message event listener (${disconnectType})`, 'font-weight: bold; color: green;');
+                        log('INFO', 'DashboardPage', `Removed message event listener (${disconnectType})`);
                     }
                     if (handlers.stream) {
                         provider.removeEventListener('stream', handlers.stream);
-                        console.log(`%c[DashboardPage] 🔌 ✅ Removed stream event listener (${disconnectType})`, 'font-weight: bold; color: green;');
+                        log('INFO', 'DashboardPage', `Removed stream event listener (${disconnectType})`);
                     }
                     if (handlers.stateChange) {
                         provider.removeEventListener('stateChange', handlers.stateChange);
-                        console.log(`%c[DashboardPage] 🔌 ✅ Removed stateChange event listener (${disconnectType})`, 'font-weight: bold; color: green;');
+                        log('INFO', 'DashboardPage', `Removed stateChange event listener (${disconnectType})`);
                     }
                     if (handlers.track) {
                         provider.removeEventListener('track', handlers.track);
-                        console.log(`%c[DashboardPage] 🔌 ✅ Removed track event listener (${disconnectType})`, 'font-weight: bold; color: green;');
+                        log('INFO', 'DashboardPage', `Removed track event listener (${disconnectType})`);
                     }
                     
                     // Clear the stored handlers
@@ -1568,39 +1558,39 @@ const DashboardPage = () => {
                         track: null
                     };
                     
-                    console.log(`%c[DashboardPage] 🔌 ✅ All event listeners removed (${disconnectType})`, 'font-weight: bold; color: green;');
+                    log('INFO', 'DashboardPage', `All event listeners removed (${disconnectType})`);
                 } catch (error) {
-                    console.warn(`%c[DashboardPage] 🔌 ⚠️ Error removing event listeners (${disconnectType}):`, 'font-weight: bold; color: yellow;', error);
+                    log('WARN', 'DashboardPage', `Error removing event listeners (${disconnectType})`, error);
                 }
                 
                 // Set graceful disconnect flag on WebRTC provider to prevent connection state events
                 provider.setGracefulDisconnect(true);
                 await provider.disconnect(selectedPeer, isInitiator);
             } else {
-                console.log(`[DashboardPage] ⚠️ No WebRTC provider available for disconnect (${disconnectType})`);
+                log('WARN', 'DashboardPage', `No WebRTC provider available for disconnect (${disconnectType})`);
                 // CRITICAL: Even without provider, we need to clean up streams
-                console.log(`%c[DashboardPage] 🎥 CLEANING UP STREAMS without provider (${disconnectType})`, 'font-weight: bold; color: orange;');
+                log('INFO', 'DashboardPage', `CLEANING UP STREAMS without provider (${disconnectType})`);
                 cleanupStreamsAndSetProviderNull(`disconnect_${disconnectType}_no_provider`);
             }
             
             // STEP 3: Reset dashboard state to go back to logged in page
-            console.log('[DashboardPage] 🔄 Resetting dashboard state after disconnect');
+            log('INFO', 'DashboardPage', 'Resetting dashboard state after disconnect');
             reset();
             
             // STEP 4: Destroy the provider (DashboardPage owns WebRTCProvider)
-            console.log('%c[DashboardPage] 💥 DESTROYING WEBRTC PROVIDER after disconnect', 'font-weight: bold; color: red; font-size: 14px;');
-            console.log('[DashboardPage] 🔄 Destroying WebRTC provider after disconnect');
+            log('INFO', 'DashboardPage', 'DESTROYING WEBRTC PROVIDER after disconnect');
+            log('INFO', 'DashboardPage', 'Destroying WebRTC provider after disconnect');
             if (provider) {
                 // OWNERSHIP: DashboardPage owns WebRTCProvider - manage its cleanup
-                console.log('%c[DashboardPage] 💥 DashboardPage managing WebRTCProvider cleanup', 'font-weight: bold; color: blue;');
+                log('INFO', 'DashboardPage', 'DashboardPage managing WebRTCProvider cleanup');
                 try {
                     // DashboardPage removes the message handler (it owns the provider)
                     if (signalingService) {
                         const handlerId = provider.getMessageHandlerId();
                         if (handlerId !== null) {
-                            console.log(`%c[DashboardPage] 🧹 REMOVING HANDLER ${handlerId} (DashboardPage owns provider)`, 'font-weight: bold; color: orange;');
+                            log('INFO', 'DashboardPage', 'REMOVING HANDLER (DashboardPage owns provider)', { handlerId });
                             const removed = signalingService.removeMessageHandler(handlerId);
-                            console.log(`%c[DashboardPage] 🧹 HANDLER REMOVAL RESULT: ${removed}`, 'font-weight: bold; color: orange;');
+                            log('INFO', 'DashboardPage', 'HANDLER REMOVAL RESULT', { removed });
                         }
                     }
                     
@@ -1608,17 +1598,17 @@ const DashboardPage = () => {
                     provider.destroy();
                     cleanupStreamsAndSetProviderNull(`disconnect_${disconnectType}_with_provider`);
                 } catch (error) {
-                    console.warn('[DashboardPage] Error during provider destroy:', error);
+                    log('WARN', 'DashboardPage', 'Error during provider destroy', error);
                 }
             }
             
             // STEP 6: The existing disconnect logic already handles cleanup properly
             // No need for additional comprehensive cleanup here as it might interfere
-            console.log(`[DashboardPage] ✅ Disconnect cleanup completed by existing logic`);
+                log('INFO', 'DashboardPage', 'Disconnect cleanup completed by existing logic');
             
-            console.log(`[DashboardPage] ✅ Disconnect process completed - user remains logged in (${disconnectType})`);
+            log('INFO', 'DashboardPage', `Disconnect process completed - user remains logged in (${disconnectType})`);
         } catch (error) {
-            console.error('[DashboardPage] Disconnect error:', error);
+            log('ERROR', 'DashboardPage', 'Disconnect error', error);
             setError(error.message);
         }
     };
@@ -1629,77 +1619,77 @@ const DashboardPage = () => {
     };
 
     const handleLogout = async () => {
-        console.log('%c[DashboardPage] 👋 LOGOUT INITIATED by user', 'font-weight: bold; color: red; font-size: 14px;');
-        console.log('[DashboardPage] 👋 User logging out - starting logout process');
+        log('INFO', 'DashboardPage', 'LOGOUT INITIATED by user');
+        log('INFO', 'DashboardPage', 'User logging out - starting logout process');
         
         try {
             // STEP 1: If user is connected to a peer, disconnect gracefully (but don't send disconnect message)
             if (provider && selectedPeer && isPeerConnected) {
-                console.log('%c[DashboardPage] 👋 STEP 1: User is connected to peer, disconnecting gracefully', 'font-weight: bold; color: orange;');
-                console.log('[DashboardPage] 👋 Connected peer:', selectedPeer, 'Provider exists:', !!provider);
+                log('INFO', 'DashboardPage', 'STEP 1: User is connected to peer, disconnecting gracefully');
+                log('INFO', 'DashboardPage', 'Connected peer', { selectedPeer, providerExists: !!provider });
                 
                 try {
                     // OWNERSHIP: DashboardPage owns WebRTCProvider - call disconnect for cleanup
                     // WebRTCProvider.disconnect() will handle internal WebRTC cleanup
-                    console.log('%c[DashboardPage] 👋 Calling provider.disconnect() - DashboardPage owns provider', 'font-weight: bold; color: blue;');
+                    log('INFO', 'DashboardPage', 'Calling provider.disconnect() - DashboardPage owns provider');
                     await provider.disconnect(selectedPeer, true); // true = isInitiator, but we won't send disconnect message
-                    console.log('%c[DashboardPage] 👋 ✅ Disconnect completed before logout', 'font-weight: bold; color: green;');
+                    log('INFO', 'DashboardPage', 'Disconnect completed before logout');
                 } catch (disconnectError) {
-                    console.warn('%c[DashboardPage] ⚠️ Error during disconnect before logout:', 'font-weight: bold; color: yellow;', disconnectError);
+                    log('WARN', 'DashboardPage', 'Error during disconnect before logout', disconnectError);
                     // Continue with logout even if disconnect fails
                 }
             } else {
-                console.log('%c[DashboardPage] 👋 STEP 1: No active connection to disconnect', 'font-weight: bold; color: blue;');
-                console.log('[DashboardPage] 👋 Provider exists:', !!provider, 'Selected peer:', selectedPeer, 'Is connected:', isPeerConnected);
+                log('INFO', 'DashboardPage', 'STEP 1: No active connection to disconnect');
+                log('INFO', 'DashboardPage', 'Provider state', { providerExists: !!provider, selectedPeer, isPeerConnected });
             }
             
             // STEP 2: Send logout message to signaling server so other peers can remove this user
             if (signalingService) {
-                console.log('%c[DashboardPage] 👋 STEP 2: Sending logout message to signaling server', 'font-weight: bold; color: orange;');
-                console.log('[DashboardPage] 👋 Signaling service exists:', !!signalingService);
+                log('INFO', 'DashboardPage', 'STEP 2: Sending logout message to signaling server');
+                log('INFO', 'DashboardPage', 'Signaling service exists', { signalingServiceExists: !!signalingService });
                 signalingService.sendLogout();
-                console.log('%c[DashboardPage] 👋 ✅ Logout message sent to server', 'font-weight: bold; color: green;');
+                log('INFO', 'DashboardPage', 'Logout message sent to server');
                 
                 // STEP 2.5: Clean up signaling service state to prevent "already connected" issue
-                console.log('%c[DashboardPage] 👋 STEP 2.5: Cleaning up signaling service state', 'font-weight: bold; color: orange;');
+                log('INFO', 'DashboardPage', 'STEP 2.5: Cleaning up signaling service state');
                 signalingService.cleanup();
-                console.log('%c[DashboardPage] 👋 ✅ Signaling service state cleaned up', 'font-weight: bold; color: green;');
+                log('INFO', 'DashboardPage', 'Signaling service state cleaned up');
             } else {
-                console.log('%c[DashboardPage] ⚠️ STEP 2: No signaling service available for logout', 'font-weight: bold; color: yellow;');
+                log('WARN', 'DashboardPage', 'STEP 2: No signaling service available for logout');
             }
             
             // STEP 3: Close WebRTC connection silently (no disconnect message)
             if (provider) {
-                console.log('%c[DashboardPage] 👋 STEP 3: Closing WebRTC connection', 'font-weight: bold; color: orange;');
+                log('INFO', 'DashboardPage', 'STEP 3: Closing WebRTC connection');
                 
                 // CRITICAL: Remove event listeners BEFORE destroying provider to prevent delayed events
-                console.log('%c[DashboardPage] 👋 STEP 3.1: Removing WebRTC event listeners', 'font-weight: bold; color: orange;');
+                log('INFO', 'DashboardPage', 'STEP 3.1: Removing WebRTC event listeners');
                 try {
                     // Remove stored event handlers
                     const handlers = webRTCEventHandlersRef.current;
                     if (handlers.connection) {
                         provider.removeEventListener('connection', handlers.connection);
-                        console.log('%c[DashboardPage] 👋 ✅ Removed connection event listener', 'font-weight: bold; color: green;');
+                        log('INFO', 'DashboardPage', 'Removed connection event listener');
                     }
                     if (handlers.error) {
                         provider.removeEventListener('error', handlers.error);
-                        console.log('%c[DashboardPage] 👋 ✅ Removed error event listener', 'font-weight: bold; color: green;');
+                        log('INFO', 'DashboardPage', 'Removed error event listener');
                     }
                     if (handlers.message) {
                         provider.removeEventListener('message', handlers.message);
-                        console.log('%c[DashboardPage] 👋 ✅ Removed message event listener', 'font-weight: bold; color: green;');
+                        log('INFO', 'DashboardPage', 'Removed message event listener');
                     }
                     if (handlers.stream) {
                         provider.removeEventListener('stream', handlers.stream);
-                        console.log('%c[DashboardPage] 👋 ✅ Removed stream event listener', 'font-weight: bold; color: green;');
+                        log('INFO', 'DashboardPage', 'Removed stream event listener');
                     }
                     if (handlers.stateChange) {
                         provider.removeEventListener('stateChange', handlers.stateChange);
-                        console.log('%c[DashboardPage] 👋 ✅ Removed stateChange event listener', 'font-weight: bold; color: green;');
+                        log('INFO', 'DashboardPage', 'Removed stateChange event listener');
                     }
                     if (handlers.track) {
                         provider.removeEventListener('track', handlers.track);
-                        console.log('%c[DashboardPage] 👋 ✅ Removed track event listener', 'font-weight: bold; color: green;');
+                        log('INFO', 'DashboardPage', 'Removed track event listener');
                     }
                     
                     // Clear the stored handlers
@@ -1712,29 +1702,29 @@ const DashboardPage = () => {
                         track: null
                     };
                     
-                    console.log('%c[DashboardPage] 👋 ✅ All WebRTC event listeners removed', 'font-weight: bold; color: green;');
+                    log('INFO', 'DashboardPage', 'All WebRTC event listeners removed');
                 } catch (error) {
-                    console.warn('%c[DashboardPage] ⚠️ Error removing event listeners:', 'font-weight: bold; color: yellow;', error);
+                    log('WARN', 'DashboardPage', 'Error removing event listeners', error);
                 }
                 
                 // Now destroy the provider
-                console.log('%c[DashboardPage] 👋 STEP 3.2: Destroying WebRTC provider', 'font-weight: bold; color: orange;');
+                log('INFO', 'DashboardPage', 'STEP 3.2: Destroying WebRTC provider');
                 provider.destroy();
                 cleanupStreamsAndSetProviderNull('user_logout');
-                console.log('%c[DashboardPage] 👋 ✅ WebRTC connection closed', 'font-weight: bold; color: green;');
+                log('INFO', 'DashboardPage', 'WebRTC connection closed');
             }
             
             // STEP 3.5: Stream cleanup is now handled by cleanupStreamsAndSetProviderNull function
             
             // STEP 4: Reset state and navigate
-            console.log('%c[DashboardPage] 👋 STEP 4: Resetting state and navigating', 'font-weight: bold; color: orange;');
+            log('INFO', 'DashboardPage', 'STEP 4: Resetting state and navigating');
             reset();
             localStorage.removeItem('user');
             navigate('/');
-            console.log('%c[DashboardPage] 👋 ✅ LOGOUT COMPLETED', 'font-weight: bold; color: green; font-size: 14px;');
+            log('INFO', 'DashboardPage', 'LOGOUT COMPLETED');
             
         } catch (error) {
-            console.error('%c[DashboardPage] ❌ Error during logout:', 'font-weight: bold; color: red;', error);
+            log('ERROR', 'DashboardPage', 'Error during logout', error);
             // Still navigate to login even if reset fails
             localStorage.removeItem('user');
             navigate('/');
@@ -1745,19 +1735,19 @@ const DashboardPage = () => {
         if (!provider || !selectedPeer) return;
         
         // Debug: Log what message is being sent
-        console.group('[DashboardPage] 📤 Sending Message Debug');
-        safeLog('Message object:', message);
-        safeLog('Message type:', typeof message);
-        safeLog('Message keys:', message ? Object.keys(message) : 'no message');
-        safeLog('Message content:', message);
-        safeLog('Selected peer:', selectedPeer);
-        safeLog('Provider exists:', !!provider);
-        console.groupEnd();
+        log('DEBUG', 'DashboardPage', 'Sending Message Debug');
+        log('DEBUG', 'DashboardPage', 'Message object', message);
+        log('DEBUG', 'DashboardPage', 'Message type', { type: typeof message });
+        log('DEBUG', 'DashboardPage', 'Message keys', { keys: message ? Object.keys(message) : 'no message' });
+        log('DEBUG', 'DashboardPage', 'Message content', message);
+        log('DEBUG', 'DashboardPage', 'Selected peer', { selectedPeer });
+        log('DEBUG', 'DashboardPage', 'Provider exists', { providerExists: !!provider });
+        // End debug group
         
         try {
             await provider.sendMessage(selectedPeer, message);
         } catch (err) {
-            console.error('[DashboardPage] Failed to send message:', err);
+            log('ERROR', 'DashboardPage', 'Failed to send message', err);
             setError('Failed to send message');
         }
     }, [provider, selectedPeer]);
@@ -1765,14 +1755,14 @@ const DashboardPage = () => {
     // Media toggle handlers for ConnectionPanel
     const handleToggleAudio = async () => {
         const newAudioState = !isAudioEnabled;
-        console.log('%c[DashboardPage] 🔊 AUDIO TOGGLE STARTED (initiator side):', 'font-weight: bold; color: blue;', newAudioState ? 'ENABLE' : 'DISABLE');
-        console.log('[DashboardPage] 🔊 Toggle audio requested:', newAudioState);
+        log('INFO', 'DashboardPage', `AUDIO TOGGLE STARTED (initiator side): ${newAudioState ? 'ENABLE' : 'DISABLE'}`);
+        log('INFO', 'DashboardPage', 'Toggle audio requested', { newAudioState });
         
         try {
             // Create provider if it doesn't exist
             let currentProvider = provider;
             if (!currentProvider) {
-                console.log('[DashboardPage] 🔊 No provider available - creating new one for audio');
+                log('INFO', 'DashboardPage', 'No provider available - creating new one for audio');
                 const user = userRef.current;
                 if (!user) {
                     setError('User not found. Please refresh the page.');
@@ -1807,24 +1797,24 @@ const DashboardPage = () => {
             
             // If no local stream exists and user wants to enable audio, create one
             if (!currentProvider.getLocalStream() && newAudioState) {
-                console.log('[DashboardPage] 🔊 No local stream found - creating new stream with audio enabled');
+                log('INFO', 'DashboardPage', 'No local stream found - creating new stream with audio enabled');
                 await currentProvider.initializeLocalMedia({ audio: true, video: false });
                 setIsAudioEnabled(true);
-                console.log('[DashboardPage] ✅ Local stream created with audio enabled');
+                log('INFO', 'DashboardPage', 'Local stream created with audio enabled');
                 return;
             }
             
             // Always use toggleMedia for existing streams to maintain consistent state management
             if (currentProvider.getLocalStream()) {
-                console.log('[DashboardPage] 🔊 Using toggleMedia for existing stream');
+                log('INFO', 'DashboardPage', 'Using toggleMedia for existing stream');
                 await currentProvider.toggleMedia({ audio: newAudioState });
                 setIsAudioEnabled(newAudioState);
-                console.log(`[DashboardPage] ✅ Audio toggled to: ${newAudioState}`);
+                log('INFO', 'DashboardPage', `Audio toggled to: ${newAudioState}`);
             } else {
-                console.log('[DashboardPage] 🔒 No local stream and not enabling audio - nothing to do');
+                log('INFO', 'DashboardPage', 'No local stream and not enabling audio - nothing to do');
             }
         } catch (err) {
-            console.error('[DashboardPage] Audio toggle error:', err);
+            log('ERROR', 'DashboardPage', 'Audio toggle error', err);
             // Show user-friendly error message
             if (err.name === 'NotAllowedError') {
                 setError('Microphone access denied. Please allow microphone permissions and try again.');
@@ -1838,14 +1828,14 @@ const DashboardPage = () => {
 
     const handleToggleVideo = async () => {
         const newVideoState = !isVideoEnabled;
-        console.log('%c[DashboardPage] 📹 VIDEO TOGGLE STARTED (initiator side):', 'font-weight: bold; color: purple;', newVideoState ? 'ENABLE' : 'DISABLE');
-        console.log('[DashboardPage] 📹 Toggle video requested:', newVideoState);
+        log('INFO', 'DashboardPage', `VIDEO TOGGLE STARTED (initiator side): ${newVideoState ? 'ENABLE' : 'DISABLE'}`);
+        log('INFO', 'DashboardPage', 'Toggle video requested', { newVideoState });
         
         try {
             // Create provider if it doesn't exist
             let currentProvider = provider;
             if (!currentProvider) {
-                console.log('[DashboardPage] 📹 No provider available - creating new one for video');
+                log('INFO', 'DashboardPage', 'No provider available - creating new one for video');
                 const user = userRef.current;
                 if (!user) {
                     setError('User not found. Please refresh the page.');
@@ -1880,24 +1870,24 @@ const DashboardPage = () => {
             
             // If no local stream exists and user wants to enable video, create one
             if (!currentProvider.getLocalStream() && newVideoState) {
-                console.log('[DashboardPage] 📹 No local stream found - creating new stream with video enabled');
+                log('INFO', 'DashboardPage', 'No local stream found - creating new stream with video enabled');
                 await currentProvider.initializeLocalMedia({ audio: false, video: true });
                 setIsVideoEnabled(true);
-                console.log('[DashboardPage] ✅ Local stream created with video enabled');
+                log('INFO', 'DashboardPage', 'Local stream created with video enabled');
                 return;
             }
             
             // Always use toggleMedia for existing streams to maintain consistent state management
             if (currentProvider.getLocalStream()) {
-                console.log('[DashboardPage] 📹 Using toggleMedia for existing stream');
+                log('INFO', 'DashboardPage', 'Using toggleMedia for existing stream');
                 await currentProvider.toggleMedia({ video: newVideoState });
                 setIsVideoEnabled(newVideoState);
-                console.log(`[DashboardPage] ✅ Video toggled to: ${newVideoState}`);
+                log('INFO', 'DashboardPage', `Video toggled to: ${newVideoState}`);
             } else {
-                console.log('[DashboardPage] 🔒 No local stream and not enabling video - nothing to do');
+                log('INFO', 'DashboardPage', 'No local stream and not enabling video - nothing to do');
             }
         } catch (err) {
-            console.error('[DashboardPage] Video toggle error:', err);
+            log('ERROR', 'DashboardPage', 'Video toggle error', err);
             // Show user-friendly error message
             if (err.name === 'NotAllowedError') {
                 setError('Camera access denied. Please allow camera permissions and try again.');
@@ -1911,14 +1901,14 @@ const DashboardPage = () => {
 
     const handleToggleScreenShare = async () => {
         const newScreenShareState = !isScreenSharing;
-        console.log('%c[DashboardPage] 🖥️ SCREEN SHARE TOGGLE STARTED (initiator side):', 'font-weight: bold; color: orange;', newScreenShareState ? 'ENABLE' : 'DISABLE');
-        console.log('[DashboardPage] 🖥️ Toggle screen share requested:', newScreenShareState);
+        log('INFO', 'DashboardPage', `SCREEN SHARE TOGGLE STARTED (initiator side): ${newScreenShareState ? 'ENABLE' : 'DISABLE'}`);
+        log('INFO', 'DashboardPage', 'Toggle screen share requested', { newScreenShareState });
         
         try {
             // Create provider if it doesn't exist
             let currentProvider = provider;
             if (!currentProvider) {
-                console.log('[DashboardPage] 🖥️ No provider available - creating new one for screen share');
+                log('INFO', 'DashboardPage', 'No provider available - creating new one for screen share');
                 const user = userRef.current;
                 if (!user) {
                     setError('User not found. Please refresh the page.');
@@ -1953,21 +1943,21 @@ const DashboardPage = () => {
             
             if (newScreenShareState) {
                 // Start screen sharing
-                console.log('[DashboardPage] 🖥️ Starting screen share...');
+                log('INFO', 'DashboardPage', 'Starting screen share...');
                 await currentProvider.startScreenShare();
                 setIsScreenSharing(true);
-                console.log('[DashboardPage] ✅ Screen share started');
+                log('INFO', 'DashboardPage', 'Screen share started');
                 
                 // Note: checkExclusivity is handled by handleStreamChange when stream starts
             } else {
                 // Stop screen sharing
-                console.log('[DashboardPage] 🖥️ Stopping screen share...');
+                log('INFO', 'DashboardPage', 'Stopping screen share...');
                 await currentProvider.stopScreenShare();
                 setIsScreenSharing(false);
-                console.log('[DashboardPage] ✅ Screen share stopped');
+                log('INFO', 'DashboardPage', 'Screen share stopped');
             }
         } catch (err) {
-            console.error('[DashboardPage] Screen share toggle error:', err);
+            log('ERROR', 'DashboardPage', 'Screen share toggle error', err);
             // Show user-friendly error message
             if (err.name === 'NotAllowedError') {
                 setError('Screen sharing access denied. Please allow screen sharing permissions and try again.');
@@ -1981,114 +1971,114 @@ const DashboardPage = () => {
 
     const handleToggleWhiteboard = () => {
         const newWhiteboardState = !isWhiteboardActive;
-        console.log('%c[DashboardPage] 🎨 WHITEBOARD TOGGLE STARTED:', 'font-weight: bold; color: purple;', newWhiteboardState ? 'ENABLE' : 'DISABLE');
+        log('INFO', 'DashboardPage', `WHITEBOARD TOGGLE STARTED: ${newWhiteboardState ? 'ENABLE' : 'DISABLE'}`);
         
         // If enabling whiteboard, stop screen share first (mutual exclusivity)
         if (newWhiteboardState && isScreenSharing) {
-            console.log('[DashboardPage] 🎨 Stopping screen share before opening whiteboard');
+            log('INFO', 'DashboardPage', 'Stopping screen share before opening whiteboard');
             handleToggleScreenShare();
         }
         
         setIsWhiteboardActive(newWhiteboardState);
-        console.log('[DashboardPage] ✅ Whiteboard state updated:', newWhiteboardState);
+        log('INFO', 'DashboardPage', 'Whiteboard state updated', { newWhiteboardState });
     };
 
     // Whiteboard toolbar handlers
     const handleToolChange = (tool) => {
-        console.log('[DashboardPage] 🎨 Tool changed to:', tool);
+        log('INFO', 'DashboardPage', 'Tool changed to', { tool });
         setCurrentTool(tool);
     };
 
     const handleColorChange = (color) => {
-        console.log('[DashboardPage] 🎨 Color changed to:', color);
+        log('INFO', 'DashboardPage', 'Color changed to', { color });
         setCurrentColor(color);
     };
 
     const handleWhiteboardUndo = () => {
-        console.log('[DashboardPage] 🎨 Undo requested');
-        console.log('[DashboardPage] Undo ref:', { hasRef: !!whiteboardUndoRef.current, ref: whiteboardUndoRef.current });
+        log('INFO', 'DashboardPage', 'Undo requested');
+        log('DEBUG', 'DashboardPage', 'Undo ref', { hasRef: !!whiteboardUndoRef.current, ref: whiteboardUndoRef.current });
         if (whiteboardUndoRef.current) {
-            console.log('[DashboardPage] Calling undo function');
+            log('INFO', 'DashboardPage', 'Calling undo function');
             whiteboardUndoRef.current();
         } else {
-            console.log('[DashboardPage] No undo function available');
+            log('WARN', 'DashboardPage', 'No undo function available');
         }
     };
 
     const handleWhiteboardRedo = () => {
-        console.log('[DashboardPage] 🎨 Redo requested');
-        console.log('[DashboardPage] Redo ref:', { hasRef: !!whiteboardRedoRef.current, ref: whiteboardRedoRef.current });
+        log('INFO', 'DashboardPage', 'Redo requested');
+        log('DEBUG', 'DashboardPage', 'Redo ref', { hasRef: !!whiteboardRedoRef.current, ref: whiteboardRedoRef.current });
         if (whiteboardRedoRef.current) {
-            console.log('[DashboardPage] Calling redo function');
+            log('INFO', 'DashboardPage', 'Calling redo function');
             whiteboardRedoRef.current();
         } else {
-            console.log('[DashboardPage] No redo function available');
+            log('WARN', 'DashboardPage', 'No redo function available');
         }
     };
 
     const handleWhiteboardHistoryChange = useCallback((historyState) => {
-        console.log('[DashboardPage] 🎨 History changed:', historyState);
+        log('INFO', 'DashboardPage', 'History changed', historyState);
         setCanUndo(historyState.canUndo);
         setCanRedo(historyState.canRedo);
     }, []);
 
     // Centralized mutual exclusivity function
     const checkExclusivity = async (newType, newValue) => {
-        console.log('[DashboardPage] 🔄 Checking exclusivity:', { newType, newValue, currentImageUrl: currentImageUrlRef.current, isScreenSharing });
+        log('DEBUG', 'DashboardPage', 'Checking exclusivity', { newType, newValue, currentImageUrl: currentImageUrlRef.current, isScreenSharing });
         
         // ALWAYS clear any existing content before loading new content
         // This ensures mutual exclusivity regardless of what's currently active
         
         // 1. Clear screen share if active
         if (isScreenSharing && provider) {
-            console.log('[DashboardPage] 🖥️ Stopping existing screen share due to', newType, 'activation');
+            log('INFO', 'DashboardPage', `Stopping existing screen share due to ${newType} activation`);
             try {
                 await provider.stopScreenShare();
                 setIsScreenSharing(false);
-                console.log(`[DashboardPage] 🔄 CALLING setIsScreenShareActive(false) from checkExclusivity (${Date.now()}) - stopping screen share due to ${newType}`);
+                log('DEBUG', 'DashboardPage', `CALLING setIsScreenShareActive(false) from checkExclusivity (${Date.now()}) - stopping screen share due to ${newType}`);
                 setIsScreenShareActive(false);
-                console.log('[DashboardPage] ✅ Screen share stopped due to', newType, 'activation');
+                log('INFO', 'DashboardPage', `Screen share stopped due to ${newType} activation`);
             } catch (error) {
-                console.error('[DashboardPage] Failed to stop screen share:', error);
+                log('ERROR', 'DashboardPage', 'Failed to stop screen share', error);
                 setIsScreenSharing(false);
-                console.log(`[DashboardPage] 🔄 CALLING setIsScreenShareActive(false) from checkExclusivity error handler (${Date.now()})`);
+                log('DEBUG', 'DashboardPage', `CALLING setIsScreenShareActive(false) from checkExclusivity error handler (${Date.now()})`);
                 setIsScreenShareActive(false);
             }
         }
         
         // 2. Clear image/pdf if active (but not if we're setting the same type)
         if (currentImageUrlRef.current && newType !== 'image') {
-            console.log('[DashboardPage] 🎨 Clearing existing image due to', newType, 'activation');
-            console.log('[DashboardPage] 🎨 Previous currentImageUrl was:', currentImageUrlRef.current);
+            log('INFO', 'DashboardPage', `Clearing existing image due to ${newType} activation`);
+            log('DEBUG', 'DashboardPage', 'Previous currentImageUrl was', { currentImageUrl: currentImageUrlRef.current });
             setCurrentImageUrl(null);
             currentImageUrlRef.current = null;
-            console.log('[DashboardPage] 🎨 currentImageUrl cleared, should now be null');
+            log('DEBUG', 'DashboardPage', 'currentImageUrl cleared, should now be null');
         }
         
         // Always clear Whiteboard's internal background state when screen share is activated
         if (newType === 'screenShare' && whiteboardImageUploadRef.current && typeof whiteboardImageUploadRef.current.clearBackground === 'function') {
-            console.log('[DashboardPage] 🖥️ Clearing Whiteboard background due to screen share activation');
+            log('INFO', 'DashboardPage', 'Clearing Whiteboard background due to screen share activation');
             whiteboardImageUploadRef.current.clearBackground();
         }
         
-        console.log('[DashboardPage] ✅ All existing content cleared, ready for', newType);
+        log('INFO', 'DashboardPage', `All existing content cleared, ready for ${newType}`);
     };
 
     const handleImageChange = async (imageUrl) => {
-        console.log('[DashboardPage] 🎨 Image changed:', imageUrl);
+        log('INFO', 'DashboardPage', 'Image changed', { imageUrl });
         
         if (imageUrl === null) {
-            console.log('[DashboardPage] 🎨 Image cleared (received from remote peer)');
+            log('INFO', 'DashboardPage', 'Image cleared (received from remote peer)');
             setCurrentImageUrl(null);
             currentImageUrlRef.current = null;
             return;
         }
         
         // Set the new image FIRST, then check exclusivity
-        console.log('[DashboardPage] 🎨 Setting currentImageUrl to:', imageUrl);
+        log('INFO', 'DashboardPage', 'Setting currentImageUrl to', { imageUrl });
         setCurrentImageUrl(imageUrl);
         currentImageUrlRef.current = imageUrl;
-        console.log('[DashboardPage] 🎨 currentImageUrl state should now be:', imageUrl);
+        log('DEBUG', 'DashboardPage', 'currentImageUrl state should now be', { imageUrl });
         
         // Check mutual exclusivity after setting the image
         // Note: We pass the imageUrl directly to avoid relying on state that might not be updated yet
@@ -2096,14 +2086,14 @@ const DashboardPage = () => {
     };
 
     const handlePdfChange = async (pdfFile) => {
-        console.log('[DashboardPage] 📄 PDF changed:', pdfFile);
+        log('INFO', 'DashboardPage', 'PDF changed', { pdfFile });
         
         // Check mutual exclusivity first
         await checkExclusivity('pdf', pdfFile);
         
         // Pass the PDF file to Whiteboard component
         if (whiteboardImageUploadRef.current && whiteboardImageUploadRef.current.handleFileUpload) {
-            console.log('[DashboardPage] 📄 Passing PDF to Whiteboard component:', {
+            log('INFO', 'DashboardPage', 'Passing PDF to Whiteboard component', {
                 fileName: pdfFile.name,
                 fileSize: pdfFile.size,
                 fileType: pdfFile.type
@@ -2114,11 +2104,11 @@ const DashboardPage = () => {
                     files: [pdfFile]
                 }
             };
-            console.log('[DashboardPage] 📄 Calling Whiteboard.handleFileUpload with synthetic event');
+            log('INFO', 'DashboardPage', 'Calling Whiteboard.handleFileUpload with synthetic event');
             whiteboardImageUploadRef.current.handleFileUpload(syntheticEvent);
-            console.log('[DashboardPage] 📄 PDF successfully passed to Whiteboard component');
+            log('INFO', 'DashboardPage', 'PDF successfully passed to Whiteboard component');
         } else {
-            console.log('[DashboardPage] 📄 Whiteboard ref not available:', {
+            log('WARN', 'DashboardPage', 'Whiteboard ref not available', {
                 hasRef: !!whiteboardImageUploadRef.current,
                 hasHandleFileUpload: !!(whiteboardImageUploadRef.current && whiteboardImageUploadRef.current.handleFileUpload)
             });
@@ -2126,26 +2116,26 @@ const DashboardPage = () => {
     };
 
     const handleImageSizeChange = (newSize) => {
-        console.log('[DashboardPage] 🎨 Image size changed:', newSize);
+        log('INFO', 'DashboardPage', 'Image size changed', { newSize });
         setDynamicContainerSize(newSize);
     };
 
     const handleWhiteboardImageUpload = (event) => {
-        console.log('[DashboardPage] 🎨 Image upload requested');
-        console.log('[DashboardPage] 🎨 File:', event.target.files[0]);
-        console.log('[DashboardPage] 🎨 Screen share state:', { isScreenShareActive, isScreenSharing });
+        log('INFO', 'DashboardPage', 'Image upload requested');
+        log('DEBUG', 'DashboardPage', 'File', { file: event.target.files[0] });
+        log('DEBUG', 'DashboardPage', 'Screen share state', { isScreenShareActive, isScreenSharing });
         
         // Pass the file directly to the Whiteboard component
         if (whiteboardImageUploadRef.current && typeof whiteboardImageUploadRef.current.handleImageUpload === 'function') {
-            console.log('[DashboardPage] 🎨 Calling Whiteboard handleImageUpload');
+            log('INFO', 'DashboardPage', 'Calling Whiteboard handleImageUpload');
             whiteboardImageUploadRef.current.handleImageUpload(event);
         } else {
-            console.error('[DashboardPage] 🎨 Ref not available or handleImageUpload not a function');
+            log('ERROR', 'DashboardPage', 'Ref not available or handleImageUpload not a function');
         }
     };
 
     const handleWhiteboardFileUpload = async (event) => {
-        console.log('[DashboardPage] 🎨 File upload requested');
+        log('INFO', 'DashboardPage', 'File upload requested');
         
         // Check mutual exclusivity for PDF uploads
         await handlePdfChange(event.target.files[0]);
@@ -2154,13 +2144,13 @@ const DashboardPage = () => {
     };
 
     const handleWhiteboardClear = () => {
-        console.log('[DashboardPage] 🎨 Clear requested');
+        log('INFO', 'DashboardPage', 'Clear requested');
         // The whiteboard component will handle the actual clear logic
     };
 
 
     const resetConnectionState = () => {
-        console.log('[DashboardPage] 🔄 RESET: Starting connection state reset');
+        log('INFO', 'DashboardPage', 'RESET: Starting connection state reset');
         
         // Reset connection states
         setIsPeerConnected(false);
@@ -2177,12 +2167,12 @@ const DashboardPage = () => {
         
         // Stream cleanup is now handled by cleanupStreamsAndSetProviderNull function when provider is destroyed
         
-        console.log('[DashboardPage] 🔄 RESET: Connection state reset completed - peer selection and session cleared');
-        console.log('[DashboardPage] 🔄 RESET: UI should now show logged-in state (no disconnect buttons)');
+        log('INFO', 'DashboardPage', 'RESET: Connection state reset completed - peer selection and session cleared');
+        log('INFO', 'DashboardPage', 'RESET: UI should now show logged-in state (no disconnect buttons)');
     };
 
     const resetPeerManagement = () => {
-        console.log('[DashboardPage] 🔄 RESET: Starting peer management reset');
+        log('INFO', 'DashboardPage', 'RESET: Starting peer management reset');
         
         // DON'T clear peer list - keep it available for reconnection
         // setPeerList([]); // REMOVED - peers should remain available
@@ -2196,11 +2186,11 @@ const DashboardPage = () => {
             messageHandlerRef.current = null;
         }
         
-        console.log('[DashboardPage] 🔄 RESET: Peer management reset completed - peer list preserved');
+        log('INFO', 'DashboardPage', 'RESET: Peer management reset completed - peer list preserved');
     };
 
     const resetUIState = () => {
-        console.log('[DashboardPage] 🔄 RESET: Starting UI state reset');
+        log('INFO', 'DashboardPage', 'RESET: Starting UI state reset');
         
         // Reset all UI-related states to initial values
         setShowChat(false);
@@ -2216,11 +2206,11 @@ const DashboardPage = () => {
         // Don't reset isGracefulDisconnect here - let it persist for connection state handler
         // It will be reset when starting a new connection
         
-        console.log('[DashboardPage] 🔄 RESET: UI state reset completed');
+        log('INFO', 'DashboardPage', 'RESET: UI state reset completed');
     };
 
     const reset = () => {
-        console.log('[DashboardPage] 🔄 RESET: Starting complete dashboard reset');
+        log('INFO', 'DashboardPage', 'RESET: Starting complete dashboard reset');
         
         try {
             // Reset in order: connection state → peer management → UI state
@@ -2228,19 +2218,19 @@ const DashboardPage = () => {
             resetPeerManagement();
             resetUIState();
             
-            console.log('[DashboardPage] 🔄 RESET: Complete dashboard reset successful');
+            log('INFO', 'DashboardPage', 'RESET: Complete dashboard reset successful');
         } catch (error) {
-            console.error('[DashboardPage] ❌ RESET: Error during reset:', error);
+            log('ERROR', 'DashboardPage', 'RESET: Error during reset', error);
             throw error;
         }
     };
 
     if (!userEmail) return null;
 
-    console.log('[DashboardPage] 🔄 Parent component is re-rendering');
+    log('DEBUG', 'DashboardPage', 'Parent component is re-rendering');
     
     // Debug: Log all state variables to identify what's changing
-    console.log('[DashboardPage] 🔍 State values:', JSON.stringify({
+    log('DEBUG', 'DashboardPage', 'State values', {
       isWebSocketConnected,
       isPeerConnected,
       userEmail,
@@ -2261,12 +2251,12 @@ const DashboardPage = () => {
       canUndo,
       canRedo,
       receivedMessages: receivedMessages.length
-    }, null, 2));
+    });
 
     // Calculate VideoChat key
     const videoChatKey = `videochat-${isPeerConnected}-${isConnecting}`;
-    console.log('[DashboardPage] 🎯 VideoChat key:', videoChatKey);
-    console.log('[DashboardPage] 📊 VideoChat props being passed:', {
+    log('DEBUG', 'DashboardPage', 'VideoChat key', { videoChatKey });
+    log('DEBUG', 'DashboardPage', 'VideoChat props being passed', {
         isPeerConnected,
         isConnecting,
         showChat,
@@ -2376,7 +2366,8 @@ const DashboardPage = () => {
             
             <div className="dashboard-content">
                 {/* Log the expected image loading flow */}
-                {console.log('🚨 [DashboardPage] 📏 EXPECTED IMAGE LOADING FLOW:', {
+                {/* Log the expected image loading flow */}
+                {log('DEBUG', 'DashboardPage', 'EXPECTED IMAGE LOADING FLOW', {
                   step1: 'Image loads with natural dimensions (e.g., 2000x1500px)',
                   step2: 'whiteboard-container expands to match image dimensions (2000x1500px)',
                   step3: 'dashboard-content (1200x800px) shows scrollbars because child (2000x1500px) exceeds container',
@@ -2385,8 +2376,8 @@ const DashboardPage = () => {
                 })}
                 
                 {/* Whiteboard Component - Handles both drawing and backgrounds (PDF/Images) */}
-               {console.log('[DashboardPage] 🔍 Is whiteboard active?', isWhiteboardActive)}
-               {console.log('[DashboardPage] 🔍 Screen share detection debug:', {
+               {log('DEBUG', 'DashboardPage', 'Is whiteboard active?', { isWhiteboardActive })}
+               {log('DEBUG', 'DashboardPage', 'Screen share detection debug', {
                  isScreenSharing,
                  hasLocalScreenShare: !!provider?.getScreenShareStream(),
                  selectedPeer,
@@ -2436,7 +2427,7 @@ const DashboardPage = () => {
                     position={{ top: '0', left: '0' }}
                     size={{ width: '1200px', height: '800px' }}
                     onStreamChange={(stream) => {
-                        console.log('[DashboardPage] 🖥️ Screen share stream change notified:', stream?.id);
+                        log('DEBUG', 'DashboardPage', 'Screen share stream change notified', { streamId: stream?.id });
                     }}
                     debugMode={true}
                     useRelativePositioning={true}
