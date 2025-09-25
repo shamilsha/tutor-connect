@@ -59,6 +59,20 @@ const Whiteboard = forwardRef(({
 }, ref) => {
   log('INFO', 'Whiteboard', 'Component mounted', { userId, username, screenShareStream: !!screenShareStream, isScreenShareActive });
   
+  // Track remounting with detailed logging
+  useEffect(() => {
+    log('ERROR', 'Whiteboard', '🚨 COMPONENT MOUNTED - This should NOT happen during mouse move!', {
+      userId,
+      username,
+      screenShareStream: !!screenShareStream,
+      isScreenShareActive,
+      backgroundType,
+      pdfLoaded: backgroundType === 'pdf',
+      timestamp: Date.now(),
+      stackTrace: new Error().stack
+    });
+  }, []);
+  
   // Drawing state
   const [lines, setLines] = useState([]);
   const [shapes, setShapes] = useState([]);
@@ -265,83 +279,103 @@ const Whiteboard = forwardRef(({
 
   // Handle remote whiteboard updates
   const handleRemoteWhiteboardUpdate = (data) => {
-    log('DEBUG', 'Whiteboard', 'Processing remote whiteboard update', data);
+    log('INFO', 'Whiteboard', '📨 PROCESSING remote whiteboard update', {
+      action: data.action,
+      hasShape: !!data.shape,
+      shapeType: data.shape?.type,
+      shapeTool: data.shape?.tool,
+      shapeId: data.shape?.id,
+      pointsCount: data.shape?.points?.length,
+      coordinates: data.shape?.points,
+      coordinatesString: JSON.stringify(data.shape?.points),
+      messageBackgroundType: data.backgroundType,
+      localBackgroundType: backgroundType,
+      pdfLoaded: data.backgroundType === 'pdf' || backgroundType === 'pdf',
+      currentImageUrl: !!currentImageUrl,
+      currentLinesCount: lines.length,
+      currentPageLinesCount: Object.keys(pageLines).length,
+      timestamp: Date.now()
+    });
     
     // Note: clearBackground messages now handled via checkExclusivity() approach
     
     switch (data.action) {
       case 'draw':
         if (data.shape) {
-          if (data.shape.tool === 'pen') {
-            if (backgroundType === 'pdf') {
-              const currentPageNum = getCurrentVisiblePage();
-              setPageLines(prev => ({
-                ...prev,
-                [currentPageNum]: [...(prev[currentPageNum] || []), data.shape]
-              }));
-            } else {
-              setLines(prev => [...prev, data.shape]);
-            }
+          log('INFO', 'Whiteboard', '🖊️ PROCESSING draw action', {
+            shapeType: data.shape.type,
+            shapeTool: data.shape.tool,
+            shapeId: data.shape.id,
+            pointsCount: data.shape.points?.length,
+            backgroundType,
+            pdfLoaded: backgroundType === 'pdf',
+            timestamp: Date.now()
+          });
+          
+          if (data.shape.tool === 'pen' || data.shape.tool === 'line') {
+            // Use regular lines storage for all backgrounds (including PDF)
+            log('INFO', 'Whiteboard', '🖼️ UPDATING regular lines', {
+              shapeType: data.shape.type,
+              pointsCount: data.shape.points?.length,
+              currentLinesCount: lines.length,
+              timestamp: Date.now()
+            });
+            
+            setLines(prev => {
+              const newLines = [...prev, data.shape];
+              log('INFO', 'Whiteboard', '✅ UPDATED regular lines', {
+                oldCount: prev.length,
+                newCount: newLines.length,
+                shapeType: data.shape.type,
+                timestamp: Date.now()
+              });
+              return newLines;
+            });
           } else {
-            if (backgroundType === 'pdf') {
-              const currentPageNum = getCurrentVisiblePage();
-              setPageShapes(prev => ({
-                ...prev,
-                [currentPageNum]: [...(prev[currentPageNum] || []), data.shape]
-              }));
-            } else {
-              setShapes(prev => [...prev, data.shape]);
-            }
+            // Use regular shapes storage for all backgrounds (including PDF)
+            log('INFO', 'Whiteboard', '📨 RECEIVING line tool creation', {
+              shapeId: data.shape.id,
+              shapeX: data.shape.x,
+              shapeY: data.shape.y,
+              points: data.shape.points,
+              pointsString: JSON.stringify(data.shape.points),
+              shapeType: data.shape.type,
+              shapeTool: data.shape.tool,
+              timestamp: Date.now()
+            });
+            setShapes(prev => [...prev, data.shape]);
           }
         }
         break;
       case 'update':
         if (data.shape) {
-          if (data.shape.tool === 'pen') {
-            if (backgroundType === 'pdf') {
-              const currentPageNum = getCurrentVisiblePage();
-              setPageLines(prev => ({
-                ...prev,
-                [currentPageNum]: prev[currentPageNum]?.map(line => line.id === data.shape.id ? data.shape : line) || []
-              }));
-            } else {
-              setLines(prev => prev.map(line => line.id === data.shape.id ? data.shape : line));
-            }
+          if (data.shape.tool === 'pen' || data.shape.tool === 'line') {
+            // Use regular lines storage for all backgrounds (including PDF)
+            setLines(prev => prev.map(line => line.id === data.shape.id ? data.shape : line));
           } else {
-            if (backgroundType === 'pdf') {
-              const currentPageNum = getCurrentVisiblePage();
-              setPageShapes(prev => ({
-                ...prev,
-                [currentPageNum]: prev[currentPageNum]?.map(shape => shape.id === data.shape.id ? data.shape : shape) || []
-              }));
-            } else {
-              setShapes(prev => prev.map(shape => shape.id === data.shape.id ? data.shape : shape));
-            }
+            // Use regular shapes storage for all backgrounds (including PDF)
+            log('INFO', 'Whiteboard', '📨 RECEIVING line tool update', {
+              shapeId: data.shape.id,
+              shapeX: data.shape.x,
+              shapeY: data.shape.y,
+              points: data.shape.points,
+              pointsString: JSON.stringify(data.shape.points),
+              shapeType: data.shape.type,
+              shapeTool: data.shape.tool,
+              timestamp: Date.now()
+            });
+            setShapes(prev => prev.map(shape => shape.id === data.shape.id ? data.shape : shape));
           }
         }
         break;
       case 'erase':
         if (data.shape) {
-          if (data.shape.tool === 'pen') {
-            if (backgroundType === 'pdf') {
-              const currentPageNum = getCurrentVisiblePage();
-              setPageLines(prev => ({
-                ...prev,
-                [currentPageNum]: prev[currentPageNum]?.filter(line => line.id !== data.shape.id) || []
-              }));
-            } else {
-              setLines(prev => prev.filter(line => line.id !== data.shape.id));
-            }
+          if (data.shape.tool === 'pen' || data.shape.tool === 'line') {
+            // Use regular lines storage for all backgrounds (including PDF)
+            setLines(prev => prev.filter(line => line.id !== data.shape.id));
           } else {
-            if (backgroundType === 'pdf') {
-              const currentPageNum = getCurrentVisiblePage();
-              setPageShapes(prev => ({
-                ...prev,
-                [currentPageNum]: prev[currentPageNum]?.filter(shape => shape.id !== data.shape.id) || []
-              }));
-            } else {
-              setShapes(prev => prev.filter(shape => shape.id !== data.shape.id));
-            }
+            // Use regular shapes storage for all backgrounds (including PDF)
+            setShapes(prev => prev.filter(shape => shape.id !== data.shape.id));
           }
         }
         break;
@@ -411,6 +445,12 @@ const Whiteboard = forwardRef(({
             
             setBackgroundFile(data.background.file);
             setBackgroundType(data.background.type);
+            
+            log('INFO', 'Whiteboard', '✅ UPDATED background type from remote', {
+              type: data.background.type,
+              file: data.background.file,
+              timestamp: Date.now()
+            });
           }
           break;
       // Note: clearBackground case removed - now using checkExclusivity() approach
@@ -421,8 +461,30 @@ const Whiteboard = forwardRef(({
 
   // Generic function to send whiteboard messages via WebRTC data channel
   const sendWhiteboardMsg = async (action, data = {}) => {
+    // Use VERBOSE for cursor messages to reduce noise
+    const logLevel = action === 'cursor' ? 'VERBOSE' : 'INFO';
+    log(logLevel, 'Whiteboard', '📤 SENDING WebRTC message', {
+      action,
+      hasShape: !!data.shape,
+      shapeType: data.shape?.type,
+      shapeTool: data.shape?.tool,
+      shapeId: data.shape?.id,
+      pointsCount: data.shape?.points?.length,
+      coordinates: data.shape?.points,
+      coordinatesString: JSON.stringify(data.shape?.points),
+      backgroundType,
+      pdfLoaded: backgroundType === 'pdf',
+      currentImageUrl: !!currentImageUrl,
+      timestamp: Date.now()
+    });
+    
     if (!webRTCProviderRef.current || !selectedPeerRef.current) {
-      log('WARN', 'Whiteboard', 'No datachannel available, skipping message', action);
+      log('WARN', 'Whiteboard', '❌ No datachannel available, skipping message', {
+        action,
+        hasProvider: !!webRTCProviderRef.current,
+        hasSelectedPeer: !!selectedPeerRef.current,
+        timestamp: Date.now()
+      });
       return;
     }
 
@@ -434,7 +496,8 @@ const Whiteboard = forwardRef(({
         action,
         userId,
         username,
-        color: currentColor
+        color: currentColor,
+        backgroundType: backgroundType
       };
 
       // Handle different data structures based on action type
@@ -472,8 +535,26 @@ const Whiteboard = forwardRef(({
       });
       
       await webRTCProviderRef.current.sendWhiteboardMessage(selectedPeerRef.current, message);
+      
+      log('INFO', 'Whiteboard', '✅ SENT WebRTC message successfully', { 
+        action, 
+        messageSize: JSON.stringify(message).length,
+        backgroundType,
+        pdfLoaded: backgroundType === 'pdf',
+        hasShape: !!message.shape,
+        shapeType: message.shape?.type,
+        timestamp: Date.now()
+      });
     } catch (error) {
-      log('ERROR', 'Whiteboard', 'Error sending whiteboard message', error);
+      log('ERROR', 'Whiteboard', '❌ Error sending whiteboard message', {
+        error: error.message,
+        action,
+        backgroundType,
+        pdfLoaded: backgroundType === 'pdf',
+        hasShape: !!data.shape,
+        shapeType: data.shape?.type,
+        timestamp: Date.now()
+      });
     }
   };
 
@@ -529,26 +610,13 @@ const Whiteboard = forwardRef(({
     if (!isDrawing) return;
 
     if (currentTool === 'pen') {
-      if (backgroundType === 'pdf') {
-        const currentPageNum = getCurrentVisiblePage();
-        const currentPageLines = pageLines[currentPageNum] || [];
-        let lastLine = currentPageLines[currentPageLines.length - 1];
-        const newLastLine = {
-          ...lastLine,
-          points: [...lastLine.points, correctedX, correctedY]
-        };
-        setPageLines(prev => ({
-          ...prev,
-          [currentPageNum]: [...prev[currentPageNum].slice(0, -1), newLastLine]
-        }));
-      } else {
-        let lastLine = lines[lines.length - 1];
-        const newLastLine = {
-          ...lastLine,
-          points: [...lastLine.points, correctedX, correctedY]
-        };
-        setLines(prev => [...prev.slice(0, -1), newLastLine]);
-      }
+      // Use regular lines storage for all backgrounds (including PDF)
+      let lastLine = lines[lines.length - 1];
+      const newLastLine = {
+        ...lastLine,
+        points: [...lastLine.points, correctedX, correctedY]
+      };
+      setLines(prev => [...prev.slice(0, -1), newLastLine]);
       // Send line update via WebRTC data channel
       sendWhiteboardMsg('update', { shape: newLastLine });
     } else if (selectedShape) {
@@ -556,98 +624,63 @@ const Whiteboard = forwardRef(({
       const dx = correctedX - startPoint.x;
       const dy = correctedY - startPoint.y;
       
-      if (backgroundType === 'pdf') {
-        const currentPageNum = getCurrentVisiblePage();
-        const currentPageShapes = pageShapes[currentPageNum] || [];
-        const updatedShapes = currentPageShapes.map(shape => {
-          if (shape.id === selectedShape.id) {
-            switch (shape.type) {
-              case 'line':
-                if (DEBUG_MOUSE_MOVEMENT) {
-                  log('VERBOSE', 'Whiteboard', 'Line drawing mouse', { correctedX, correctedY, startX: startPoint.x, startY: startPoint.y, deltaX: dx, deltaY: dy });
-                }
-                return {
-                  ...shape,
-                  points: [0, 0, dx, dy]  // Use relative coordinates from shape position
-                };
-              case 'circle':
-                    return {
-                      ...shape,
-                  radius: Math.sqrt(dx * dx + dy * dy)
-                };
-              case 'ellipse':
-                    return {
-                      ...shape,
-                  radiusX: Math.abs(dx),
-                  radiusY: Math.abs(dy)
-                };
-              case 'rectangle':
-                return {
-                  ...shape,
-                  width: Math.abs(dx),
-                  height: Math.abs(dy)
-                };
-              case 'triangle':
-                return {
-                  ...shape,
-                  width: Math.abs(dx),
-                  height: Math.abs(dy)
-                };
-              default:
-                return shape;
-            }
+      // Use regular shapes storage for all backgrounds (including PDF)
+      const updatedShapes = shapes.map(shape => {
+        if (shape.id === selectedShape.id) {
+          switch (shape.type) {
+            case 'line':
+              if (DEBUG_MOUSE_MOVEMENT) {
+                log('VERBOSE', 'Whiteboard', 'Line drawing mouse', { correctedX, correctedY, startX: startPoint.x, startY: startPoint.y, deltaX: dx, deltaY: dy });
+              }
+              return {
+                ...shape,
+                points: [startPoint.x, startPoint.y, correctedX, correctedY]  // Absolute coordinates: start at actual mouse down position, end at current mouse position
+              };
+            case 'circle':
+                  return {
+                    ...shape,
+                radius: Math.sqrt(dx * dx + dy * dy)
+              };
+            case 'ellipse':
+                  return {
+                    ...shape,
+                radiusX: Math.abs(dx),
+                radiusY: Math.abs(dy)
+              };
+            case 'rectangle':
+              return {
+                ...shape,
+                width: Math.abs(dx),
+                height: Math.abs(dy)
+              };
+            case 'triangle':
+              return {
+                ...shape,
+                width: Math.abs(dx),
+                height: Math.abs(dy)
+              };
+            default:
+              return shape;
           }
-          return shape;
+        }
+        return shape;
+      });
+      setShapes(updatedShapes);
+      // Send shape update via WebRTC data channel - send the updated shape
+      const updatedShape = updatedShapes.find(shape => shape.id === selectedShape.id);
+      if (updatedShape) {
+        log('INFO', 'Whiteboard', `📤 SENDING ${currentTool} tool update`, {
+          shapeId: updatedShape.id,
+          shapeX: updatedShape.x,
+          shapeY: updatedShape.y,
+          dx,
+          dy,
+          correctedX,
+          correctedY,
+          timestamp: Date.now()
         });
-        setPageShapes(prev => ({
-          ...prev,
-          [currentPageNum]: updatedShapes
-        }));
-      } else {
-        const updatedShapes = shapes.map(shape => {
-          if (shape.id === selectedShape.id) {
-            switch (shape.type) {
-              case 'line':
-                if (DEBUG_MOUSE_MOVEMENT) {
-                  log('VERBOSE', 'Whiteboard', 'Line drawing mouse', { correctedX, correctedY, startX: startPoint.x, startY: startPoint.y, deltaX: dx, deltaY: dy });
-                }
-                return {
-                  ...shape,
-                  points: [0, 0, dx, dy]  // Use relative coordinates from shape position
-                };
-              case 'circle':
-                    return {
-                      ...shape,
-                  radius: Math.sqrt(dx * dx + dy * dy)
-                };
-              case 'ellipse':
-                    return {
-                      ...shape,
-                  radiusX: Math.abs(dx),
-                  radiusY: Math.abs(dy)
-                };
-              case 'rectangle':
-                return {
-                  ...shape,
-                  width: Math.abs(dx),
-                  height: Math.abs(dy)
-                };
-              case 'triangle':
-                return {
-                  ...shape,
-                  width: Math.abs(dx),
-                  height: Math.abs(dy)
-                };
-              default:
-                return shape;
-            }
-          }
-          return shape;
-        });
-        setShapes(updatedShapes);
+        sendWhiteboardMsg('update', { shape: updatedShape });
       }
-      // Send shape update via WebRTC data channel
-      sendWhiteboardMsg('update', { shape: selectedShape });
     }
   };
 
@@ -714,16 +747,8 @@ const Whiteboard = forwardRef(({
         lineJoin: 'round'
       };
       
-      // For PDFs, add to page-specific lines
-      if (backgroundType === 'pdf') {
-        const currentPageNum = getCurrentVisiblePage();
-        setPageLines(prev => ({
-          ...prev,
-          [currentPageNum]: [...(prev[currentPageNum] || []), newLine]
-        }));
-      } else {
-        setLines(prev => [...prev, newLine]);
-      }
+      // Use regular lines storage for all backgrounds (including PDF)
+      setLines(prev => [...prev, newLine]);
       
       setIsDrawing(true);
       // Send line creation via WebRTC data channel
@@ -764,16 +789,8 @@ const Whiteboard = forwardRef(({
           break;
       }
 
-      // For PDFs, add to page-specific shapes
-      if (backgroundType === 'pdf') {
-        const currentPageNum = getCurrentVisiblePage();
-        setPageShapes(prev => ({
-          ...prev,
-          [currentPageNum]: [...(prev[currentPageNum] || []), newShape]
-        }));
-      } else {
-        setShapes(prev => [...prev, newShape]);
-      }
+      // Use regular shapes storage for all backgrounds (including PDF)
+      setShapes(prev => [...prev, newShape]);
       
       setSelectedShape(newShape);
       setIsDrawing(true);
@@ -783,6 +800,14 @@ const Whiteboard = forwardRef(({
       }
       
       // Send shape creation via WebRTC data channel
+      log('INFO', 'Whiteboard', `📤 SENDING ${currentTool} tool creation`, {
+        shapeId: newShape.id,
+        shapeX: newShape.x,
+        shapeY: newShape.y,
+        correctedX,
+        correctedY,
+        timestamp: Date.now()
+      });
       sendWhiteboardMsg('draw', { shape: newShape });
     }
   };
@@ -1445,6 +1470,15 @@ const Whiteboard = forwardRef(({
     return Math.max(1, Math.min(pageNumber, pdfPages));
   };
 
+  // Track background type changes
+  useEffect(() => {
+    log('INFO', 'Whiteboard', '🔄 BACKGROUND TYPE CHANGED', {
+      backgroundType,
+      pdfLoaded: backgroundType === 'pdf',
+      timestamp: Date.now()
+    });
+  }, [backgroundType]);
+
   // Update current page when scrolling
   useEffect(() => {
     if (backgroundType === 'pdf' && pdfPages > 1) {
@@ -1586,13 +1620,37 @@ const Whiteboard = forwardRef(({
               ? `${backgroundDimensions.height}px` 
               : currentContainerSize.height;
           
-          log('DEBUG', 'Whiteboard', 'Applying container dimensions', {
+          log('INFO', 'Whiteboard', '🎨 RENDERING container', {
             isScreenShareActive,
             screenShareDimensions,
             backgroundDimensions,
             currentContainerSize,
             finalWidth,
-            finalHeight
+            finalHeight,
+            backgroundType,
+            pdfLoaded: backgroundType === 'pdf',
+            currentImageUrl: !!currentImageUrl,
+            linesCount: lines.length,
+            pageLinesCount: Object.keys(pageLines).length,
+            timestamp: Date.now()
+          });
+          
+          const zIndex = 2; // Drawing layer should always be above any background
+          
+          log('INFO', 'Whiteboard', '📐 APPLYING z-index and positioning', {
+            zIndex,
+            isScreenShareActive,
+            backgroundType,
+            pdfLoaded: backgroundType === 'pdf',
+            position: isScreenShareActive ? 'absolute' : 'relative',
+            containerWidth: finalWidth,
+            containerHeight: finalHeight,
+            containerTop: isScreenShareActive ? '0' : 'auto',
+            containerLeft: isScreenShareActive ? '0' : 'auto',
+            backgroundColor: isScreenShareActive ? 'transparent' : 'rgba(230, 243, 255, 0.9)',
+            border: isScreenShareActive ? 'none' : '4px solid #8B4513',
+            pointerEvents: isScreenShareActive ? 'all' : 'auto',
+            timestamp: Date.now()
           });
           
           return {
@@ -1607,7 +1665,7 @@ const Whiteboard = forwardRef(({
             minHeight: isScreenShareActive && screenShareDimensions.height > 0 
               ? `${screenShareDimensions.height}px` 
               : currentContainerSize.height,
-            zIndex: isScreenShareActive ? 2 : 1,
+            zIndex: zIndex,
             backgroundColor: isScreenShareActive ? 'transparent' : 'rgba(230, 243, 255, 0.9)',
             border: isScreenShareActive ? 'none' : '4px solid #8B4513',
             pointerEvents: isScreenShareActive ? 'all' : 'auto',
@@ -1629,7 +1687,23 @@ const Whiteboard = forwardRef(({
               display: 'flex',
               justifyContent: 'center',
               alignItems: 'flex-start', // Start from top instead of center
-              padding: '10px' // Add 10px padding around the PDF
+              padding: '10px', // Add 10px padding around the PDF
+              pointerEvents: 'none' // Allow mouse events to pass through to Stage
+            }}
+            onMouseEnter={() => {
+              log('INFO', 'Whiteboard', '📄 PDF BACKGROUND HOVER', {
+                backgroundType,
+                pdfLoaded: backgroundType === 'pdf',
+                zIndex: 1,
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                backgroundColor: '#f5f5f5',
+                padding: '10px',
+                timestamp: Date.now()
+              });
             }}
           >
             {backgroundType === 'pdf' ? (
@@ -1968,51 +2042,63 @@ const Whiteboard = forwardRef(({
             pointerEvents: 'all',
             background: 'transparent'
           }}
-          onMouseDown={handleMouseDown}
+          onMouseEnter={() => {
+            log('INFO', 'Whiteboard', '🎯 STAGE HOVER', {
+              backgroundType,
+              pdfLoaded: backgroundType === 'pdf',
+              pageLinesCount: Object.keys(pageLines).length,
+              totalLines: Object.values(pageLines).flat().length,
+              stageWidth: isScreenShareActive && screenShareDimensions.width > 0 
+                ? screenShareDimensions.width 
+                : backgroundDimensions.width > 0 
+                  ? backgroundDimensions.width 
+                  : currentContainerSize.width,
+              stageHeight: isScreenShareActive && screenShareDimensions.height > 0 
+                ? screenShareDimensions.height 
+                : backgroundDimensions.height > 0 
+                  ? backgroundDimensions.height 
+                  : currentContainerSize.height,
+              containerSize: currentContainerSize,
+              backgroundDimensions,
+              screenShareDimensions,
+              stagePosition: 'absolute',
+              stageZIndex: 2,
+              timestamp: Date.now()
+            });
+          }}
+          onMouseDown={(e) => {
+            log('INFO', 'Whiteboard', '🖱️ STAGE MOUSE DOWN', {
+              backgroundType,
+              pdfLoaded: backgroundType === 'pdf',
+              currentTool,
+              isDrawing,
+              timestamp: Date.now()
+            });
+            handleMouseDown(e);
+          }}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onClick={handleClick}
         >
             <Layer>
-              {/* Render lines - page-specific for PDF, all for others */}
-              {(backgroundType === 'pdf' ? 
-                // For PDF: render all page lines
-                Object.entries(pageLines).flatMap(([pageNum, pageLines]) => 
-                  pageLines.map((line, index) => (
-                    <Line
-                      key={`page-${pageNum}-line-${line.id || index}`}
-                      points={line.points}
-                      stroke={line.stroke}
-                      strokeWidth={line.strokeWidth}
-                      lineCap={line.lineCap}
-                      lineJoin={line.lineJoin}
-                      draggable={!currentTool}
-                      onClick={() => setSelectedShape(line)}
-                    />
-                  ))
-                ) :
-                // For non-PDF: render all lines
-                lines.map((line, index) => (
-                  <Line
-                    key={line.id || index}
-                    points={line.points}
-                    stroke={line.stroke}
-                    strokeWidth={line.strokeWidth}
-                    lineCap={line.lineCap}
-                    lineJoin={line.lineJoin}
-                    draggable={!currentTool}
-                    onClick={() => setSelectedShape(line)}
-                  />
-                ))
-              )}
+              {/* Render lines - use regular lines for all backgrounds */}
+              {lines.map((line, index) => (
+                <Line
+                  key={line.id || index}
+                  points={line.points}
+                  stroke={line.stroke}
+                  strokeWidth={line.strokeWidth}
+                  lineCap={line.lineCap}
+                  lineJoin={line.lineJoin}
+                  draggable={!currentTool}
+                  onClick={() => setSelectedShape(line)}
+                />
+              ))}
 
-              {/* Render shapes - page-specific for PDF, all for others */}
-              {(backgroundType === 'pdf' ? 
-                // For PDF: render all page shapes
-                Object.entries(pageShapes).flatMap(([pageNum, pageShapes]) => 
-                  pageShapes.map((shape, index) => {
+              {/* Render shapes - use regular shapes for all backgrounds */}
+              {shapes.map((shape, index) => {
                     const commonProps = {
-                      key: `page-${pageNum}-shape-${shape.id || index}`,
+                      key: `shape-${shape.id || index}`,
                       x: shape.x,
                       y: shape.y,
                       stroke: shape.stroke,
@@ -2024,10 +2110,13 @@ const Whiteboard = forwardRef(({
 
                 switch (shape.type) {
                   case 'line':
+                    // Use absolute coordinates directly
                     return (
                       <Line
                         {...commonProps}
-                        points={shape.points}
+                        x={0}  // Reset x since we're using absolute coordinates
+                        y={0}  // Reset y since we're using absolute coordinates
+                        points={shape.points}  // Already absolute coordinates: [startX, startY, endX, endY]
                       />
                     );
                   case 'circle':
@@ -2068,69 +2157,7 @@ const Whiteboard = forwardRef(({
                   default:
                     return null;
                 }
-                  })
-                ) :
-                // For non-PDF: render all shapes
-                shapes.map((shape, index) => {
-                  const commonProps = {
-                    key: shape.id || index,
-                    x: shape.x,
-                    y: shape.y,
-                    stroke: shape.stroke,
-                    strokeWidth: shape.strokeWidth,
-                    fill: shape.fill,
-                    draggable: !currentTool,
-                    onClick: () => setSelectedShape(shape)
-                  };
-
-                  switch (shape.type) {
-                    case 'line':
-                      return (
-                        <Line
-                          {...commonProps}
-                          points={shape.points}
-                        />
-                      );
-                    case 'circle':
-                      return (
-                        <Circle
-                          {...commonProps}
-                          radius={shape.radius}
-                        />
-                      );
-                    case 'ellipse':
-                      return (
-                        <Ellipse
-                          {...commonProps}
-                          radiusX={shape.radiusX}
-                          radiusY={shape.radiusY}
-                        />
-                      );
-                    case 'rectangle':
-                      return (
-                        <Rect
-                          {...commonProps}
-                          width={shape.width}
-                          height={shape.height}
-                        />
-                      );
-                    case 'triangle':
-                      return (
-                        <Group {...commonProps}>
-                        <Line
-                            points={[0, shape.height, shape.width / 2, 0, shape.width, shape.height]}
-                            closed
-                            stroke={shape.stroke}
-                            strokeWidth={shape.strokeWidth}
-                            fill={shape.fill}
-                          />
-                        </Group>
-                      );
-                    default:
-                      return null;
-                  }
-                })
-              )}
+              })}
 
               {/* Render remote cursors */}
               {Array.from(cursors.entries()).map(([userId, cursor]) => (
