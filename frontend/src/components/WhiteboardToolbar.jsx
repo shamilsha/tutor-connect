@@ -31,7 +31,10 @@ const WhiteboardToolbar = ({
   currentTool,
   currentColor,
   canUndo,
-  canRedo
+  canRedo,
+  // Mobile toggle props
+  isMobileDrawingMode,
+  onMobileModeToggle
 }) => {
   const [triangleType, setTriangleType] = useState('equilateral');
 
@@ -106,6 +109,17 @@ const WhiteboardToolbar = ({
           className="color-picker"
         />
         <span>{username}</span>
+      </div>
+      
+      {/* Mobile Drawing Mode Toggle */}
+      <div className="mobile-toggle">
+        <button
+          className={`mobile-mode-btn ${isMobileDrawingMode ? 'drawing-mode' : 'scroll-mode'}`}
+          onClick={onMobileModeToggle}
+          title={isMobileDrawingMode ? 'Switch to Scroll Mode' : 'Switch to Drawing Mode'}
+        >
+          {isMobileDrawingMode ? '✏️ Drawing' : '📜 Scroll'}
+        </button>
       </div>
       
       {/* Main Toolbar */}

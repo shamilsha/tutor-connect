@@ -159,3 +159,59 @@
     height: 25px;
   }
 }
+
+/* Mobile Drawing Mode Toggle */
+.mobile-toggle {
+  display: flex;
+  align-items: center;
+  padding: 10px 15px;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-bottom: 1px solid #ddd;
+  border-radius: 0;
+}
+
+.mobile-mode-btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: pointer;
+  user-select: none;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  transition: all 0.3s ease;
+  min-width: 80px;
+}
+
+.mobile-mode-btn.drawing-mode {
+  background-color: #4CAF50;
+  color: white;
+}
+
+.mobile-mode-btn.drawing-mode:hover {
+  background-color: #45a049;
+  box-shadow: 0 4px 8px rgba(76, 175, 80, 0.3);
+}
+
+.mobile-mode-btn.scroll-mode {
+  background-color: #f44336;
+  color: white;
+}
+
+.mobile-mode-btn.scroll-mode:hover {
+  background-color: #da190b;
+  box-shadow: 0 4px 8px rgba(244, 67, 54, 0.3);
+}
+
+/* Mobile responsive styles for toggle */
+@media (max-width: 768px) {
+  .mobile-toggle {
+    padding: 8px 10px;
+  }
+  
+  .mobile-mode-btn {
+    padding: 6px 12px;
+    font-size: 11px;
+    min-width: 70px;
+  }
+}

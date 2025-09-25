@@ -51,6 +51,8 @@ const Whiteboard = forwardRef(({
   onClear = null,
   canUndo = false,
   canRedo = false,
+  // Mobile drawing mode
+  isMobileDrawingMode = false,
   // PDF Navigation props
   pdfCurrentPage = 1,
   pdfScale = 1,
@@ -80,6 +82,8 @@ const Whiteboard = forwardRef(({
   // PDF render timing
   const [pdfRenderStartTime, setPdfRenderStartTime] = useState(null);
   const [isDrawing, setIsDrawing] = useState(false);
+  // Use the prop instead of local state
+  // const [isMobileDrawingMode, setIsMobileDrawingMode] = useState(false);
   
   
   
@@ -305,7 +309,7 @@ const Whiteboard = forwardRef(({
           log('INFO', 'Whiteboard', '🖊️ PROCESSING draw action', {
             shapeType: data.shape.type,
             shapeTool: data.shape.tool,
-            shapeId: data.shape.id,
+                shapeId: data.shape.id,
             pointsCount: data.shape.points?.length,
             backgroundType,
             pdfLoaded: backgroundType === 'pdf',
@@ -331,10 +335,10 @@ const Whiteboard = forwardRef(({
               });
               return newLines;
             });
-          } else {
+            } else {
             // Use regular shapes storage for all backgrounds (including PDF)
             log('INFO', 'Whiteboard', '📨 RECEIVING line tool creation', {
-              shapeId: data.shape.id,
+                shapeId: data.shape.id,
               shapeX: data.shape.x,
               shapeY: data.shape.y,
               points: data.shape.points,
@@ -596,14 +600,14 @@ const Whiteboard = forwardRef(({
       const now = Date.now();
       if (!window.lastCursorTime || now - window.lastCursorTime > 100) { // Send max every 100ms
         window.lastCursorTime = now;
-        // Adjust coordinates for scroll position only for cursor display
-        const scrollContainer = containerRef.current;
-        const adjustedPoint = { ...point };
-        if (scrollContainer) {
-          adjustedPoint.x += scrollContainer.scrollLeft;
-          adjustedPoint.y += scrollContainer.scrollTop;
-        }
-        sendWhiteboardMsg('cursor', { position: adjustedPoint });
+      // Adjust coordinates for scroll position only for cursor display
+      const scrollContainer = containerRef.current;
+      const adjustedPoint = { ...point };
+      if (scrollContainer) {
+        adjustedPoint.x += scrollContainer.scrollLeft;
+        adjustedPoint.y += scrollContainer.scrollTop;
+      }
+      sendWhiteboardMsg('cursor', { position: adjustedPoint });
       }
     }
 
@@ -882,7 +886,7 @@ const Whiteboard = forwardRef(({
         pageShapes: { ...pageShapes }
       });
     } else {
-      newHistory.push({ lines: [...currentLines], shapes: [...currentShapes] });
+    newHistory.push({ lines: [...currentLines], shapes: [...currentShapes] });
     }
     
     setHistory(newHistory);
@@ -1155,9 +1159,9 @@ const Whiteboard = forwardRef(({
     });
     
     return () => {
-      delete window.clearDrawings;
-      delete window.getDrawingState;
-      delete window.hasDrawings;
+    delete window.clearDrawings;
+    delete window.getDrawingState;
+    delete window.hasDrawings;
     };
   }, [lines, shapes, pageLines, pageShapes, historyStep, history]);
 
@@ -1669,7 +1673,8 @@ const Whiteboard = forwardRef(({
             backgroundColor: isScreenShareActive ? 'transparent' : 'rgba(230, 243, 255, 0.9)',
             border: isScreenShareActive ? 'none' : '4px solid #8B4513',
             pointerEvents: isScreenShareActive ? 'all' : 'auto',
-            overflow: 'visible' // Let dashboard-content handle scrolling
+            overflow: 'visible', // Let dashboard-content handle scrolling
+            touchAction: isMobileDrawingMode ? 'none' : 'auto' // Prevent touch behaviors only in drawing mode
           };
         })()}
       >
@@ -1810,28 +1815,28 @@ const Whiteboard = forwardRef(({
                   {Array.from({ length: pdfPages }, (_, index) => (
                     <div 
                       key={index + 1} 
-                      className="pdf-page-container"
-                      style={{ 
+                        className="pdf-page-container"
+                      style={{
                         marginBottom: index < pdfPages - 1 ? '6px' : '0px' // 6px gap between pages, no gap after last page
-                      }}
-                    >
-                      <Page
+                        }}
+                      >
+                          <Page
                         pageNumber={index + 1}
-                        width={(() => {
-                          const containerWidth = backgroundDimensions.width > 0 ? backgroundDimensions.width : currentContainerSize.width;
-                          return containerWidth - 20; // Subtract 20px for padding (10px on each side)
-                        })()}
-                        renderTextLayer={false}
-                        renderAnnotationLayer={false}
+                            width={(() => {
+                              const containerWidth = backgroundDimensions.width > 0 ? backgroundDimensions.width : currentContainerSize.width;
+                              return containerWidth - 20; // Subtract 20px for padding (10px on each side)
+                            })()}
+                            renderTextLayer={false}
+                            renderAnnotationLayer={false}
                         error={<div>Error loading page {index + 1}!</div>}
                         loading={<div>Loading page {index + 1}...</div>}
                         onLoadSuccess={(page) => {
-                          const pageRenderTime = performance.now();
+                            const pageRenderTime = performance.now();
                           log('DEBUG', 'Whiteboard', `Page ${index + 1} rendered`, {
                             pageNumber: index + 1,
-                            renderTime: pdfRenderStartTime ? `${(pageRenderTime - pdfRenderStartTime).toFixed(2)}ms` : 'N/A',
+                              renderTime: pdfRenderStartTime ? `${(pageRenderTime - pdfRenderStartTime).toFixed(2)}ms` : 'N/A',
                             cumulativeTime: `${(pageRenderTime - (window.pdfDownloadStartTime || pdfRenderStartTime || 0)).toFixed(2)}ms`
-                          });
+                            });
                           
                           // Get actual PDF page dimensions from metadata
                           if (page && page.originalWidth && page.originalHeight) {
@@ -1950,7 +1955,7 @@ const Whiteboard = forwardRef(({
                           }
                         }}
                       />
-                    </div>
+                  </div>
                   ))}
                 </div>
               </Document>
@@ -2079,20 +2084,210 @@ const Whiteboard = forwardRef(({
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onClick={handleClick}
+          // Touch event handlers for mobile devices
+            onTouchStart={(e) => {
+              // Access the native event object via the 'evt' property
+              const nativeEvent = e.evt;
+              
+              // Debug the actual touch event structure
+              log('INFO', 'Whiteboard', '👆 TOUCH START DEBUG', {
+                hasNativeTouches: !!nativeEvent.touches,
+                nativeTouchesLength: nativeEvent.touches?.length,
+                hasNativeChangedTouches: !!nativeEvent.changedTouches,
+                nativeChangedTouchesLength: nativeEvent.changedTouches?.length,
+                eventType: e.type,
+                isMobileDrawingMode,
+                timestamp: Date.now()
+              });
+
+              if (isMobileDrawingMode) {
+                // Prevent scrolling only in drawing mode
+                if (e.preventDefault) e.preventDefault();
+                log('INFO', 'Whiteboard', '👆 STAGE TOUCH START (Drawing Mode)', {
+                  backgroundType,
+                  pdfLoaded: backgroundType === 'pdf',
+                  currentTool,
+                  isDrawing,
+                  touchCount: nativeEvent.touches?.length || 0,
+                  isMobileDrawingMode,
+                  timestamp: Date.now()
+                });
+                // Convert touch to mouse event and use same handler
+                const touch = nativeEvent.touches?.[0];
+                if (touch) {
+                  log('INFO', 'Whiteboard', '👆 TOUCH START - CONVERTING TO MOUSE', {
+                    clientX: touch.clientX,
+                    clientY: touch.clientY,
+                    timestamp: Date.now()
+                  });
+                  // Create mouse event with same coordinate system
+                  const mouseEvent = {
+                    ...e,
+                    evt: {
+                      ...e.evt,
+                      clientX: touch.clientX,
+                      clientY: touch.clientY
+                    },
+                    preventDefault: () => { if (e.preventDefault) e.preventDefault(); },
+                    stopPropagation: () => { if (e.stopPropagation) e.stopPropagation(); }
+                  };
+                  // Use the same mouse handler - coordinates are already in same system
+                  handleMouseDown(mouseEvent);
+                } else {
+                  log('WARN', 'Whiteboard', '👆 TOUCH START - NO TOUCH FOUND', {
+                    nativeTouchesLength: nativeEvent.touches?.length,
+                    nativeChangedTouchesLength: nativeEvent.changedTouches?.length,
+                    eventType: e.type,
+                    timestamp: Date.now()
+                  });
+                }
+              } else {
+                log('INFO', 'Whiteboard', '👆 STAGE TOUCH START (Scroll Mode)', {
+                  backgroundType,
+                  pdfLoaded: backgroundType === 'pdf',
+                  currentTool,
+                  isDrawing,
+                  touchCount: nativeEvent.touches?.length || 0,
+                  isMobileDrawingMode,
+                  timestamp: Date.now()
+                });
+                // Allow normal scrolling behavior
+              }
+            }}
+          onTouchMove={(e) => {
+            // Access the native event object via the 'evt' property
+            const nativeEvent = e.evt;
+            
+            // Debug the actual touch event structure
+            log('INFO', 'Whiteboard', '👆 TOUCH MOVE DEBUG', {
+              hasNativeTouches: !!nativeEvent.touches,
+              nativeTouchesLength: nativeEvent.touches?.length,
+              hasNativeChangedTouches: !!nativeEvent.changedTouches,
+              nativeChangedTouchesLength: nativeEvent.changedTouches?.length,
+              eventType: e.type,
+              isMobileDrawingMode,
+              timestamp: Date.now()
+            });
+
+            log('INFO', 'Whiteboard', '👆 STAGE TOUCH MOVE', {
+              isMobileDrawingMode,
+              touchCount: nativeEvent.touches?.length || 0,
+              hasTouch: !!nativeEvent.touches?.[0],
+              timestamp: Date.now()
+            });
+
+            if (isMobileDrawingMode) {
+              // Prevent scrolling only in drawing mode
+              if (e.preventDefault) e.preventDefault();
+              log('INFO', 'Whiteboard', '👆 STAGE TOUCH MOVE (Drawing Mode)', {
+                backgroundType,
+                pdfLoaded: backgroundType === 'pdf',
+                currentTool,
+                isDrawing,
+                touchCount: nativeEvent.touches?.length || 0,
+                isMobileDrawingMode,
+                timestamp: Date.now()
+              });
+              // Convert touch to mouse event and use same handler
+              const touch = nativeEvent.touches?.[0];
+              if (touch) {
+                log('INFO', 'Whiteboard', '👆 CONVERTING TOUCH TO MOUSE', {
+                  clientX: touch.clientX,
+                  clientY: touch.clientY,
+                  timestamp: Date.now()
+                });
+                // Create mouse event with same coordinate system
+                const mouseEvent = {
+                  ...e,
+                  evt: {
+                    ...e.evt,
+                    clientX: touch.clientX,
+                    clientY: touch.clientY
+                  },
+                  preventDefault: () => { if (e.preventDefault) e.preventDefault(); },
+                  stopPropagation: () => { if (e.stopPropagation) e.stopPropagation(); }
+                };
+                // Use the same mouse handler - coordinates are already in same system
+                handleMouseMove(mouseEvent);
+              }
+            } else {
+              log('INFO', 'Whiteboard', '👆 STAGE TOUCH MOVE (Scroll Mode)', {
+                backgroundType,
+                pdfLoaded: backgroundType === 'pdf',
+                currentTool,
+                isDrawing,
+                touchCount: nativeEvent.touches?.length || 0,
+                isMobileDrawingMode,
+                timestamp: Date.now()
+              });
+            }
+            // Allow normal scrolling behavior when not in drawing mode
+          }}
+          onTouchEnd={(e) => {
+            // Access the native event object via the 'evt' property
+            const nativeEvent = e.evt;
+            
+            if (isMobileDrawingMode) {
+              // Prevent scrolling only in drawing mode
+              if (e.preventDefault) e.preventDefault();
+              log('INFO', 'Whiteboard', '👆 STAGE TOUCH END (Drawing Mode)', {
+                backgroundType,
+                pdfLoaded: backgroundType === 'pdf',
+                currentTool,
+                isDrawing,
+                touchCount: nativeEvent.touches?.length || 0,
+                isMobileDrawingMode,
+                timestamp: Date.now()
+              });
+              // Convert touch to mouse event and use same handler
+              const touch = nativeEvent.changedTouches?.[0];
+              if (touch) {
+                log('INFO', 'Whiteboard', '👆 TOUCH END - CONVERTING TO MOUSE', {
+                  clientX: touch.clientX,
+                  clientY: touch.clientY,
+                  timestamp: Date.now()
+                });
+                // Create mouse event with same coordinate system
+                const mouseEvent = {
+                  ...e,
+                  evt: {
+                    ...e.evt,
+                    clientX: touch.clientX,
+                    clientY: touch.clientY
+                  },
+                  preventDefault: () => { if (e.preventDefault) e.preventDefault(); },
+                  stopPropagation: () => { if (e.stopPropagation) e.stopPropagation(); }
+                };
+                // Use the same mouse handler - coordinates are already in same system
+                handleMouseUp(mouseEvent);
+              }
+            } else {
+              log('INFO', 'Whiteboard', '👆 STAGE TOUCH END (Scroll Mode)', {
+                backgroundType,
+                pdfLoaded: backgroundType === 'pdf',
+                currentTool,
+                isDrawing,
+                touchCount: nativeEvent.touches?.length || 0,
+                isMobileDrawingMode,
+                timestamp: Date.now()
+              });
+              // Allow normal scrolling behavior
+            }
+          }}
         >
             <Layer>
               {/* Render lines - use regular lines for all backgrounds */}
               {lines.map((line, index) => (
-                <Line
-                  key={line.id || index}
-                  points={line.points}
-                  stroke={line.stroke}
-                  strokeWidth={line.strokeWidth}
-                  lineCap={line.lineCap}
-                  lineJoin={line.lineJoin}
-                  draggable={!currentTool}
-                  onClick={() => setSelectedShape(line)}
-                />
+                  <Line
+                    key={line.id || index}
+                    points={line.points}
+                    stroke={line.stroke}
+                    strokeWidth={line.strokeWidth}
+                    lineCap={line.lineCap}
+                    lineJoin={line.lineJoin}
+                    draggable={!currentTool}
+                    onClick={() => setSelectedShape(line)}
+                  />
               ))}
 
               {/* Render shapes - use regular shapes for all backgrounds */}

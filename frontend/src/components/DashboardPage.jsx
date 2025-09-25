@@ -93,6 +93,7 @@ const DashboardPage = () => {
     const [canRedo, setCanRedo] = useState(false);
     const [isScreenShareActive, setIsScreenShareActive] = useState(false);
     const [currentImageUrl, setCurrentImageUrl] = useState(null);
+    const [isMobileDrawingMode, setIsMobileDrawingMode] = useState(false);
     const currentImageUrlRef = useRef(null);
     const [dynamicContainerSize, setDynamicContainerSize] = useState({ width: 1200, height: 800 });
     
@@ -2349,6 +2350,15 @@ const DashboardPage = () => {
                     currentColor={currentColor}
                     canUndo={canUndo}
                     canRedo={canRedo}
+                    isMobileDrawingMode={isMobileDrawingMode}
+                    onMobileModeToggle={() => {
+                        setIsMobileDrawingMode(!isMobileDrawingMode);
+                        log('INFO', 'DashboardPage', '📱 MOBILE DRAWING MODE TOGGLED', {
+                            newMode: !isMobileDrawingMode,
+                            previousMode: isMobileDrawingMode,
+                            timestamp: Date.now()
+                        });
+                    }}
                 />
             )}
             
@@ -2406,6 +2416,7 @@ const DashboardPage = () => {
                        onUndo={whiteboardUndoRef}
                        onRedo={whiteboardRedoRef}
                        onHistoryChange={handleWhiteboardHistoryChange}
+                       isMobileDrawingMode={isMobileDrawingMode}
                        onImageUpload={handleWhiteboardImageUpload}
                        onFileUpload={handleWhiteboardFileUpload}
                        onClear={handleWhiteboardClear}
