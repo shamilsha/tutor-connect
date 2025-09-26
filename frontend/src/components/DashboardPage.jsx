@@ -95,6 +95,7 @@ const DashboardPage = () => {
     const [currentImageUrl, setCurrentImageUrl] = useState(null);
     const [isMobileDrawingMode, setIsMobileDrawingMode] = useState(false);
     const currentImageUrlRef = useRef(null);
+    // Fixed container size for both desktop and mobile to ensure identical dimensions
     const [dynamicContainerSize, setDynamicContainerSize] = useState({ width: 1200, height: 800 });
     
     // Whiteboard function references
@@ -2089,36 +2090,65 @@ const DashboardPage = () => {
     const handlePdfChange = async (pdfFile) => {
         log('INFO', 'DashboardPage', 'PDF changed', { pdfFile });
         
-        // Check mutual exclusivity first
-        await checkExclusivity('pdf', pdfFile);
-        
-        // Pass the PDF file to Whiteboard component
-        if (whiteboardImageUploadRef.current && whiteboardImageUploadRef.current.handleFileUpload) {
-            log('INFO', 'DashboardPage', 'Passing PDF to Whiteboard component', {
-                fileName: pdfFile.name,
-                fileSize: pdfFile.size,
-                fileType: pdfFile.type
-            });
-            // Create a synthetic event object for the Whiteboard component
-            const syntheticEvent = {
-                target: {
-                    files: [pdfFile]
-                }
-            };
-            log('INFO', 'DashboardPage', 'Calling Whiteboard.handleFileUpload with synthetic event');
-            whiteboardImageUploadRef.current.handleFileUpload(syntheticEvent);
-            log('INFO', 'DashboardPage', 'PDF successfully passed to Whiteboard component');
+        // Check if this is a URL string (from remote peer) or File object (from local upload)
+        if (typeof pdfFile === 'string') {
+            // This is a URL from remote peer - just set the background directly
+            log('INFO', 'DashboardPage', 'Remote PDF URL received, setting background directly', { pdfUrl: pdfFile });
+            
+            // Check mutual exclusivity first
+            await checkExclusivity('pdf', pdfFile);
+            
+            // Set the PDF URL directly in the Whiteboard component
+            if (whiteboardImageUploadRef.current && whiteboardImageUploadRef.current.setBackgroundDirectly) {
+                log('INFO', 'DashboardPage', '🎯 CALLING UNIFIED PDF RENDERING for remote peer', {
+                    pdfUrl: pdfFile,
+                    willUseRenderPDF: true,
+                    timestamp: Date.now()
+                });
+                whiteboardImageUploadRef.current.setBackgroundDirectly('pdf', pdfFile);
+                log('INFO', 'DashboardPage', 'PDF URL set directly in Whiteboard component');
+            } else {
+                log('WARN', 'DashboardPage', 'Whiteboard ref not available for direct background setting');
+            }
         } else {
-            log('WARN', 'DashboardPage', 'Whiteboard ref not available', {
-                hasRef: !!whiteboardImageUploadRef.current,
-                hasHandleFileUpload: !!(whiteboardImageUploadRef.current && whiteboardImageUploadRef.current.handleFileUpload)
-            });
+            // This is a File object from local upload - proceed with normal upload
+            log('INFO', 'DashboardPage', 'Local PDF file received, proceeding with upload');
+            
+            // Check mutual exclusivity first
+            await checkExclusivity('pdf', pdfFile);
+            
+            // Pass the PDF file to Whiteboard component
+            if (whiteboardImageUploadRef.current && whiteboardImageUploadRef.current.handleFileUpload) {
+                log('INFO', 'DashboardPage', 'Passing PDF to Whiteboard component', {
+                    fileName: pdfFile.name,
+                    fileSize: pdfFile.size,
+                    fileType: pdfFile.type
+                });
+                // Create a synthetic event object for the Whiteboard component
+                const syntheticEvent = {
+                    target: {
+                        files: [pdfFile]
+                    }
+                };
+                log('INFO', 'DashboardPage', 'Calling Whiteboard.handleFileUpload with synthetic event');
+                whiteboardImageUploadRef.current.handleFileUpload(syntheticEvent);
+                log('INFO', 'DashboardPage', 'PDF successfully passed to Whiteboard component');
+            } else {
+                log('WARN', 'DashboardPage', 'Whiteboard ref not available', {
+                    hasRef: !!whiteboardImageUploadRef.current,
+                    hasHandleFileUpload: !!(whiteboardImageUploadRef.current && whiteboardImageUploadRef.current.handleFileUpload)
+                });
+            }
         }
     };
 
     const handleImageSizeChange = (newSize) => {
         log('INFO', 'DashboardPage', 'Image size changed', { newSize });
-        setDynamicContainerSize(newSize);
+        // Note: Not updating dynamicContainerSize to maintain coordinate consistency between peers
+        log('INFO', 'DashboardPage', 'Container size kept fixed for coordinate consistency', { 
+            currentSize: dynamicContainerSize,
+            requestedSize: newSize 
+        });
     };
 
     const handleWhiteboardImageUpload = (event) => {

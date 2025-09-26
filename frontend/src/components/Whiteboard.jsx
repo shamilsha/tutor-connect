@@ -1,6 +1,7 @@
-import React, { useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react';
+import React, { useState, useRef, useEffect, useImperativeHandle, forwardRef, useCallback } from 'react';
 import { Stage, Layer, Line, Circle, Ellipse, Rect, Transformer, Group, Text, RegularPolygon } from 'react-konva';
 import { v4 as uuidv4 } from 'uuid';
+import { throttle } from 'lodash';
 import { Document, Page } from 'react-pdf';
 import '../styles/pdf.css';
 import '../styles/Whiteboard.css';
@@ -59,21 +60,6 @@ const Whiteboard = forwardRef(({
   onPdfPageChange = null,
   onPdfPagesChange = null,
 }, ref) => {
-  log('INFO', 'Whiteboard', 'Component mounted', { userId, username, screenShareStream: !!screenShareStream, isScreenShareActive });
-  
-  // Track remounting with detailed logging
-  useEffect(() => {
-    log('ERROR', 'Whiteboard', '🚨 COMPONENT MOUNTED - This should NOT happen during mouse move!', {
-      userId,
-      username,
-      screenShareStream: !!screenShareStream,
-      isScreenShareActive,
-      backgroundType,
-      pdfLoaded: backgroundType === 'pdf',
-      timestamp: Date.now(),
-      stackTrace: new Error().stack
-    });
-  }, []);
   
   // Drawing state
   const [lines, setLines] = useState([]);
@@ -95,8 +81,32 @@ const Whiteboard = forwardRef(({
   }]);
   const [historyStep, setHistoryStep] = useState(0);
   
+  // Ensure we have a default tool for drawing (accessible to all functions)
+  const drawingTool = currentTool || 'pen';
+  
   // Log current state after all state variables are declared
   log('DEBUG', 'Whiteboard', 'Current state on mount', { lines: lines.length, shapes: shapes.length, historyStep, historyLength: history.length });
+  
+  // Calculate proper container dimensions before rendering
+  const calculateContainerDimensions = () => {
+    let finalWidth, finalHeight;
+    
+    if (isScreenShareActive && screenShareDimensions.width > 0 && screenShareDimensions.height > 0) {
+      // Use screen share dimensions
+      finalWidth = screenShareDimensions.width;
+      finalHeight = screenShareDimensions.height;
+    } else if (backgroundDimensions.width > 0 && backgroundDimensions.height > 0) {
+      // Use background dimensions
+      finalWidth = backgroundDimensions.width;
+      finalHeight = backgroundDimensions.height;
+    } else {
+      // Use default container size
+      finalWidth = currentContainerSize.width;
+      finalHeight = currentContainerSize.height;
+    }
+    
+    return { finalWidth, finalHeight };
+  };
   
   const [defaultFill, setDefaultFill] = useState(false);
   const [strokeColor, setStrokeColor] = useState(currentColor);
@@ -116,6 +126,10 @@ const Whiteboard = forwardRef(({
   const [backgroundDimensions, setBackgroundDimensions] = useState({ width: 0, height: 0 });
   // State to track screen share dimensions
   const [screenShareDimensions, setScreenShareDimensions] = useState({ width: 0, height: 0 });
+
+  // Calculate container dimensions - will be set in useEffect
+  const [finalWidth, setFinalWidth] = useState(containerSize.width);
+  const [finalHeight, setFinalHeight] = useState(containerSize.height);
 
   // Debug flag to control verbose logging
   const DEBUG_MOUSE_MOVEMENT = LOG_LEVEL === 'VERBOSE'; // Enable mouse movement logs in VERBOSE mode
@@ -138,6 +152,27 @@ const Whiteboard = forwardRef(({
     setCurrentContainerSize(containerSize);
     log('DEBUG', 'Whiteboard', 'Container size updated', containerSize);
   }, [containerSize]);
+
+
+  // Calculate container dimensions after state is available
+  useEffect(() => {
+    const { finalWidth: newWidth, finalHeight: newHeight } = calculateContainerDimensions();
+    setFinalWidth(newWidth);
+    setFinalHeight(newHeight);
+    
+    log('INFO', 'Whiteboard', '📐 CONTAINER DIMENSIONS CALCULATED', {
+      currentContainerSize,
+      backgroundDimensions,
+      screenShareDimensions,
+      isScreenShareActive,
+      backgroundType,
+      pdfLoaded: backgroundType === 'pdf',
+      calculatedWidth: newWidth,
+      calculatedHeight: newHeight,
+      isMobile: isMobile,
+      timestamp: Date.now()
+    });
+  }, [currentContainerSize, backgroundDimensions, screenShareDimensions, isScreenShareActive, backgroundType]);
 
 
   // WebRTC setup
@@ -172,11 +207,14 @@ const Whiteboard = forwardRef(({
 
   // Track background dimensions changes
   useEffect(() => {
-    log('DEBUG', 'Whiteboard', 'Background dimensions changed', {
+    log('INFO', 'Whiteboard', '📐 BACKGROUND DIMENSIONS CHANGED', {
       backgroundDimensions,
       currentContainerSize,
       isScreenShareActive,
       screenShareDimensions,
+      backgroundType,
+      pdfLoaded: backgroundType === 'pdf',
+      isMobile: isMobile,
       willUseBackgroundDimensions: backgroundDimensions.width > 0 && backgroundDimensions.height > 0,
       willUseScreenShareDimensions: isScreenShareActive && screenShareDimensions.width > 0 && screenShareDimensions.height > 0,
       finalContainerWidth: isScreenShareActive && screenShareDimensions.width > 0 
@@ -325,12 +363,24 @@ const Whiteboard = forwardRef(({
               timestamp: Date.now()
             });
             
+            // Use coordinates directly since both peers now use unified coordinate system
             setLines(prev => {
               const newLines = [...prev, data.shape];
-              log('INFO', 'Whiteboard', '✅ UPDATED regular lines', {
+              log('INFO', 'Whiteboard', '✅ UPDATED regular lines with unified coordinates', {
                 oldCount: prev.length,
                 newCount: newLines.length,
                 shapeType: data.shape.type,
+                // Enhanced debugging for Y shift investigation
+                receivedCoordinates: data.shape.points,
+                coordinateAnalysis: {
+                  firstPoint: data.shape.points?.[0],
+                  secondPoint: data.shape.points?.[1],
+                  coordinateCount: data.shape.points?.length,
+                  isLine: data.shape.type === 'line',
+                  isPen: data.shape.tool === 'pen'
+                },
+                peerType: 'REMOTE_PEER',
+                points: data.shape.points,
                 timestamp: Date.now()
               });
               return newLines;
@@ -436,12 +486,21 @@ const Whiteboard = forwardRef(({
               file: data.background.file
             });
             
+            // Clear all drawings FIRST when receiving background from remote peer
+            log('INFO', 'Whiteboard', 'Clearing all drawings due to remote background change');
+            clearAllDrawings();
+            
             // Check mutual exclusivity when receiving background from remote peer
             if (data.background.type === 'image' && onImageChange) {
               log('INFO', 'Whiteboard', 'Remote image received, checking exclusivity');
               log('INFO', 'Whiteboard', 'Triggering image exclusivity check', data.background.file);
               onImageChange(data.background.file);
             } else if (data.background.type === 'pdf' && onPdfChange) {
+              log('INFO', 'Whiteboard', '📨 REMOTE PDF RECEIVED - Starting unified process', {
+                pdfUrl: data.background.file,
+                willUseUnifiedRenderPDF: true,
+                timestamp: Date.now()
+              });
               log('INFO', 'Whiteboard', 'Remote PDF received, checking exclusivity');
               log('INFO', 'Whiteboard', 'Triggering PDF exclusivity check', data.background.file);
               onPdfChange(data.background.file);
@@ -539,14 +598,16 @@ const Whiteboard = forwardRef(({
       });
       
       await webRTCProviderRef.current.sendWhiteboardMessage(selectedPeerRef.current, message);
-      
-      log('INFO', 'Whiteboard', '✅ SENT WebRTC message successfully', { 
+       
+      log(logLevel, 'Whiteboard', '✅ SENT WebRTC message successfully', { 
         action, 
         messageSize: JSON.stringify(message).length,
         backgroundType,
         pdfLoaded: backgroundType === 'pdf',
         hasShape: !!message.shape,
         shapeType: message.shape?.type,
+        shapeTool: message.shape?.tool,
+        shapeId: message.shape?.id,
         timestamp: Date.now()
       });
     } catch (error) {
@@ -564,50 +625,27 @@ const Whiteboard = forwardRef(({
 
   // Update cursor positions
   const handleMouseMove = (e) => {
-    const stage = e.target.getStage();
-    const point = stage.getPointerPosition();
-    
-    // Get coordinate information for analysis
-    const stageRect = stage.container().getBoundingClientRect();
-    const nativeX = e.evt.clientX;
-    const nativeY = e.evt.clientY;
-    const offsetX = nativeX - stageRect.left;
-    const offsetY = nativeY - stageRect.top;
-    const correctedX = offsetX; // Use calculated offset for X coordinate
-    const correctedY = offsetY; // Use calculated offset for Y coordinate
+    // Use unified coordinate calculation for consistency
+    const { correctedX, correctedY, point } = calculateDrawingCoordinates(e);
     
     // Log coordinates when drawing with line tool (only if debug enabled)
     if (DEBUG_MOUSE_MOVEMENT && currentTool === 'line' && isDrawing) {
-      const stageContainer = stage.container();
-      const stageContainerRect = stageContainer.getBoundingClientRect();
-      const stageTransform = stageContainer.style.transform;
-      const stageScale = stage.scaleX();
-      
-      log('VERBOSE', 'Whiteboard', 'Mouse move - Native event coordinates', { clientX: nativeX, clientY: nativeY });
-      log('VERBOSE', 'Whiteboard', 'Mouse move - Stage rect', { left: stageRect.left, top: stageRect.top });
-      log('VERBOSE', 'Whiteboard', 'Mouse move - Stage container rect', { left: stageContainerRect.left, top: stageContainerRect.top });
-      log('VERBOSE', 'Whiteboard', 'Mouse move - Stage transform', stageTransform);
-      log('VERBOSE', 'Whiteboard', 'Mouse move - Stage scale', stageScale);
-      log('VERBOSE', 'Whiteboard', 'Mouse move - Calculated offset', { offsetX, offsetY });
-      log('VERBOSE', 'Whiteboard', 'Mouse move - Konva point vs offset', { konvaX: point.x, konvaY: point.y, offsetX, offsetY });
-      log('VERBOSE', 'Whiteboard', 'Mouse move - Coordinate difference', { diffX: point.x - offsetX, diffY: point.y - offsetY });
-      log('VERBOSE', 'Whiteboard', 'Mouse move - Using corrected coordinates', { correctedX, correctedY, offsetX, offsetY });
+      log('VERBOSE', 'Whiteboard', 'Mouse move - Using unified coordinates', { 
+        correctedX, 
+        correctedY, 
+        konvaX: point.x, 
+        konvaY: point.y 
+      });
     }
 
-    // Only send cursor position when a tool is selected (throttled to avoid spam)
-    if (currentTool) {
-      // Throttle cursor messages to avoid flooding the data channel
+    // Only send cursor position when a tool is selected AND not on mobile (throttled to avoid spam)
+    if (currentTool && !isMobile) {
+      // Throttle cursor messages more aggressively to prevent remounting
       const now = Date.now();
-      if (!window.lastCursorTime || now - window.lastCursorTime > 100) { // Send max every 100ms
+      if (!window.lastCursorTime || now - window.lastCursorTime > 500) { // Send max every 500ms (reduced frequency)
         window.lastCursorTime = now;
-      // Adjust coordinates for scroll position only for cursor display
-      const scrollContainer = containerRef.current;
-      const adjustedPoint = { ...point };
-      if (scrollContainer) {
-        adjustedPoint.x += scrollContainer.scrollLeft;
-        adjustedPoint.y += scrollContainer.scrollTop;
-      }
-      sendWhiteboardMsg('cursor', { position: adjustedPoint });
+        // Send cursor position without scroll adjustments to prevent global scrolling
+        sendWhiteboardMsg('cursor', { position: point });
       }
     }
 
@@ -630,45 +668,45 @@ const Whiteboard = forwardRef(({
       
       // Use regular shapes storage for all backgrounds (including PDF)
       const updatedShapes = shapes.map(shape => {
-        if (shape.id === selectedShape.id) {
-          switch (shape.type) {
-            case 'line':
-              if (DEBUG_MOUSE_MOVEMENT) {
+          if (shape.id === selectedShape.id) {
+            switch (shape.type) {
+              case 'line':
+                if (DEBUG_MOUSE_MOVEMENT) {
                 log('VERBOSE', 'Whiteboard', 'Line drawing mouse', { correctedX, correctedY, startX: startPoint.x, startY: startPoint.y, deltaX: dx, deltaY: dy });
-              }
-              return {
-                ...shape,
+                }
+                return {
+                  ...shape,
                 points: [startPoint.x, startPoint.y, correctedX, correctedY]  // Absolute coordinates: start at actual mouse down position, end at current mouse position
-              };
-            case 'circle':
-                  return {
-                    ...shape,
-                radius: Math.sqrt(dx * dx + dy * dy)
-              };
-            case 'ellipse':
-                  return {
-                    ...shape,
-                radiusX: Math.abs(dx),
-                radiusY: Math.abs(dy)
-              };
-            case 'rectangle':
-              return {
-                ...shape,
-                width: Math.abs(dx),
-                height: Math.abs(dy)
-              };
-            case 'triangle':
-              return {
-                ...shape,
-                width: Math.abs(dx),
-                height: Math.abs(dy)
-              };
-            default:
-              return shape;
+                };
+              case 'circle':
+                    return {
+                      ...shape,
+                  radius: Math.sqrt(dx * dx + dy * dy)
+                };
+              case 'ellipse':
+                    return {
+                      ...shape,
+                  radiusX: Math.abs(dx),
+                  radiusY: Math.abs(dy)
+                };
+              case 'rectangle':
+                return {
+                  ...shape,
+                  width: Math.abs(dx),
+                  height: Math.abs(dy)
+                };
+              case 'triangle':
+                return {
+                  ...shape,
+                  width: Math.abs(dx),
+                  height: Math.abs(dy)
+                };
+              default:
+                return shape;
+            }
           }
-        }
-        return shape;
-      });
+          return shape;
+        });
       setShapes(updatedShapes);
       // Send shape update via WebRTC data channel - send the updated shape
       const updatedShape = updatedShapes.find(shape => shape.id === selectedShape.id);
@@ -683,6 +721,7 @@ const Whiteboard = forwardRef(({
           correctedY,
           timestamp: Date.now()
         });
+        // Send shape update via WebRTC data channel
         sendWhiteboardMsg('update', { shape: updatedShape });
       }
     }
@@ -695,48 +734,12 @@ const Whiteboard = forwardRef(({
       selectedShape: selectedShape?.id
     });
 
-    // Ensure we have a default tool for drawing
-    const drawingTool = currentTool || 'pen';
-
-    const stage = e.target.getStage();
-    const point = stage.getPointerPosition();
-    
-    // Get the Stage's bounding rectangle to calculate offset from viewport
-    const stageRect = stage.container().getBoundingClientRect();
-    const nativeX = e.evt.clientX;
-    const nativeY = e.evt.clientY;
-    
-    // Calculate the offset between native coordinates and Konva coordinates
-    const offsetX = nativeX - stageRect.left;
-    const offsetY = nativeY - stageRect.top;
-    
-    // Get additional coordinate system information
-    const stageContainer = stage.container();
-    const stageContainerRect = stageContainer.getBoundingClientRect();
-    const stageTransform = stageContainer.style.transform;
-    const stageScale = stage.scaleX();
+    // Use unified coordinate calculation for consistency
+    const { correctedX, correctedY, point } = calculateDrawingCoordinates(e);
     
     if (DEBUG_MOUSE_MOVEMENT) {
       log('VERBOSE', 'Whiteboard', 'Mouse down - Starting drawing with tool', { drawingTool, position: point });
-      log('VERBOSE', 'Whiteboard', 'Mouse down - Stage dimensions', { width: stage.width(), height: stage.height() });
-      log('VERBOSE', 'Whiteboard', 'Mouse down - Container size', containerSize);
-      log('VERBOSE', 'Whiteboard', 'Mouse down - Native event coordinates', { clientX: nativeX, clientY: nativeY });
-      log('VERBOSE', 'Whiteboard', 'Mouse down - Stage rect', { left: stageRect.left, top: stageRect.top, width: stageRect.width, height: stageRect.height });
-      log('VERBOSE', 'Whiteboard', 'Mouse down - Stage container rect', { left: stageContainerRect.left, top: stageContainerRect.top, width: stageContainerRect.width, height: stageContainerRect.height });
-      log('VERBOSE', 'Whiteboard', 'Mouse down - Stage transform', stageTransform);
-      log('VERBOSE', 'Whiteboard', 'Mouse down - Stage scale', stageScale);
-      log('VERBOSE', 'Whiteboard', 'Mouse down - Calculated offset', { offsetX, offsetY });
-      log('VERBOSE', 'Whiteboard', 'Mouse down - Konva point vs offset', { konvaX: point.x, konvaY: point.y, offsetX, offsetY });
-      log('VERBOSE', 'Whiteboard', 'Mouse down - Coordinate difference', { diffX: point.x - offsetX, diffY: point.y - offsetY });
-    }
-
-    // Calculate corrected coordinates to account for Stage positioning offset
-    // The Stage is positioned relative to its container, but we want coordinates relative to the visual drawing area
-    const correctedX = offsetX; // Use calculated offset for X coordinate
-    const correctedY = offsetY; // Use calculated offset for Y coordinate
-    
-    if (DEBUG_MOUSE_MOVEMENT) {
-      log('VERBOSE', 'Whiteboard', 'Mouse down - Using corrected coordinates', { correctedX, correctedY, offsetX, offsetY });
+      log('VERBOSE', 'Whiteboard', 'Mouse down - Using unified coordinates', { correctedX, correctedY });
     }
 
     if (drawingTool === 'pen') {
@@ -812,6 +815,7 @@ const Whiteboard = forwardRef(({
         correctedY,
         timestamp: Date.now()
       });
+      // Send shape creation via WebRTC data channel
       sendWhiteboardMsg('draw', { shape: newShape });
     }
   };
@@ -897,16 +901,129 @@ const Whiteboard = forwardRef(({
       newHistoryStep: newHistory.length - 1 
     });
 
-    // Send history update via WebRTC data channel
-    sendWhiteboardMsg('state', { 
-          state: {
-        lines: currentLines, 
-        shapes: currentShapes, 
-        historyStep: newHistory.length - 1,
-        history: newHistory
-      } 
-    });
+    // Send history update via WebRTC data channel (throttled to prevent remounting)
+    const now = Date.now();
+    if (!window.lastStateTime || now - window.lastStateTime > 2000) { // Send max every 2 seconds
+      window.lastStateTime = now;
+      sendWhiteboardMsg('state', { 
+        state: {
+          lines: currentLines, 
+          shapes: currentShapes, 
+          historyStep: newHistory.length - 1,
+          history: newHistory
+        }
+      });
+    }
   };
+
+  // Unified PDF coordinate calculation function for both peers
+  const calculatePDFDimensions = useCallback(() => {
+    const containerWidth = currentContainerSize.width;
+    const pageWidth = containerWidth - 20; // Subtract 20px for padding (10px on each side)
+    
+    log('INFO', 'Whiteboard', '📐 UNIFIED PDF DIMENSIONS CALCULATED', {
+      containerWidth,
+      pageWidth,
+      padding: 20,
+      isMobile: isMobile,
+      timestamp: Date.now()
+    });
+    
+    return { containerWidth, pageWidth };
+  }, [currentContainerSize.width]);
+
+  // Unified drawing coordinate calculation function for both peers
+  const calculateDrawingCoordinates = useCallback((e) => {
+    const stage = e.target.getStage();
+    const point = stage.getPointerPosition();
+    
+    // Get coordinate information for analysis
+    const stageRect = stage.container().getBoundingClientRect();
+    const nativeX = e.evt.clientX;
+    const nativeY = e.evt.clientY;
+    const offsetX = nativeX - stageRect.left;
+    const offsetY = nativeY - stageRect.top;
+    
+    // Use absolute coordinates relative to the whiteboard container for consistency
+    // This ensures both peers use the same coordinate system regardless of Stage position
+    const correctedX = offsetX;
+    const correctedY = offsetY;
+    
+    log('INFO', 'Whiteboard', '🎯 UNIFIED DRAWING COORDINATES CALCULATED', {
+      nativeX,
+      nativeY,
+      stageRectLeft: stageRect.left,
+      stageRectTop: stageRect.top,
+      offsetX,
+      offsetY,
+      correctedX,
+      correctedY,
+      containerWidth: currentContainerSize.width,
+      containerHeight: currentContainerSize.height,
+      isMobile: isMobile,
+      // Enhanced debugging for Y shift investigation
+      stageRect: {
+        left: stageRect.left,
+        top: stageRect.top,
+        right: stageRect.right,
+        bottom: stageRect.bottom,
+        width: stageRect.width,
+        height: stageRect.height
+      },
+      peerType: 'LOCAL_PEER',
+      timestamp: Date.now()
+    });
+    
+    return { correctedX, correctedY, point };
+  }, [currentContainerSize.width, currentContainerSize.height]);
+
+  // Unified PDF rendering function for both peers
+  const renderPDF = useCallback((pdfUrl, numPages = null) => {
+    const isRemote = !pdfUrl.includes('blob:') && !pdfUrl.includes('data:');
+    log('INFO', 'Whiteboard', '🎯 UNIFIED PDF RENDERING STARTED', {
+      pdfUrl,
+      numPages,
+      isRemote,
+      peerType: isRemote ? 'REMOTE PEER' : 'LOCAL PEER',
+      timestamp: Date.now()
+    });
+
+    // Step 1: Clear all drawings first
+    log('INFO', 'Whiteboard', '🧹 Clearing all drawings before PDF render');
+    clearAllDrawings();
+
+    // Step 2: Reset background dimensions
+    setBackgroundDimensions({ width: 0, height: 0 });
+
+    // Step 3: Set PDF as background
+    setBackgroundFile(pdfUrl);
+    setBackgroundType('pdf');
+
+    // Step 4: Calculate dimensions using unified function
+    const { containerWidth, pageWidth } = calculatePDFDimensions();
+    
+    // Step 5: Set initial dimensions (will be updated when pages render)
+    setBackgroundDimensions({ 
+      width: pageWidth, 
+      height: 0 // Will be updated when pages render
+    });
+
+    // Step 6: Set PDF pages if provided
+    if (numPages) {
+      setPdfPages(numPages);
+      log('INFO', 'Whiteboard', '📄 PDF pages set', numPages);
+    }
+
+    // Step 7: Add to history
+    addToHistory();
+
+    log('INFO', 'Whiteboard', '✅ UNIFIED PDF RENDERING COMPLETED', {
+      pageWidth,
+      containerWidth,
+      numPages,
+      timestamp: Date.now()
+    });
+  }, [calculatePDFDimensions]);
 
   // Add to history when drawing is completed (only on mouse up, not during drawing)
   useEffect(() => {
@@ -1131,6 +1248,210 @@ const Whiteboard = forwardRef(({
     setHistoryStep(0);
   };
 
+  // Function to set background directly (for remote peers)
+  const setBackgroundDirectly = (type, url) => {
+    log('INFO', 'Whiteboard', 'Setting background directly', { type, url });
+    
+    if (type === 'pdf') {
+      // Use unified PDF rendering for consistent dimensions
+      log('INFO', 'Whiteboard', 'Using unified PDF rendering for remote PDF');
+      renderPDF(url);
+    } else {
+      // For non-PDF backgrounds, use the original logic
+      clearAllDrawings();
+      setBackgroundFile(url);
+      setBackgroundType(type);
+      addToHistory();
+    }
+    
+    log('INFO', 'Whiteboard', 'Background set directly', { type, url });
+  };
+
+  // Mobile detection for UI purposes only
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  
+  
+  // Component mounted logging (after all variables are declared)
+  log('INFO', 'Whiteboard', 'Component mounted', { userId, username, screenShareStream: !!screenShareStream, isScreenShareActive });
+  
+  // Track remounting with detailed logging - DISABLED to prevent scroll issues
+  // useEffect(() => {
+  //   log('ERROR', 'Whiteboard', '🚨 COMPONENT MOUNTED - This should NOT happen during mouse move!', {
+  //     userId,
+  //     username,
+  //     screenShareStream: !!screenShareStream,
+  //     isScreenShareActive,
+  //     backgroundType,
+  //     pdfLoaded: backgroundType === 'pdf',
+  //     timestamp: Date.now(),
+  //     stackTrace: new Error().stack
+  //   });
+  // }, []);
+  
+  // Removed throttling - WebRTC handles message queuing efficiently
+
+  // Unified PDF options for both desktop and mobile to ensure identical dimensions
+  const unifiedPdfOptions = {
+    // Use same scale for both desktop and mobile to ensure identical dimensions
+    scale: 1.0, // Same scale for both peers
+    renderTextLayer: false, // Disable text layer for performance
+    renderAnnotationLayer: false, // Disable annotations for performance
+    cMapUrl: 'https://unpkg.com/pdfjs-dist@3.11.174/cmaps/',
+    cMapPacked: true,
+    standardFontDataUrl: 'https://unpkg.com/pdfjs-dist@3.11.174/standard_fonts/',
+    // Unified memory optimizations for both desktop and mobile
+    disableWorker: false, // Keep worker for performance
+    disableAutoFetch: true, // Don't auto-fetch all pages
+    disableStream: true, // Disable streaming for memory
+    maxImageSize: 1024 * 1024, // Limit image size (1MB)
+    isEvalSupported: false, // Disable eval for security
+  };
+
+  // Mobile PDF memory management - DISABLED to prevent PDF rendering issues
+  useEffect(() => {
+    if (isMobile && backgroundType === 'pdf') {
+      // Only log memory status, don't cleanup PDF resources
+      const checkPdfMemory = () => {
+        log('INFO', 'Whiteboard', '📱 Mobile PDF memory check (cleanup disabled)', { 
+          isMobile: true,
+          backgroundType: 'pdf',
+          pdfPages: pdfPages
+        });
+        
+        // Don't clear PDF cache - it interferes with rendering
+        // if (window.PDFJS && window.PDFJS.cleanup) {
+        //   window.PDFJS.cleanup();
+        // }
+        
+        // Don't force garbage collection during PDF rendering
+        // if (window.gc) {
+        //   window.gc();
+        // }
+      };
+      
+      // Check every 2 minutes (less frequent)
+      const pdfCheckInterval = setInterval(checkPdfMemory, 120000);
+      
+      return () => clearInterval(pdfCheckInterval);
+    }
+  }, [backgroundType, pdfPages]);
+
+  // Mobile Konva canvas memory management - DISABLED to prevent rendering issues
+  useEffect(() => {
+    if (isMobile) {
+      // Only log memory status, don't cleanup canvas resources
+      const checkCanvasMemory = () => {
+        log('INFO', 'Whiteboard', '📱 Mobile canvas memory check (cleanup disabled)', { 
+          isMobile: true,
+          linesCount: lines.length,
+          shapesCount: shapes.length
+        });
+        
+        // Don't clear Konva cache - it interferes with rendering
+        // if (Konva && Konva.clearCache) {
+        //   Konva.clearCache();
+        // }
+        
+        // Don't force garbage collection during drawing
+        // if (window.gc) {
+        //   window.gc();
+        // }
+      };
+      
+      // Check every 3 minutes (less frequent)
+      const canvasCheckInterval = setInterval(checkCanvasMemory, 180000);
+      
+      return () => clearInterval(canvasCheckInterval);
+    }
+  }, [lines.length, shapes.length]);
+
+  // Mobile crash prevention: Memory monitoring
+  useEffect(() => {
+    if (isMobile) {
+      // Monitor memory usage on mobile
+      const checkMemory = () => {
+        // Check if memory API is available
+        if ('memory' in performance) {
+          const memoryInfo = performance.memory;
+          const usedMB = Math.round(memoryInfo.usedJSHeapSize / 1024 / 1024);
+          const totalMB = Math.round(memoryInfo.totalJSHeapSize / 1024 / 1024);
+          const limitMB = Math.round(memoryInfo.jsHeapSizeLimit / 1024 / 1024);
+          const usagePercent = Math.round((usedMB / limitMB) * 100);
+          
+          log('INFO', 'Whiteboard', '📱 Mobile memory status', { 
+            usedMB,
+            totalMB,
+            limitMB,
+            usagePercent: `${usagePercent}%`,
+            isMobile: true,
+            linesCount: lines.length,
+            shapesCount: shapes.length,
+            backgroundType: backgroundType,
+            pdfLoaded: backgroundType === 'pdf'
+          });
+          
+          // Only force garbage collection if memory is critically high (>90%)
+          if (window.gc && usagePercent > 90) {
+            log('WARN', 'Whiteboard', '📱 Critical memory usage - forcing garbage collection', { usagePercent });
+            window.gc();
+          }
+          
+          // Only cleanup if memory usage is very high (>80%)
+          if (usagePercent > 80) {
+            log('WARN', 'Whiteboard', '📱 High memory usage detected, clearing old lines', { 
+              usagePercent,
+              linesCount: lines.length
+            });
+            // Only trim lines if memory is critically high
+            if (lines.length > 200) {
+              setLines(prev => prev.slice(-100)); // Keep last 100 lines
+            }
+          }
+        } else {
+          // Fallback: monitor drawing count
+          log('INFO', 'Whiteboard', '📱 Mobile memory monitoring (fallback)', { 
+            linesCount: lines.length,
+            shapesCount: shapes.length,
+            isMobile: true
+          });
+        }
+      };
+      
+      // Check memory every 2 minutes on mobile (less frequent)
+      const memoryInterval = setInterval(checkMemory, 120000);
+      
+      return () => clearInterval(memoryInterval);
+    }
+  }, [lines.length, shapes.length, backgroundType]);
+
+  // Mobile crash prevention: Error handling
+  useEffect(() => {
+    if (isMobile) {
+      const handleError = (error) => {
+        log('ERROR', 'Whiteboard', '📱 Mobile error detected', { 
+          error: error.message,
+          isMobile: true,
+          timestamp: Date.now()
+        });
+        
+        // Clear drawings to free memory
+        clearAllDrawings();
+        
+        // Notify user about mobile optimization
+        log('INFO', 'Whiteboard', '📱 Mobile optimization: Cleared drawings due to error');
+      };
+      
+      // Add error listeners for mobile
+      window.addEventListener('error', handleError);
+      window.addEventListener('unhandledrejection', handleError);
+      
+      return () => {
+        window.removeEventListener('error', handleError);
+        window.removeEventListener('unhandledrejection', handleError);
+      };
+    }
+  }, []);
+
   // Expose global functions
   useEffect(() => {
     // Global clear drawings function
@@ -1169,6 +1490,7 @@ const Whiteboard = forwardRef(({
   useImperativeHandle(ref, () => ({
     handleImageUpload: handleImageUpload,
     handleFileUpload: handleFileUpload,
+    setBackgroundDirectly: setBackgroundDirectly,
     clearBackground: () => {
       log('INFO', 'Whiteboard', 'Clearing background due to screen share activation');
       setBackgroundFile(null);
@@ -1258,13 +1580,9 @@ const Whiteboard = forwardRef(({
         // Clear all drawings when switching to PDF
         clearAllDrawings();
         
-        // Set background (preserve existing drawings)
-        log('INFO', 'Whiteboard', 'Setting PDF as background file with CDN URL');
-        setBackgroundFile(pdfUrl);
-        setBackgroundType('pdf');
-        
-        // Add to history with current state (preserve existing drawings)
-        addToHistory();
+        // Use unified PDF rendering function
+        log('INFO', 'Whiteboard', 'Using unified PDF rendering for local upload');
+        renderPDF(pdfUrl);
         
         // Send to remote peers (same as images)
         if (webRTCProvider && selectedPeer) {
@@ -1407,7 +1725,7 @@ const Whiteboard = forwardRef(({
   // Calculate page position including gaps for navigation
   const getPagePosition = (pageNumber) => {
     const pageHeight = 800; // Standard page height
-    const gap = 5; // Gap between pages
+    const gap = 6; // Gap between pages - MUST match PDF rendering gap
     return (pageNumber - 1) * (pageHeight + gap);
   };
 
@@ -1467,7 +1785,7 @@ const Whiteboard = forwardRef(({
     
     const scrollTop = dashboardContent.scrollTop;
     const pageHeight = 800; // Standard page height
-    const gap = 5; // Gap between pages
+    const gap = 6; // Gap between pages - MUST match PDF rendering gap
     
     // Calculate which page is currently in view
     const pageNumber = Math.floor(scrollTop / (pageHeight + gap)) + 1;
@@ -1613,16 +1931,9 @@ const Whiteboard = forwardRef(({
         ref={containerRef}
         className={`whiteboard-container ${isScreenShareActive ? 'screen-share-overlay' : ''}`}
         style={(() => {
-          const finalWidth = isScreenShareActive && screenShareDimensions.width > 0 
-            ? `${screenShareDimensions.width}px` 
-            : backgroundDimensions.width > 0 
-              ? `${backgroundDimensions.width}px` 
-              : currentContainerSize.width;
-          const finalHeight = isScreenShareActive && screenShareDimensions.height > 0 
-            ? `${screenShareDimensions.height}px` 
-            : backgroundDimensions.height > 0 
-              ? `${backgroundDimensions.height}px` 
-              : currentContainerSize.height;
+          // Use pre-calculated dimensions
+          const containerWidth = `${finalWidth}px`;
+          const containerHeight = `${finalHeight}px`;
           
           log('INFO', 'Whiteboard', '🎨 RENDERING container', {
             isScreenShareActive,
@@ -1635,6 +1946,14 @@ const Whiteboard = forwardRef(({
             pdfLoaded: backgroundType === 'pdf',
             currentImageUrl: !!currentImageUrl,
             linesCount: lines.length,
+            // Detailed dimension analysis
+            containerWidth: currentContainerSize.width,
+            containerHeight: currentContainerSize.height,
+            backgroundWidth: backgroundDimensions.width,
+            backgroundHeight: backgroundDimensions.height,
+            screenShareWidth: screenShareDimensions.width,
+            screenShareHeight: screenShareDimensions.height,
+            isMobile: isMobile,
             pageLinesCount: Object.keys(pageLines).length,
             timestamp: Date.now()
           });
@@ -1651,8 +1970,8 @@ const Whiteboard = forwardRef(({
             containerHeight: finalHeight,
             containerTop: isScreenShareActive ? '0' : 'auto',
             containerLeft: isScreenShareActive ? '0' : 'auto',
-            backgroundColor: isScreenShareActive ? 'transparent' : 'rgba(230, 243, 255, 0.9)',
-            border: isScreenShareActive ? 'none' : '4px solid #8B4513',
+            backgroundColor: (isScreenShareActive || backgroundType === 'pdf') ? 'transparent' : 'rgba(230, 243, 255, 0.9)',
+            border: (isScreenShareActive || backgroundType === 'pdf') ? 'none' : '4px solid #8B4513',
             pointerEvents: isScreenShareActive ? 'all' : 'auto',
             timestamp: Date.now()
           });
@@ -1661,17 +1980,13 @@ const Whiteboard = forwardRef(({
             position: isScreenShareActive ? 'absolute' : 'relative',
             top: isScreenShareActive ? '0' : 'auto',
             left: isScreenShareActive ? '0' : 'auto',
-            width: finalWidth,
-            height: finalHeight,
-            minWidth: isScreenShareActive && screenShareDimensions.width > 0 
-              ? `${screenShareDimensions.width}px` 
-              : currentContainerSize.width,
-            minHeight: isScreenShareActive && screenShareDimensions.height > 0 
-              ? `${screenShareDimensions.height}px` 
-              : currentContainerSize.height,
+            width: containerWidth,
+            height: containerHeight,
+            minWidth: containerWidth,
+            minHeight: containerHeight,
             zIndex: zIndex,
-            backgroundColor: isScreenShareActive ? 'transparent' : 'rgba(230, 243, 255, 0.9)',
-            border: isScreenShareActive ? 'none' : '4px solid #8B4513',
+            backgroundColor: (isScreenShareActive || backgroundType === 'pdf') ? 'transparent' : 'rgba(230, 243, 255, 0.9)',
+            border: (isScreenShareActive || backgroundType === 'pdf') ? 'none' : '4px solid #8B4513',
             pointerEvents: isScreenShareActive ? 'all' : 'auto',
             overflow: 'visible', // Let dashboard-content handle scrolling
             touchAction: isMobileDrawingMode ? 'none' : 'auto' // Prevent touch behaviors only in drawing mode
@@ -1714,6 +2029,7 @@ const Whiteboard = forwardRef(({
             {backgroundType === 'pdf' ? (
               <Document
                 file={backgroundFile}
+                {...unifiedPdfOptions}
                 onLoadStart={() => {
                   const downloadStartTime = performance.now();
                   log('DEBUG', 'Whiteboard', 'PDF download started', {
@@ -1731,6 +2047,11 @@ const Whiteboard = forwardRef(({
                     (renderStartTime - window.pdfDownloadStartTime) : null;
                   
                   log('INFO', 'Whiteboard', 'PDF loaded successfully with pages', numPages);
+                  
+                  // Use unified PDF rendering for consistent dimensions
+                  log('INFO', 'Whiteboard', 'Using unified PDF rendering for PDF onLoadSuccess');
+                  renderPDF(backgroundFile, numPages);
+                  
                   if (downloadTime) {
                     log('DEBUG', 'Whiteboard', 'PDF download timing', {
                       downloadTime: `${downloadTime.toFixed(2)}ms`,
@@ -1738,49 +2059,11 @@ const Whiteboard = forwardRef(({
                       fileSize: 'Unknown (from proxy)'
                     });
                   }
-                  setPdfPages(numPages);
                   
                   // Notify parent component about PDF pages
                   if (onPdfPagesChange) {
                     onPdfPagesChange(numPages);
                   }
-                  
-                  // Calculate total PDF height for all pages + gaps
-                  // Account for 10px padding on each side (20px total)
-                  const containerWidth = backgroundDimensions.width > 0 ? backgroundDimensions.width : currentContainerSize.width;
-                  const pageWidth = containerWidth - 20; // Subtract 20px for padding (10px on each side)
-                  
-                  // Calculate initial height estimate (will be updated when pages render)
-                  const estimatedPageHeight = 800; // Fallback estimate
-                  const gap = 6;
-                  const estimatedContentHeight = estimatedPageHeight * numPages; // Just the page heights
-                  const estimatedGapSpace = (numPages - 1) * gap; // Total space taken by gaps
-                  const estimatedTotalHeight = estimatedContentHeight + estimatedGapSpace + 20; // Add gaps + 20px for padding
-                  
-                  log('DEBUG', 'Whiteboard', 'PDF dimensions calculated', {
-                    numPages,
-                    pageWidth,
-                    willExceedContainer: true,
-                    scrollbarsNeeded: 'YES - PDF will exceed dashboard-content (800px)',
-                    spacingInfo: {
-                      gapBetweenPages: '6px',
-                      totalGaps: (numPages - 1) * 6
-                    }
-                  });
-                  
-                  // Set initial background dimensions - will be updated when pages actually render
-                  setBackgroundDimensions({ 
-                    width: pageWidth, 
-                    height: 0 // Will be updated when pages render
-                  });
-                  
-                  // Log container sizing for debugging
-                  log('DEBUG', 'Whiteboard', 'Container will expand to', {
-                    containerWidth: pageWidth,
-                    containerHeight: 'Will be calculated when pages render',
-                    dashboardContentSize: '1200x800px',
-                    willShowScrollbars: true
-                  });
                   
                   // Debug: Log actual dimensions after a short delay to see rendered size
                   setTimeout(() => {
@@ -1804,27 +2087,57 @@ const Whiteboard = forwardRef(({
                   }, 1000);
                 }}
                 onLoadError={(error) => {
-                  console.error('[Whiteboard] 📄 Error loading PDF:', error);
+                  log('ERROR', 'Whiteboard', '📄 PDF load error', {
+                    error: error.message,
+                    url: backgroundFile,
+                    isMobile: isMobile,
+                    timestamp: Date.now()
+                  });
                 }}
                 loading={<div>Loading PDF...</div>}
               >
                 {/* PDF Navigation is now handled by external PDFNavigation component */}
 
                 {/* Render ALL pages with 6px gaps between pages only */}
-                <div className="pdf-pages-container">
-                  {Array.from({ length: pdfPages }, (_, index) => (
-                    <div 
-                      key={index + 1} 
+                <div 
+                  className="pdf-pages-container"
+                  style={{
+                    position: 'relative',
+                    zIndex: 1,
+                    pointerEvents: 'none'
+                  }}
+                  ref={(el) => {
+                    if (el) {
+                      log('INFO', 'Whiteboard', '📄 PDF container rendered', {
+                        containerVisible: el.offsetWidth > 0 && el.offsetHeight > 0,
+                        containerWidth: el.offsetWidth,
+                        containerHeight: el.offsetHeight,
+                        totalPages: pdfPages,
+                        isMobile: isMobile
+                      });
+                    }
+                  }}
+                >
+                  {Array.from({ length: pdfPages }, (_, index) => {
+                    log('INFO', 'Whiteboard', `📄 Creating PDF page ${index + 1}`, {
+                      pageNumber: index + 1,
+                      totalPages: pdfPages,
+                      isMobile: isMobile,
+                      backgroundFile: backgroundFile
+                    });
+                    return (
+                      <div 
+                        key={index + 1} 
                         className="pdf-page-container"
                       style={{
-                        marginBottom: index < pdfPages - 1 ? '6px' : '0px' // 6px gap between pages, no gap after last page
+                          marginBottom: index < pdfPages - 1 ? '6px' : '0px' // 6px gap between pages, no gap after last page
                         }}
                       >
                           <Page
                         pageNumber={index + 1}
                             width={(() => {
-                              const containerWidth = backgroundDimensions.width > 0 ? backgroundDimensions.width : currentContainerSize.width;
-                              return containerWidth - 20; // Subtract 20px for padding (10px on each side)
+                              const { pageWidth } = calculatePDFDimensions();
+                              return pageWidth;
                             })()}
                             renderTextLayer={false}
                             renderAnnotationLayer={false}
@@ -1832,10 +2145,13 @@ const Whiteboard = forwardRef(({
                         loading={<div>Loading page {index + 1}...</div>}
                         onLoadSuccess={(page) => {
                             const pageRenderTime = performance.now();
-                          log('DEBUG', 'Whiteboard', `Page ${index + 1} rendered`, {
+                          log('INFO', 'Whiteboard', `📄 PDF Page ${index + 1} rendered successfully`, {
                             pageNumber: index + 1,
+                            totalPages: pdfPages,
                               renderTime: pdfRenderStartTime ? `${(pageRenderTime - pdfRenderStartTime).toFixed(2)}ms` : 'N/A',
-                            cumulativeTime: `${(pageRenderTime - (window.pdfDownloadStartTime || pdfRenderStartTime || 0)).toFixed(2)}ms`
+                              cumulativeTime: `${(pageRenderTime - (window.pdfDownloadStartTime || pdfRenderStartTime || 0)).toFixed(2)}ms`,
+                            isMobile: isMobile,
+                            backgroundFile: backgroundFile
                             });
                           
                           // Get actual PDF page dimensions from metadata
@@ -1849,9 +2165,8 @@ const Whiteboard = forwardRef(({
                             });
                             
                             // Calculate the actual rendered height based on PDF metadata
-                            // Account for 10px padding on each side (20px total)
-                            const containerWidth = backgroundDimensions.width > 0 ? backgroundDimensions.width : currentContainerSize.width;
-                            const currentPageWidth = containerWidth - 20; // Subtract 20px for padding (10px on each side)
+                            // Use unified coordinate calculation for consistency
+                            const { containerWidth, pageWidth: currentPageWidth } = calculatePDFDimensions();
                             const scale = currentPageWidth / page.originalWidth;
                             const actualPageHeight = page.originalHeight * scale;
                             
@@ -1955,8 +2270,9 @@ const Whiteboard = forwardRef(({
                           }
                         }}
                       />
-                  </div>
-                  ))}
+                    </div>
+                    );
+                  })}
                 </div>
               </Document>
             ) : backgroundType === 'image' ? (
@@ -2089,20 +2405,25 @@ const Whiteboard = forwardRef(({
               // Access the native event object via the 'evt' property
               const nativeEvent = e.evt;
               
-              // Debug the actual touch event structure
-              log('INFO', 'Whiteboard', '👆 TOUCH START DEBUG', {
-                hasNativeTouches: !!nativeEvent.touches,
-                nativeTouchesLength: nativeEvent.touches?.length,
-                hasNativeChangedTouches: !!nativeEvent.changedTouches,
-                nativeChangedTouchesLength: nativeEvent.changedTouches?.length,
-                eventType: e.type,
-                isMobileDrawingMode,
-                timestamp: Date.now()
-              });
+              // Debug the actual touch event structure only when drawing is active
+              if (isMobileDrawingMode && (isDrawing || drawingTool !== 'select')) {
+                log('INFO', 'Whiteboard', '👆 TOUCH START DEBUG (Drawing Active)', {
+                  hasNativeTouches: !!nativeEvent.touches,
+                  nativeTouchesLength: nativeEvent.touches?.length,
+                  hasNativeChangedTouches: !!nativeEvent.changedTouches,
+                  nativeChangedTouchesLength: nativeEvent.changedTouches?.length,
+                  eventType: e.type,
+                  isMobileDrawingMode,
+                  isDrawing,
+                  drawingTool,
+                  timestamp: Date.now()
+                });
+              }
 
               if (isMobileDrawingMode) {
-                // Prevent scrolling only in drawing mode
+                // Prevent scrolling only in drawing mode - use more aggressive prevention
                 if (e.preventDefault) e.preventDefault();
+                if (e.stopPropagation) e.stopPropagation();
                 log('INFO', 'Whiteboard', '👆 STAGE TOUCH START (Drawing Mode)', {
                   backgroundType,
                   pdfLoaded: backgroundType === 'pdf',
@@ -2158,27 +2479,37 @@ const Whiteboard = forwardRef(({
             // Access the native event object via the 'evt' property
             const nativeEvent = e.evt;
             
-            // Debug the actual touch event structure
-            log('INFO', 'Whiteboard', '👆 TOUCH MOVE DEBUG', {
-              hasNativeTouches: !!nativeEvent.touches,
-              nativeTouchesLength: nativeEvent.touches?.length,
-              hasNativeChangedTouches: !!nativeEvent.changedTouches,
-              nativeChangedTouchesLength: nativeEvent.changedTouches?.length,
-              eventType: e.type,
-              isMobileDrawingMode,
-              timestamp: Date.now()
-            });
+            // Debug the actual touch event structure only when drawing is active
+            if (isMobileDrawingMode && (isDrawing || drawingTool !== 'select')) {
+              log('INFO', 'Whiteboard', '👆 TOUCH MOVE DEBUG (Drawing Active)', {
+                hasNativeTouches: !!nativeEvent.touches,
+                nativeTouchesLength: nativeEvent.touches?.length,
+                hasNativeChangedTouches: !!nativeEvent.changedTouches,
+                nativeChangedTouchesLength: nativeEvent.changedTouches?.length,
+                eventType: e.type,
+                isMobileDrawingMode,
+                isDrawing,
+                drawingTool,
+                timestamp: Date.now()
+              });
+            }
 
-            log('INFO', 'Whiteboard', '👆 STAGE TOUCH MOVE', {
-              isMobileDrawingMode,
-              touchCount: nativeEvent.touches?.length || 0,
-              hasTouch: !!nativeEvent.touches?.[0],
-              timestamp: Date.now()
-            });
+            // Only log general touch move when drawing is active
+            if (isMobileDrawingMode && (isDrawing || drawingTool !== 'select')) {
+              log('INFO', 'Whiteboard', '👆 STAGE TOUCH MOVE (Drawing Active)', {
+                isMobileDrawingMode,
+                touchCount: nativeEvent.touches?.length || 0,
+                hasTouch: !!nativeEvent.touches?.[0],
+                isDrawing,
+                drawingTool,
+                timestamp: Date.now()
+              });
+            }
 
             if (isMobileDrawingMode) {
-              // Prevent scrolling only in drawing mode
+              // Prevent scrolling only in drawing mode - use more aggressive prevention
               if (e.preventDefault) e.preventDefault();
+              if (e.stopPropagation) e.stopPropagation();
               log('INFO', 'Whiteboard', '👆 STAGE TOUCH MOVE (Drawing Mode)', {
                 backgroundType,
                 pdfLoaded: backgroundType === 'pdf',
@@ -2228,8 +2559,9 @@ const Whiteboard = forwardRef(({
             const nativeEvent = e.evt;
             
             if (isMobileDrawingMode) {
-              // Prevent scrolling only in drawing mode
+              // Prevent scrolling only in drawing mode - use more aggressive prevention
               if (e.preventDefault) e.preventDefault();
+              if (e.stopPropagation) e.stopPropagation();
               log('INFO', 'Whiteboard', '👆 STAGE TOUCH END (Drawing Mode)', {
                 backgroundType,
                 pdfLoaded: backgroundType === 'pdf',
