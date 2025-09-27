@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useImperativeHandle, forwardRef, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useImperativeHandle, forwardRef, useCallback, useMemo } from 'react';
 import { Stage, Layer, Line, Circle, Ellipse, Rect, Transformer, Group, Text, RegularPolygon } from 'react-konva';
 import { v4 as uuidv4 } from 'uuid';
 import { throttle } from 'lodash';
@@ -141,6 +141,7 @@ const Whiteboard = forwardRef(({
   const screenShareVideoRef = useRef(null);
   const webRTCProviderRef = useRef(null);
   const selectedPeerRef = useRef(null);
+  const pdfDimensionsRef = useRef(null); // Cache PDF dimensions to avoid recalculating
 
   // Update stroke color when currentColor prop changes
   useEffect(() => {
@@ -154,26 +155,31 @@ const Whiteboard = forwardRef(({
   }, [containerSize]);
 
 
-  // Calculate container dimensions after state is available
+  // Calculate container dimensions only during background transitions (one-time)
   useEffect(() => {
     const { finalWidth: newWidth, finalHeight: newHeight } = calculateContainerDimensions();
-    setFinalWidth(newWidth);
-    setFinalHeight(newHeight);
     
-    log('INFO', 'Whiteboard', '📐 CONTAINER DIMENSIONS CALCULATED', {
-      currentContainerSize,
-      backgroundDimensions,
-      screenShareDimensions,
-      isScreenShareActive,
-      backgroundType,
-      pdfLoaded: backgroundType === 'pdf',
-      calculatedWidth: newWidth,
-      calculatedHeight: newHeight,
-      isMobile: isMobile,
-      timestamp: Date.now()
-    });
-  }, [currentContainerSize, backgroundDimensions, screenShareDimensions, isScreenShareActive, backgroundType]);
+    // Only update if dimensions actually changed to prevent unnecessary re-renders
+    if (newWidth !== finalWidth || newHeight !== finalHeight) {
+      setFinalWidth(newWidth);
+      setFinalHeight(newHeight);
+      
+      log('INFO', 'Whiteboard', '📐 CONTAINER DIMENSIONS CALCULATED (Background Transition)', {
+        currentContainerSize,
+        backgroundDimensions,
+        screenShareDimensions,
+        isScreenShareActive,
+        backgroundType,
+        pdfLoaded: backgroundType === 'pdf',
+        calculatedWidth: newWidth,
+        calculatedHeight: newHeight,
+        isMobile: isMobile,
+        timestamp: Date.now()
+      });
+    }
+  }, [isScreenShareActive, backgroundType]); // Only background type changes, not dimension changes
 
+  // Handle image dimension updates directly in the image onLoad callback to prevent useEffect re-renders
 
   // WebRTC setup
   useEffect(() => {
@@ -196,18 +202,11 @@ const Whiteboard = forwardRef(({
     }
   }, [webRTCProvider, selectedPeer]);
 
-  // Container size tracking - use dynamic dimensions
-  useEffect(() => {
-    log('DEBUG', 'Whiteboard', 'Using dynamic container size', { 
-      width: currentContainerSize.width, 
-      height: currentContainerSize.height,
-      isScreenShareActive
-    });
-  }, [currentContainerSize, isScreenShareActive]); // Update when container size or overlay state changes
+  // Container size tracking - use dynamic dimensions (logging removed to prevent re-renders)
 
-  // Track background dimensions changes
+  // Track background dimensions changes only during background transitions
   useEffect(() => {
-    log('INFO', 'Whiteboard', '📐 BACKGROUND DIMENSIONS CHANGED', {
+    log('INFO', 'Whiteboard', '📐 BACKGROUND DIMENSIONS CHANGED (Background Transition)', {
       backgroundDimensions,
       currentContainerSize,
       isScreenShareActive,
@@ -215,43 +214,13 @@ const Whiteboard = forwardRef(({
       backgroundType,
       pdfLoaded: backgroundType === 'pdf',
       isMobile: isMobile,
-      willUseBackgroundDimensions: backgroundDimensions.width > 0 && backgroundDimensions.height > 0,
-      willUseScreenShareDimensions: isScreenShareActive && screenShareDimensions.width > 0 && screenShareDimensions.height > 0,
-      finalContainerWidth: isScreenShareActive && screenShareDimensions.width > 0 
-        ? screenShareDimensions.width 
-        : backgroundDimensions.width > 0 
-          ? backgroundDimensions.width 
-          : currentContainerSize.width,
-      finalContainerHeight: isScreenShareActive && screenShareDimensions.height > 0 
-        ? screenShareDimensions.height 
-        : backgroundDimensions.height > 0 
-          ? backgroundDimensions.height 
-          : currentContainerSize.height
+      timestamp: Date.now()
     });
-  }, [backgroundDimensions, currentContainerSize, isScreenShareActive, screenShareDimensions]);
+  }, [isScreenShareActive, backgroundType]); // Only log during background transitions
 
   // Calculate screen share dimensions when screen share is active
   
-  // Log dimension changes for debugging
-  useEffect(() => {
-    log('DEBUG', 'Whiteboard', 'Dimension debug', {
-      isScreenShareActive,
-      screenShareDimensions,
-      backgroundDimensions,
-      currentContainerSize,
-      willUseScreenShareDimensions: isScreenShareActive && screenShareDimensions.width > 0 && screenShareDimensions.height > 0,
-      finalContainerWidth: isScreenShareActive && screenShareDimensions.width > 0 
-        ? screenShareDimensions.width 
-        : backgroundDimensions.width > 0 
-          ? backgroundDimensions.width 
-          : currentContainerSize.width,
-      finalContainerHeight: isScreenShareActive && screenShareDimensions.height > 0 
-        ? screenShareDimensions.height 
-        : backgroundDimensions.height > 0 
-          ? backgroundDimensions.height 
-          : currentContainerSize.height
-    });
-  }, [isScreenShareActive, screenShareDimensions, backgroundDimensions, currentContainerSize]);
+  // Log dimension changes for debugging (removed to prevent re-renders)
   
   useEffect(() => {
     let timeoutId = null;
@@ -434,17 +403,35 @@ const Whiteboard = forwardRef(({
         }
         break;
       case 'undo':
-        if (data.state && data.state.historyStep !== undefined) {
-          setHistoryStep(data.state.historyStep);
-          setLines(data.state.lines || []);
-          setShapes(data.state.shapes || []);
+        log('INFO', 'Whiteboard', '📨 RECEIVED UNDO from peer');
+        if (historyStep > 0) {
+          const newStep = historyStep - 1;
+          const prevState = history[newStep];
+          setLines(prevState.lines);
+          setShapes(prevState.shapes);
+          setHistoryStep(newStep);
+          
+          // For PDFs, also restore page-specific state
+          if (backgroundType === 'pdf' && prevState.pageLines && prevState.pageShapes) {
+            setPageLines(prevState.pageLines);
+            setPageShapes(prevState.pageShapes);
+          }
         }
         break;
       case 'redo':
-        if (data.state && data.state.historyStep !== undefined) {
-          setHistoryStep(data.state.historyStep);
-          setLines(data.state.lines || []);
-          setShapes(data.state.shapes || []);
+        log('INFO', 'Whiteboard', '📨 RECEIVED REDO from peer');
+        if (historyStep < history.length - 1) {
+          const newStep = historyStep + 1;
+          const state = history[newStep];
+          setLines(state.lines);
+          setShapes(state.shapes);
+          setHistoryStep(newStep);
+          
+          // For PDFs, also restore page-specific state
+          if (backgroundType === 'pdf' && state.pageLines && state.pageShapes) {
+            setPageLines(state.pageLines);
+            setPageShapes(state.pageShapes);
+          }
         }
         break;
       case 'state':
@@ -452,6 +439,17 @@ const Whiteboard = forwardRef(({
           setLines(data.state.lines || []);
           setShapes(data.state.shapes || []);
           setHistoryStep(data.state.historyStep || 0);
+          
+          // Sync history if provided
+          if (data.state.history) {
+            setHistory(data.state.history);
+            log('INFO', 'Whiteboard', '📚 HISTORY SYNCED from peer', {
+              historyLength: data.state.history.length,
+              historyStep: data.state.historyStep,
+              linesCount: data.state.lines?.length || 0,
+              shapesCount: data.state.shapes?.length || 0
+            });
+          }
           
           // For PDFs, also update page-specific state if provided
           if (backgroundType === 'pdf' && data.state.pageLines && data.state.pageShapes) {
@@ -514,8 +512,39 @@ const Whiteboard = forwardRef(({
               file: data.background.file,
               timestamp: Date.now()
             });
+        }
+        break;
+      case 'backgroundTransition':
+        if (data.transitionData) {
+          log('INFO', 'Whiteboard', '🔄 RECEIVED BACKGROUND TRANSITION', {
+            isScreenShareActive: data.transitionData.isScreenShareActive,
+            backgroundType: data.transitionData.backgroundType,
+            finalWidth: data.transitionData.finalWidth,
+            finalHeight: data.transitionData.finalHeight,
+            pdfDimensions: data.transitionData.pdfDimensions,
+            timestamp: Date.now()
+          });
+          
+          // Sync PDF dimensions from peer for consistency
+          if (data.transitionData.pdfDimensions && data.transitionData.backgroundType === 'pdf') {
+            pdfDimensionsRef.current = data.transitionData.pdfDimensions;
+            log('INFO', 'Whiteboard', '📐 SYNCED PDF DIMENSIONS FROM PEER', {
+              containerWidth: data.transitionData.pdfDimensions.containerWidth,
+              pageWidth: data.transitionData.pdfDimensions.pageWidth,
+              pageHeight: data.transitionData.pdfDimensions.pageHeight
+            });
           }
-          break;
+          
+          // Apply the same transition function for consistency
+          const transitionStyle = applyBackgroundTransition(data.transitionData);
+          
+          // Update local state to match remote peer
+          if (data.transitionData.isScreenShareActive !== undefined) {
+            // This would need to be passed up to parent component
+            log('INFO', 'Whiteboard', '🔄 APPLYING REMOTE TRANSITION', transitionStyle);
+          }
+        }
+        break;
       // Note: clearBackground case removed - now using checkExclusivity() approach
       default:
         log('WARN', 'Whiteboard', 'Unknown action', data.action);
@@ -625,12 +654,30 @@ const Whiteboard = forwardRef(({
 
   // Update cursor positions
   const handleMouseMove = (e) => {
-    // Use unified coordinate calculation for consistency
-    const { correctedX, correctedY, point } = calculateDrawingCoordinates(e);
+    // Early return if not drawing - no calculations needed for layout
+    if (!isDrawing) {
+      // Only send cursor position when a tool is selected AND not on mobile (throttled to avoid spam)
+      if (currentTool && !isMobile) {
+        const now = Date.now();
+        if (!window.lastCursorTime || now - window.lastCursorTime > 500) { // Send max every 500ms
+          window.lastCursorTime = now;
+          const stage = e.target.getStage();
+          const point = stage.getPointerPosition();
+          sendWhiteboardMsg('cursor', { position: point });
+        }
+      }
+      return; // No layout calculations needed for non-drawing mouse movement
+    }
+
+    // Simple coordinate calculation for drawing within existing canvas
+    const stage = e.target.getStage();
+    const point = stage.getPointerPosition();
+    const correctedX = point.x;
+    const correctedY = point.y;
     
     // Log coordinates when drawing with line tool (only if debug enabled)
-    if (DEBUG_MOUSE_MOVEMENT && currentTool === 'line' && isDrawing) {
-      log('VERBOSE', 'Whiteboard', 'Mouse move - Using unified coordinates', { 
+    if (DEBUG_MOUSE_MOVEMENT && currentTool === 'line') {
+      log('VERBOSE', 'Whiteboard', 'Mouse move - Using simple coordinates', { 
         correctedX, 
         correctedY, 
         konvaX: point.x, 
@@ -638,18 +685,14 @@ const Whiteboard = forwardRef(({
       });
     }
 
-    // Only send cursor position when a tool is selected AND not on mobile (throttled to avoid spam)
+    // Send cursor position when drawing (throttled to avoid spam)
     if (currentTool && !isMobile) {
-      // Throttle cursor messages more aggressively to prevent remounting
       const now = Date.now();
-      if (!window.lastCursorTime || now - window.lastCursorTime > 500) { // Send max every 500ms (reduced frequency)
+      if (!window.lastCursorTime || now - window.lastCursorTime > 500) { // Send max every 500ms
         window.lastCursorTime = now;
-        // Send cursor position without scroll adjustments to prevent global scrolling
         sendWhiteboardMsg('cursor', { position: point });
       }
     }
-
-    if (!isDrawing) return;
 
     if (currentTool === 'pen') {
       // Use regular lines storage for all backgrounds (including PDF)
@@ -734,12 +777,15 @@ const Whiteboard = forwardRef(({
       selectedShape: selectedShape?.id
     });
 
-    // Use unified coordinate calculation for consistency
-    const { correctedX, correctedY, point } = calculateDrawingCoordinates(e);
+    // Simple coordinate calculation for drawing within existing canvas
+    const stage = e.target.getStage();
+    const point = stage.getPointerPosition();
+    const correctedX = point.x;
+    const correctedY = point.y;
     
     if (DEBUG_MOUSE_MOVEMENT) {
       log('VERBOSE', 'Whiteboard', 'Mouse down - Starting drawing with tool', { drawingTool, position: point });
-      log('VERBOSE', 'Whiteboard', 'Mouse down - Using unified coordinates', { correctedX, correctedY });
+      log('VERBOSE', 'Whiteboard', 'Mouse down - Using simple coordinates', { correctedX, correctedY });
     }
 
     if (drawingTool === 'pen') {
@@ -901,9 +947,10 @@ const Whiteboard = forwardRef(({
       newHistoryStep: newHistory.length - 1 
     });
 
-    // Send history update via WebRTC data channel (throttled to prevent remounting)
+    // Send history update via WebRTC data channel only during background transitions
+    // No need to send during drawing operations - peers will sync via drawing messages
     const now = Date.now();
-    if (!window.lastStateTime || now - window.lastStateTime > 2000) { // Send max every 2 seconds
+    if (!window.lastStateTime || now - window.lastStateTime > 5000) { // Send max every 5 seconds during transitions
       window.lastStateTime = now;
       sendWhiteboardMsg('state', { 
         state: {
@@ -916,66 +963,52 @@ const Whiteboard = forwardRef(({
     }
   };
 
-  // Unified PDF coordinate calculation function for both peers
-  const calculatePDFDimensions = useCallback(() => {
-    const containerWidth = currentContainerSize.width;
-    const pageWidth = containerWidth - 20; // Subtract 20px for padding (10px on each side)
+  // Centralized PDF dimensions function for both peers - ensures consistency
+  const calculatePDFDimensions = useCallback((containerWidth = null) => {
+    // Use provided container width or current container size
+    const width = containerWidth || currentContainerSize.width;
+    const pageWidth = width - 20; // Subtract 20px for padding (10px on each side)
+    const pageHeight = 800; // Standard page height for navigation
     
-    log('INFO', 'Whiteboard', '📐 UNIFIED PDF DIMENSIONS CALCULATED', {
-      containerWidth,
+    log('INFO', 'Whiteboard', '📐 CENTRALIZED PDF DIMENSIONS CALCULATED', {
+      containerWidth: width,
       pageWidth,
+      pageHeight,
       padding: 20,
       isMobile: isMobile,
       timestamp: Date.now()
     });
     
-    return { containerWidth, pageWidth };
+    return { 
+      containerWidth: width, 
+      pageWidth, 
+      pageHeight 
+    };
   }, [currentContainerSize.width]);
 
-  // Unified drawing coordinate calculation function for both peers
-  const calculateDrawingCoordinates = useCallback((e) => {
-    const stage = e.target.getStage();
-    const point = stage.getPointerPosition();
+  // Centralized image dimensions function for both peers - ensures consistency
+  const calculateImageDimensions = useCallback((imageUrl, naturalWidth, naturalHeight) => {
+    // Use natural dimensions without fitting to screen
+    const imageWidth = naturalWidth;
+    const imageHeight = naturalHeight;
     
-    // Get coordinate information for analysis
-    const stageRect = stage.container().getBoundingClientRect();
-    const nativeX = e.evt.clientX;
-    const nativeY = e.evt.clientY;
-    const offsetX = nativeX - stageRect.left;
-    const offsetY = nativeY - stageRect.top;
-    
-    // Use absolute coordinates relative to the whiteboard container for consistency
-    // This ensures both peers use the same coordinate system regardless of Stage position
-    const correctedX = offsetX;
-    const correctedY = offsetY;
-    
-    log('INFO', 'Whiteboard', '🎯 UNIFIED DRAWING COORDINATES CALCULATED', {
-      nativeX,
-      nativeY,
-      stageRectLeft: stageRect.left,
-      stageRectTop: stageRect.top,
-      offsetX,
-      offsetY,
-      correctedX,
-      correctedY,
-      containerWidth: currentContainerSize.width,
-      containerHeight: currentContainerSize.height,
-      isMobile: isMobile,
-      // Enhanced debugging for Y shift investigation
-      stageRect: {
-        left: stageRect.left,
-        top: stageRect.top,
-        right: stageRect.right,
-        bottom: stageRect.bottom,
-        width: stageRect.width,
-        height: stageRect.height
-      },
-      peerType: 'LOCAL_PEER',
+    log('INFO', 'Whiteboard', '📐 CENTRALIZED IMAGE DIMENSIONS CALCULATED', {
+      imageUrl: imageUrl.substring(0, 50) + '...',
+      naturalWidth,
+      naturalHeight,
+      calculatedWidth: imageWidth,
+      calculatedHeight: imageHeight,
       timestamp: Date.now()
     });
     
-    return { correctedX, correctedY, point };
-  }, [currentContainerSize.width, currentContainerSize.height]);
+    return { 
+      width: imageWidth, 
+      height: imageHeight 
+    };
+  }, []); // Removed isMobile dependency as it's a constant
+
+  // Removed calculateDrawingCoordinates - not needed for drawing within existing canvas
+  // Simple coordinate calculation is sufficient: stage.getPointerPosition()
 
   // Unified PDF rendering function for both peers
   const renderPDF = useCallback((pdfUrl, numPages = null) => {
@@ -999,14 +1032,22 @@ const Whiteboard = forwardRef(({
     setBackgroundFile(pdfUrl);
     setBackgroundType('pdf');
 
-    // Step 4: Calculate dimensions using unified function
-    const { containerWidth, pageWidth } = calculatePDFDimensions();
+    // Step 4: Calculate dimensions using centralized function (ONCE)
+    const { containerWidth, pageWidth, pageHeight } = calculatePDFDimensions();
     
     // Step 5: Set initial dimensions (will be updated when pages render)
     setBackgroundDimensions({ 
       width: pageWidth, 
       height: 0 // Will be updated when pages render
     });
+    
+    // Cache the dimensions to avoid recalculating for every page
+    // Store in a ref so it's accessible throughout the component
+    pdfDimensionsRef.current = { 
+      containerWidth, 
+      pageWidth,
+      pageHeight
+    };
 
     // Step 6: Set PDF pages if provided
     if (numPages) {
@@ -1014,7 +1055,7 @@ const Whiteboard = forwardRef(({
       log('INFO', 'Whiteboard', '📄 PDF pages set', numPages);
     }
 
-    // Step 7: Add to history
+    // Step 7: Add to history (only once during PDF load)
     addToHistory();
 
     log('INFO', 'Whiteboard', '✅ UNIFIED PDF RENDERING COMPLETED', {
@@ -1035,8 +1076,9 @@ const Whiteboard = forwardRef(({
         JSON.stringify(currentHistoryEntry.lines) !== JSON.stringify(lines) ||
         JSON.stringify(currentHistoryEntry.shapes) !== JSON.stringify(shapes);
       
+      // Add to history only when drawing is actually completed
       if (hasChanged && (lines.length > 0 || shapes.length > 0)) {
-        log('DEBUG', 'Whiteboard', 'Adding to history after drawing completion');
+        log('DEBUG', 'Whiteboard', 'Drawing completed - adding to history');
         addToHistory();
       }
     }
@@ -1045,18 +1087,13 @@ const Whiteboard = forwardRef(({
 
   const handleUndo = () => {
     log('DEBUG', 'Whiteboard', 'Undo function called', { historyStep, historyLength: history.length });
-    log('DEBUG', 'Whiteboard', 'Current history', history);
     
     if (historyStep > 0) {
       const newStep = historyStep - 1;
       const prevState = history[newStep];
       log('DEBUG', 'Whiteboard', 'Undoing to step', { newStep, state: prevState });
-      log('DEBUG', 'Whiteboard', 'Current lines before undo', lines.length);
-      log('DEBUG', 'Whiteboard', 'Current shapes before undo', shapes.length);
-      log('DEBUG', 'Whiteboard', 'New lines after undo', prevState.lines.length);
-      log('DEBUG', 'Whiteboard', 'New shapes after undo', prevState.shapes.length);
       
-      // Simple approach - just update state directly
+      // Update state directly
       setLines(prevState.lines);
       setShapes(prevState.shapes);
       
@@ -1068,13 +1105,11 @@ const Whiteboard = forwardRef(({
       
       setHistoryStep(newStep);
 
-      log('DEBUG', 'Whiteboard', 'State updates called - lines and shapes should be updated');
-
-      // Send state via WebRTC data channel (like the backup version)
+      // Send current state to peers so they can sync their history
       sendWhiteboardMsg('state', { 
         state: {
-          lines: prevState.lines, 
-          shapes: prevState.shapes, 
+          lines: prevState.lines,
+          shapes: prevState.shapes,
           historyStep: newStep,
           history: history
         }
@@ -1101,11 +1136,11 @@ const Whiteboard = forwardRef(({
       
       setHistoryStep(newStep);
 
-      // Send state via WebRTC data channel (like the backup version)
+      // Send current state to peers so they can sync their history
       sendWhiteboardMsg('state', { 
         state: {
-          lines: state.lines, 
-          shapes: state.shapes, 
+          lines: state.lines,
+          shapes: state.shapes,
           historyStep: newStep,
           history: history
         }
@@ -1288,6 +1323,169 @@ const Whiteboard = forwardRef(({
   //   });
   // }, []);
   
+  // Centralized background transition function - called once during background changes
+  const applyBackgroundTransition = useCallback((transitionData) => {
+    const {
+      isScreenShareActive,
+      backgroundType,
+      finalWidth,
+      finalHeight,
+      isMobileDrawingMode
+    } = transitionData;
+    
+    log('INFO', 'Whiteboard', '🔄 APPLYING BACKGROUND TRANSITION', {
+      isScreenShareActive,
+      backgroundType,
+      finalWidth,
+      finalHeight,
+      isMobileDrawingMode,
+      timestamp: Date.now()
+    });
+    
+    // Calculate Z-index and positioning based on background type
+    const zIndex = 2; // Drawing layer should always be above any background
+    const position = isScreenShareActive ? 'absolute' : 'relative';
+    const top = isScreenShareActive ? '0' : 'auto';
+    const left = isScreenShareActive ? '0' : 'auto';
+    
+    // Calculate background-specific styles
+    const backgroundColor = (isScreenShareActive || backgroundType === 'pdf') ? 'transparent' : 'rgba(230, 243, 255, 0.9)';
+    const border = (isScreenShareActive || backgroundType === 'pdf') ? 'none' : '4px solid #8B4513';
+    const pointerEvents = isScreenShareActive ? 'all' : 'auto';
+    
+    // For images, allow container to expand to match image dimensions
+    // For other backgrounds (PDF, screen share), use fixed dimensions
+    const containerStyle = {
+      position,
+      top,
+      left,
+      zIndex,
+      backgroundColor,
+      border,
+      pointerEvents,
+      overflow: 'visible',
+      touchAction: isMobileDrawingMode ? 'none' : 'auto'
+    };
+    
+    if (backgroundType === 'image') {
+      // For images, use explicit dimensions to match image natural dimensions
+      containerStyle.width = `${finalWidth}px`;
+      containerStyle.height = `${finalHeight}px`;
+      containerStyle.minWidth = `${finalWidth}px`;
+      containerStyle.minHeight = `${finalHeight}px`;
+    } else {
+      // For PDFs and screen share, use fixed dimensions
+      containerStyle.width = `${finalWidth}px`;
+      containerStyle.height = `${finalHeight}px`;
+      containerStyle.minWidth = `${finalWidth}px`;
+      containerStyle.minHeight = `${finalHeight}px`;
+    }
+    
+    return containerStyle;
+  }, []);
+
+  // Send background transition to peers for consistency
+  const sendBackgroundTransition = useCallback((transitionData) => {
+    // Include PDF dimensions if it's a PDF background for peer consistency
+    const enhancedTransitionData = {
+      ...transitionData,
+      pdfDimensions: transitionData.backgroundType === 'pdf' ? pdfDimensionsRef.current : null
+    };
+    
+    log('INFO', 'Whiteboard', '📤 SENDING BACKGROUND TRANSITION TO PEERS', {
+      isScreenShareActive: transitionData.isScreenShareActive,
+      backgroundType: transitionData.backgroundType,
+      finalWidth: transitionData.finalWidth,
+      finalHeight: transitionData.finalHeight,
+      pdfDimensions: enhancedTransitionData.pdfDimensions,
+      timestamp: Date.now()
+    });
+    
+    sendWhiteboardMsg('backgroundTransition', { transitionData: enhancedTransitionData });
+  }, []);
+
+  // Memoized container style - only recalculates during background transitions
+  const containerStyle = useMemo(() => {
+    return applyBackgroundTransition({
+      isScreenShareActive,
+      backgroundType,
+      finalWidth,
+      finalHeight,
+      isMobileDrawingMode
+    });
+  }, [
+    // Only recalculate when background transitions occur
+    isScreenShareActive,
+    backgroundType,
+    finalWidth,
+    finalHeight,
+    isMobileDrawingMode,
+    applyBackgroundTransition
+  ]);
+
+  // Memoized stage style - only recalculates during background transitions
+  const stageStyle = useMemo(() => {
+    return {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      zIndex: 2,
+      pointerEvents: 'all',
+      background: 'transparent'
+    };
+  }, []); // Stage style is static - no need to recalculate
+
+  // Memoized stage dimensions - only recalculates during background transitions
+  const stageDimensions = useMemo(() => {
+    const stageWidth = isScreenShareActive && screenShareDimensions.width > 0 
+      ? screenShareDimensions.width 
+      : backgroundDimensions.width > 0 
+        ? backgroundDimensions.width 
+        : currentContainerSize.width;
+    
+    const stageHeight = isScreenShareActive && screenShareDimensions.height > 0 
+      ? screenShareDimensions.height 
+      : backgroundDimensions.height > 0 
+        ? backgroundDimensions.height 
+        : currentContainerSize.height;
+    
+    return { stageWidth, stageHeight };
+  }, [
+    isScreenShareActive,
+    screenShareDimensions.width,
+    screenShareDimensions.height,
+    backgroundDimensions.width,
+    backgroundDimensions.height,
+    currentContainerSize.width,
+    currentContainerSize.height
+  ]);
+
+  // Memoized background status - only recalculates during background transitions
+  const backgroundStatus = useMemo(() => {
+    return {
+      pdfLoaded: backgroundType === 'pdf',
+      pageLinesCount: Object.keys(pageLines).length,
+      totalLines: Object.values(pageLines).flat().length
+    };
+  }, [backgroundType, pageLines]);
+
+  // Trigger background transition when background changes occur
+  useEffect(() => {
+    // Only send transition when background actually changes (not during drawing)
+    if (backgroundType || isScreenShareActive) {
+      const transitionData = {
+        isScreenShareActive,
+        backgroundType,
+        finalWidth,
+        finalHeight,
+        isMobileDrawingMode
+      };
+      
+      // Send transition to peers for consistency
+      sendBackgroundTransition(transitionData);
+    }
+  }, [isScreenShareActive, backgroundType, sendBackgroundTransition]); // Removed finalWidth, finalHeight, isMobileDrawingMode to prevent multiple triggers
+
   // Removed throttling - WebRTC handles message queuing efficiently
 
   // Unified PDF options for both desktop and mobile to ensure identical dimensions
@@ -1724,7 +1922,8 @@ const Whiteboard = forwardRef(({
 
   // Calculate page position including gaps for navigation
   const getPagePosition = (pageNumber) => {
-    const pageHeight = 800; // Standard page height
+    // Use cached dimensions instead of hardcoded values
+    const pageHeight = pdfDimensionsRef.current?.pageHeight || 800; // Use cached height
     const gap = 6; // Gap between pages - MUST match PDF rendering gap
     return (pageNumber - 1) * (pageHeight + gap);
   };
@@ -1784,7 +1983,8 @@ const Whiteboard = forwardRef(({
     if (!dashboardContent) return 1;
     
     const scrollTop = dashboardContent.scrollTop;
-    const pageHeight = 800; // Standard page height
+    // Use cached dimensions instead of hardcoded values
+    const pageHeight = pdfDimensionsRef.current?.pageHeight || 800; // Use cached height
     const gap = 6; // Gap between pages - MUST match PDF rendering gap
     
     // Calculate which page is currently in view
@@ -1860,6 +2060,8 @@ const Whiteboard = forwardRef(({
     containerSize
   });
 
+  // Debug: Track what's causing remounts (removed to reduce noise)
+
   // Debug transparency issues
   log('DEBUG', 'Whiteboard', 'Transparency debug', {
     isScreenShareActive,
@@ -1927,71 +2129,10 @@ const Whiteboard = forwardRef(({
   return (
     <>
       {/* Whiteboard Container - Drawing Surface Only */}
-      <div 
-        ref={containerRef}
-        className={`whiteboard-container ${isScreenShareActive ? 'screen-share-overlay' : ''}`}
-        style={(() => {
-          // Use pre-calculated dimensions
-          const containerWidth = `${finalWidth}px`;
-          const containerHeight = `${finalHeight}px`;
-          
-          log('INFO', 'Whiteboard', '🎨 RENDERING container', {
-            isScreenShareActive,
-            screenShareDimensions,
-            backgroundDimensions,
-            currentContainerSize,
-            finalWidth,
-            finalHeight,
-            backgroundType,
-            pdfLoaded: backgroundType === 'pdf',
-            currentImageUrl: !!currentImageUrl,
-            linesCount: lines.length,
-            // Detailed dimension analysis
-            containerWidth: currentContainerSize.width,
-            containerHeight: currentContainerSize.height,
-            backgroundWidth: backgroundDimensions.width,
-            backgroundHeight: backgroundDimensions.height,
-            screenShareWidth: screenShareDimensions.width,
-            screenShareHeight: screenShareDimensions.height,
-            isMobile: isMobile,
-            pageLinesCount: Object.keys(pageLines).length,
-            timestamp: Date.now()
-          });
-          
-          const zIndex = 2; // Drawing layer should always be above any background
-          
-          log('INFO', 'Whiteboard', '📐 APPLYING z-index and positioning', {
-            zIndex,
-            isScreenShareActive,
-            backgroundType,
-            pdfLoaded: backgroundType === 'pdf',
-            position: isScreenShareActive ? 'absolute' : 'relative',
-            containerWidth: finalWidth,
-            containerHeight: finalHeight,
-            containerTop: isScreenShareActive ? '0' : 'auto',
-            containerLeft: isScreenShareActive ? '0' : 'auto',
-            backgroundColor: (isScreenShareActive || backgroundType === 'pdf') ? 'transparent' : 'rgba(230, 243, 255, 0.9)',
-            border: (isScreenShareActive || backgroundType === 'pdf') ? 'none' : '4px solid #8B4513',
-            pointerEvents: isScreenShareActive ? 'all' : 'auto',
-            timestamp: Date.now()
-          });
-          
-          return {
-            position: isScreenShareActive ? 'absolute' : 'relative',
-            top: isScreenShareActive ? '0' : 'auto',
-            left: isScreenShareActive ? '0' : 'auto',
-            width: containerWidth,
-            height: containerHeight,
-            minWidth: containerWidth,
-            minHeight: containerHeight,
-            zIndex: zIndex,
-            backgroundColor: (isScreenShareActive || backgroundType === 'pdf') ? 'transparent' : 'rgba(230, 243, 255, 0.9)',
-            border: (isScreenShareActive || backgroundType === 'pdf') ? 'none' : '4px solid #8B4513',
-            pointerEvents: isScreenShareActive ? 'all' : 'auto',
-            overflow: 'visible', // Let dashboard-content handle scrolling
-            touchAction: isMobileDrawingMode ? 'none' : 'auto' // Prevent touch behaviors only in drawing mode
-          };
-        })()}
+       <div 
+         ref={containerRef}
+         className={`whiteboard-container ${isScreenShareActive ? 'screen-share-overlay' : ''}`}
+         style={containerStyle}
       >
         {/* Background Layer - PDF and Images */}
         {backgroundFile && (
@@ -2000,8 +2141,12 @@ const Whiteboard = forwardRef(({
               position: 'absolute',
               top: 0,
               left: 0,
-              width: '100%',
-              height: '100%',
+              width: backgroundType === 'image' 
+                ? `${backgroundDimensions.width > 0 ? backgroundDimensions.width : 1200}px` 
+                : '100%',
+              height: backgroundType === 'image' 
+                ? `${backgroundDimensions.height > 0 ? backgroundDimensions.height : 800}px` 
+                : '100%',
               zIndex: 1,
               backgroundColor: '#f5f5f5',
               display: 'flex',
@@ -2010,18 +2155,23 @@ const Whiteboard = forwardRef(({
               padding: '10px', // Add 10px padding around the PDF
               pointerEvents: 'none' // Allow mouse events to pass through to Stage
             }}
+            onLoad={() => {
+              log('DEBUG', 'Whiteboard', 'Background div rendered', {
+                backgroundType,
+                backgroundDimensions,
+                width: backgroundType === 'image' 
+                  ? `${backgroundDimensions.width > 0 ? backgroundDimensions.width : 1200}px` 
+                  : '100%',
+                height: backgroundType === 'image' 
+                  ? `${backgroundDimensions.height > 0 ? backgroundDimensions.height : 800}px` 
+                  : '100%',
+                timestamp: Date.now()
+              });
+            }}
             onMouseEnter={() => {
+              // No calculations needed for PDF background hover
               log('INFO', 'Whiteboard', '📄 PDF BACKGROUND HOVER', {
                 backgroundType,
-                pdfLoaded: backgroundType === 'pdf',
-                zIndex: 1,
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                height: '100%',
-                backgroundColor: '#f5f5f5',
-                padding: '10px',
                 timestamp: Date.now()
               });
             }}
@@ -2048,9 +2198,12 @@ const Whiteboard = forwardRef(({
                   
                   log('INFO', 'Whiteboard', 'PDF loaded successfully with pages', numPages);
                   
-                  // Use unified PDF rendering for consistent dimensions
-                  log('INFO', 'Whiteboard', 'Using unified PDF rendering for PDF onLoadSuccess');
-                  renderPDF(backgroundFile, numPages);
+                  // Only set pages count - renderPDF was already called during initial load
+                  // Avoid duplicate rendering and calculations
+                  if (numPages && numPages !== pdfPages) {
+                    setPdfPages(numPages);
+                    log('INFO', 'Whiteboard', '📄 PDF pages updated', numPages);
+                  }
                   
                   if (downloadTime) {
                     log('DEBUG', 'Whiteboard', 'PDF download timing', {
@@ -2135,10 +2288,7 @@ const Whiteboard = forwardRef(({
                       >
                           <Page
                         pageNumber={index + 1}
-                            width={(() => {
-                              const { pageWidth } = calculatePDFDimensions();
-                              return pageWidth;
-                            })()}
+                            width={pdfDimensionsRef.current?.pageWidth || 1180} // Use cached dimensions
                             renderTextLayer={false}
                             renderAnnotationLayer={false}
                         error={<div>Error loading page {index + 1}!</div>}
@@ -2165,8 +2315,8 @@ const Whiteboard = forwardRef(({
                             });
                             
                             // Calculate the actual rendered height based on PDF metadata
-                            // Use unified coordinate calculation for consistency
-                            const { containerWidth, pageWidth: currentPageWidth } = calculatePDFDimensions();
+                            // Use cached dimensions to avoid recalculating
+                            const currentPageWidth = pdfDimensionsRef.current?.pageWidth || 1180;
                             const scale = currentPageWidth / page.originalWidth;
                             const actualPageHeight = page.originalHeight * scale;
                             
@@ -2280,30 +2430,51 @@ const Whiteboard = forwardRef(({
                 src={backgroundFile}
                 alt="Background Image"
                 style={{
-                  maxWidth: '100%',
-                  maxHeight: '100%',
-                  objectFit: 'contain',
-                  display: 'block'
+                  width: 'auto',
+                  height: 'auto',
+                  display: 'block',
+                  maxWidth: 'none',
+                  maxHeight: 'none',
+                  objectFit: 'none'
                 }}
                 onLoad={(e) => {
                   const img = e.target;
                   const naturalWidth = img.naturalWidth;
                   const naturalHeight = img.naturalHeight;
+                  
+                  // Use centralized image dimensions calculation
+                  const { width, height } = calculateImageDimensions(backgroundFile, naturalWidth, naturalHeight);
+                  
                   log('INFO', 'Whiteboard', 'Image loaded successfully', {
                     src: backgroundFile,
                     naturalWidth,
                     naturalHeight,
+                    calculatedWidth: width,
+                    calculatedHeight: height,
                     displayWidth: img.offsetWidth,
-                    displayHeight: img.offsetHeight
+                    displayHeight: img.offsetHeight,
+                    imageStyle: {
+                      width: img.style.width,
+                      height: img.style.height,
+                      maxWidth: img.style.maxWidth,
+                      maxHeight: img.style.maxHeight,
+                      objectFit: img.style.objectFit
+                    }
                   });
                   
-                  // Set background dimensions to image's natural size
-                  log('DEBUG', 'Whiteboard', 'Setting background dimensions to image natural size', {
-                    width: naturalWidth,
-                    height: naturalHeight,
-                    previousDimensions: backgroundDimensions
+                  // Set background dimensions using centralized calculation
+                  setBackgroundDimensions({ width, height });
+                  
+                  // Update container dimensions directly to prevent useEffect re-renders
+                  setFinalWidth(width);
+                  setFinalHeight(height);
+                  
+                  log('INFO', 'Whiteboard', '📐 IMAGE DIMENSIONS UPDATED DIRECTLY', {
+                    backgroundDimensions: { width, height },
+                    calculatedWidth: width,
+                    calculatedHeight: height,
+                    timestamp: Date.now()
                   });
-                  setBackgroundDimensions({ width: naturalWidth, height: naturalHeight });
                   
                   // Log container size changes
                   log('DEBUG', 'Whiteboard', 'Container dimensions will change from', {
@@ -2311,11 +2482,32 @@ const Whiteboard = forwardRef(({
                     currentHeight: currentContainerSize.height
                   });
                   log('DEBUG', 'Whiteboard', 'Container dimensions will change to', {
-                    newWidth: naturalWidth,
-                    newHeight: naturalHeight,
-                    exceedsDashboardContent: naturalWidth > 1200 || naturalHeight > 800,
-                    shouldShowScrollbars: naturalWidth > 1200 || naturalHeight > 800 ? 'YES - Image exceeds dashboard-content (1200x800)' : 'NO - Image fits in dashboard-content'
+                    newWidth: width,
+                    newHeight: height,
+                    exceedsDashboardContent: width > 1200 || height > 800,
+                    shouldShowScrollbars: width > 1200 || height > 800 ? 'YES - Image exceeds dashboard-content (1200x800)' : 'NO - Image fits in dashboard-content'
                   });
+                  
+                  // Additional debugging - check actual image dimensions after a short delay
+                  setTimeout(() => {
+                    const actualImg = e.target;
+                    log('DEBUG', 'Whiteboard', 'Image dimensions after load (delayed check)', {
+                      naturalWidth: actualImg.naturalWidth,
+                      naturalHeight: actualImg.naturalHeight,
+                      offsetWidth: actualImg.offsetWidth,
+                      offsetHeight: actualImg.offsetHeight,
+                      clientWidth: actualImg.clientWidth,
+                      clientHeight: actualImg.clientHeight,
+                      scrollWidth: actualImg.scrollWidth,
+                      scrollHeight: actualImg.scrollHeight,
+                      computedStyle: {
+                        width: window.getComputedStyle(actualImg).width,
+                        height: window.getComputedStyle(actualImg).height,
+                        maxWidth: window.getComputedStyle(actualImg).maxWidth,
+                        maxHeight: window.getComputedStyle(actualImg).maxHeight
+                      }
+                    });
+                  }, 100);
                 }}
                 onError={(e) => console.error('[Whiteboard] 🖼️ Image failed to load:', backgroundFile, e)}
               />
@@ -2355,42 +2547,18 @@ const Whiteboard = forwardRef(({
             });
             return stageHeight;
           })()}
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            zIndex: 2,
-            pointerEvents: 'all',
-            background: 'transparent'
-          }}
+           style={stageStyle}
           onMouseEnter={() => {
+            // No calculations needed for hover - just log essential info
             log('INFO', 'Whiteboard', '🎯 STAGE HOVER', {
-              backgroundType,
-              pdfLoaded: backgroundType === 'pdf',
-              pageLinesCount: Object.keys(pageLines).length,
-              totalLines: Object.values(pageLines).flat().length,
-              stageWidth: isScreenShareActive && screenShareDimensions.width > 0 
-                ? screenShareDimensions.width 
-                : backgroundDimensions.width > 0 
-                  ? backgroundDimensions.width 
-                  : currentContainerSize.width,
-              stageHeight: isScreenShareActive && screenShareDimensions.height > 0 
-                ? screenShareDimensions.height 
-                : backgroundDimensions.height > 0 
-                  ? backgroundDimensions.height 
-                  : currentContainerSize.height,
-              containerSize: currentContainerSize,
-              backgroundDimensions,
-              screenShareDimensions,
-              stagePosition: 'absolute',
-              stageZIndex: 2,
+              currentTool,
+              isDrawing,
               timestamp: Date.now()
             });
           }}
           onMouseDown={(e) => {
+            // Only log essential drawing info - no background calculations needed during drawing
             log('INFO', 'Whiteboard', '🖱️ STAGE MOUSE DOWN', {
-              backgroundType,
-              pdfLoaded: backgroundType === 'pdf',
               currentTool,
               isDrawing,
               timestamp: Date.now()
@@ -2425,8 +2593,6 @@ const Whiteboard = forwardRef(({
                 if (e.preventDefault) e.preventDefault();
                 if (e.stopPropagation) e.stopPropagation();
                 log('INFO', 'Whiteboard', '👆 STAGE TOUCH START (Drawing Mode)', {
-                  backgroundType,
-                  pdfLoaded: backgroundType === 'pdf',
                   currentTool,
                   isDrawing,
                   touchCount: nativeEvent.touches?.length || 0,
@@ -2464,8 +2630,6 @@ const Whiteboard = forwardRef(({
                 }
               } else {
                 log('INFO', 'Whiteboard', '👆 STAGE TOUCH START (Scroll Mode)', {
-                  backgroundType,
-                  pdfLoaded: backgroundType === 'pdf',
                   currentTool,
                   isDrawing,
                   touchCount: nativeEvent.touches?.length || 0,
@@ -2511,8 +2675,6 @@ const Whiteboard = forwardRef(({
               if (e.preventDefault) e.preventDefault();
               if (e.stopPropagation) e.stopPropagation();
               log('INFO', 'Whiteboard', '👆 STAGE TOUCH MOVE (Drawing Mode)', {
-                backgroundType,
-                pdfLoaded: backgroundType === 'pdf',
                 currentTool,
                 isDrawing,
                 touchCount: nativeEvent.touches?.length || 0,
@@ -2543,8 +2705,6 @@ const Whiteboard = forwardRef(({
               }
             } else {
               log('INFO', 'Whiteboard', '👆 STAGE TOUCH MOVE (Scroll Mode)', {
-                backgroundType,
-                pdfLoaded: backgroundType === 'pdf',
                 currentTool,
                 isDrawing,
                 touchCount: nativeEvent.touches?.length || 0,
@@ -2563,8 +2723,6 @@ const Whiteboard = forwardRef(({
               if (e.preventDefault) e.preventDefault();
               if (e.stopPropagation) e.stopPropagation();
               log('INFO', 'Whiteboard', '👆 STAGE TOUCH END (Drawing Mode)', {
-                backgroundType,
-                pdfLoaded: backgroundType === 'pdf',
                 currentTool,
                 isDrawing,
                 touchCount: nativeEvent.touches?.length || 0,
@@ -2595,8 +2753,6 @@ const Whiteboard = forwardRef(({
               }
             } else {
               log('INFO', 'Whiteboard', '👆 STAGE TOUCH END (Scroll Mode)', {
-                backgroundType,
-                pdfLoaded: backgroundType === 'pdf',
                 currentTool,
                 isDrawing,
                 touchCount: nativeEvent.touches?.length || 0,

@@ -95,8 +95,12 @@ const DashboardPage = () => {
     const [currentImageUrl, setCurrentImageUrl] = useState(null);
     const [isMobileDrawingMode, setIsMobileDrawingMode] = useState(false);
     const currentImageUrlRef = useRef(null);
-    // Fixed container size for both desktop and mobile to ensure identical dimensions
+    // Dynamic container size that can expand based on content (images, PDFs, etc.)
     const [dynamicContainerSize, setDynamicContainerSize] = useState({ width: 1200, height: 800 });
+    
+    // Stable refs for Whiteboard props to prevent remounts
+    const stableUserId = useRef(0);
+    const stableUsername = useRef('Unknown');
     
     // Whiteboard function references
     const whiteboardUndoRef = useRef(null);
@@ -504,6 +508,10 @@ const DashboardPage = () => {
         if (user?.email) {
             setUserEmail(user.email);
             userRef.current = user;
+            
+            // Update stable refs for Whiteboard props
+            stableUserId.current = user.id;
+            stableUsername.current = user.name || user.email;
 
             // Initialize WebSocket provider only (WebRTC will be created when needed)
             const wsProvider = WebSocketProvider.getInstance(user.id);
@@ -2082,6 +2090,10 @@ const DashboardPage = () => {
         currentImageUrlRef.current = imageUrl;
         log('DEBUG', 'DashboardPage', 'currentImageUrl state should now be', { imageUrl });
         
+        // Hide PDF navigation when image is loaded
+        setShowPdfNavigation(false);
+        setPdfTotalPages(0);
+        
         // Check mutual exclusivity after setting the image
         // Note: We pass the imageUrl directly to avoid relying on state that might not be updated yet
         await checkExclusivity('image', imageUrl);
@@ -2427,8 +2439,8 @@ const DashboardPage = () => {
                {isWhiteboardActive && (
                    <Whiteboard
                        key="whiteboard-stable"
-                       userId={userRef.current?.id}
-                       username={userRef.current?.name || userEmail}
+                       userId={stableUserId.current}
+                       username={stableUsername.current}
                        screenShareStream={null}
                        isScreenShareActive={isScreenShareActive}
                        currentImageUrl={currentImageUrl}
