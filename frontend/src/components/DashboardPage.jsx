@@ -116,6 +116,18 @@ const DashboardPage = () => {
         log('INFO', 'DashboardPage', 'Background file cleared from whiteboard');
     }, []);
     
+    // Handle PDF dimension changes to prevent Whiteboard remounts
+    const handlePDFDimensionsChange = useCallback((dimensions) => {
+        log('INFO', 'DashboardPage', 'PDF dimensions changed', { dimensions });
+        // CRITICAL: Do NOT update dynamicContainerSize to prevent Whiteboard remounts
+        // The PDFRenderer handles its own sizing internally
+        log('INFO', 'DashboardPage', 'Container size kept stable to prevent remounts', { 
+            currentSize: dynamicContainerSize,
+            pdfDimensions: dimensions 
+        });
+    }, [dynamicContainerSize]);
+
+    
     // PDF Navigation handlers
     const handlePdfPageChange = useCallback((page) => {
         log('INFO', 'DashboardPage', 'PDF page changed to', { page });
@@ -140,58 +152,11 @@ const DashboardPage = () => {
         setShowPdfNavigation(totalPages > 0);
     }, []);
     
-    // Debug: Track state changes to identify what's causing re-renders
-    const prevStateRef = useRef({});
-    useEffect(() => {
-        const currentState = {
-            isWebSocketConnected,
-            isPeerConnected,
-            userEmail,
-            provider: !!provider,
-            selectedPeer,
-            isConnecting,
-            peerListLength: peerList.length,
-            showChat,
-            error,
-            isGracefulDisconnect,
-            isAudioEnabled,
-            isVideoEnabled,
-            isScreenSharing,
-            isScreenShareSupported,
-            isWhiteboardActive,
-            currentTool,
-            currentColor,
-            canUndo,
-            canRedo,
-            receivedMessagesLength: receivedMessages.length
-        };
-        
-        const prevState = prevStateRef.current;
-        const changedStates = [];
-        
-        Object.keys(currentState).forEach(key => {
-            if (prevState[key] !== currentState[key]) {
-                changedStates.push({
-                    key,
-                    from: prevState[key],
-                    to: currentState[key]
-                });
-            }
-        });
-        
-        if (changedStates.length > 0) {
-            log('DEBUG', 'DashboardPage', 'State changes detected', { changedStates });
-        }
-        
-        prevStateRef.current = currentState;
-    });
-    
-    // Removed streamRevision state that was causing constant re-renders
-    
-
-    
     // Chat state
     const [receivedMessages, setReceivedMessages] = useState([]);
+
+    // REMOVED: State change tracking useEffect that was causing Whiteboard remounts
+    // This useEffect was running on every state change and causing unnecessary remounts
 
     // Store user data and message handler IDs in ref
     const userRef = useRef(null);
@@ -870,7 +835,7 @@ const DashboardPage = () => {
 
         const handleStreamChange = (event) => {
             const timestamp = Date.now();
-            log('DEBUG', 'DashboardPage', 'Received stream event from provider', { timestamp, data: event.data });
+            log('INFO', 'DashboardPage', 'Received stream event from provider', { timestamp, data: event.data });
             
             // Update screen share active status when streams change
             const hasLocalScreenShare = !!provider.getScreenShareStream();
@@ -1129,9 +1094,14 @@ const DashboardPage = () => {
                 setIsGracefulDisconnect(false); // Reset graceful disconnect flag on successful connection
                 
                 // Automatically enable whiteboard when connection is established
-                if (!isWhiteboardActive) {
+                // BUT NOT during PDF loading to prevent remounts
+                if (!isWhiteboardActive && !currentImageUrl) {
                     log('INFO', 'DashboardPage', 'Auto-enabling whiteboard on connection');
                     setIsWhiteboardActive(true);
+                } else if (isWhiteboardActive) {
+                    log('INFO', 'DashboardPage', 'Whiteboard already active - skipping auto-enable');
+                } else {
+                    log('INFO', 'DashboardPage', 'Skipping auto-enable during PDF loading to prevent remounts');
                 }
                 
                 // Clear any previous disconnected peer tracking since we have a new connection
@@ -2191,6 +2161,45 @@ const DashboardPage = () => {
         // The whiteboard component will handle the actual clear logic
     };
 
+    // COMPREHENSIVE LOGGING: Track all callback function changes (moved after all callbacks are declared)
+    useEffect(() => {
+        log('INFO', 'DashboardPage', '🔄 CALLBACK FUNCTIONS TRACKING', {
+            handlePDFDimensionsChange: !!handlePDFDimensionsChange,
+            handlePdfPageChange: !!handlePdfPageChange,
+            handlePdfZoomIn: !!handlePdfZoomIn,
+            handlePdfZoomOut: !!handlePdfZoomOut,
+            handlePdfZoomReset: !!handlePdfZoomReset,
+            handlePdfPagesChange: !!handlePdfPagesChange,
+            handleWhiteboardClose: !!handleWhiteboardClose,
+            handleWhiteboardBackgroundCleared: !!handleWhiteboardBackgroundCleared,
+            handleImageChange: !!handleImageChange,
+            handlePdfChange: !!handlePdfChange,
+            handleToolChange: !!handleToolChange,
+            handleColorChange: !!handleColorChange,
+            handleWhiteboardHistoryChange: !!handleWhiteboardHistoryChange,
+            handleWhiteboardImageUpload: !!handleWhiteboardImageUpload,
+            handleWhiteboardFileUpload: !!handleWhiteboardFileUpload,
+            handleWhiteboardClear: !!handleWhiteboardClear,
+            timestamp: Date.now()
+        });
+    }, [
+        handlePDFDimensionsChange,
+        handlePdfPageChange,
+        handlePdfZoomIn,
+        handlePdfZoomOut,
+        handlePdfZoomReset,
+        handlePdfPagesChange,
+        handleWhiteboardClose,
+        handleWhiteboardBackgroundCleared,
+        handleImageChange,
+        handlePdfChange,
+        handleToolChange,
+        handleColorChange,
+        handleWhiteboardHistoryChange,
+        handleWhiteboardImageUpload,
+        handleWhiteboardFileUpload,
+        handleWhiteboardClear
+    ]);
 
     const resetConnectionState = () => {
         log('INFO', 'DashboardPage', 'RESET: Starting connection state reset');
@@ -2437,40 +2446,83 @@ const DashboardPage = () => {
                  isScreenShareActiveState: isScreenShareActive
                })}
                {isWhiteboardActive && (
-                   <Whiteboard
-                       key="whiteboard-stable"
-                       userId={stableUserId.current}
-                       username={stableUsername.current}
-                       screenShareStream={null}
-                       isScreenShareActive={isScreenShareActive}
-                       currentImageUrl={currentImageUrl}
-                       containerSize={dynamicContainerSize}
-                       onClose={handleWhiteboardClose}
-                       onBackgroundCleared={handleWhiteboardBackgroundCleared}
-                       onImageChange={handleImageChange}
-                       onPdfChange={handlePdfChange}
-                       webRTCProvider={provider}
-                       selectedPeer={selectedPeer}
-                       currentTool={currentTool}
-                       currentColor={currentColor}
-                       onToolChange={handleToolChange}
-                       onColorChange={handleColorChange}
-                       onUndo={whiteboardUndoRef}
-                       onRedo={whiteboardRedoRef}
-                       onHistoryChange={handleWhiteboardHistoryChange}
-                       isMobileDrawingMode={isMobileDrawingMode}
-                       onImageUpload={handleWhiteboardImageUpload}
-                       onFileUpload={handleWhiteboardFileUpload}
-                       onClear={handleWhiteboardClear}
-                       canUndo={canUndo}
-                       canRedo={canRedo}
-                       // PDF Navigation props
-                       pdfCurrentPage={pdfCurrentPage}
-                       pdfScale={pdfScale}
-                       onPdfPageChange={handlePdfPageChange}
-                       onPdfPagesChange={handlePdfPagesChange}
-                       ref={whiteboardImageUploadRef}
-                   />
+                   <>
+                       {/* COMPREHENSIVE LOGGING: Track all Whiteboard props before rendering */}
+                       {log('INFO', 'DashboardPage', '🔄 WHITEBOARD PROPS BEFORE RENDER', {
+                           // Core props
+                           userId: stableUserId.current,
+                           username: stableUsername.current,
+                           isScreenShareActive,
+                           currentImageUrl,
+                           containerSize: dynamicContainerSize,
+                           // WebRTC props
+                           hasWebRTCProvider: !!provider,
+                           selectedPeer,
+                           // Tool props
+                           currentTool,
+                           currentColor,
+                           // History props
+                           canUndo,
+                           canRedo,
+                           // Mobile props
+                           isMobileDrawingMode,
+                           // PDF props
+                           pdfCurrentPage,
+                           pdfScale,
+                           // Function props
+                           hasOnClose: !!handleWhiteboardClose,
+                           hasOnBackgroundCleared: !!handleWhiteboardBackgroundCleared,
+                           hasOnImageChange: !!handleImageChange,
+                           hasOnPdfChange: !!handlePdfChange,
+                           hasOnPDFDimensionsChange: !!handlePDFDimensionsChange,
+                           hasOnToolChange: !!handleToolChange,
+                           hasOnColorChange: !!handleColorChange,
+                           hasOnUndo: !!whiteboardUndoRef,
+                           hasOnRedo: !!whiteboardRedoRef,
+                           hasOnHistoryChange: !!handleWhiteboardHistoryChange,
+                           hasOnImageUpload: !!handleWhiteboardImageUpload,
+                           hasOnFileUpload: !!handleWhiteboardFileUpload,
+                           hasOnClear: !!handleWhiteboardClear,
+                           hasOnPdfPageChange: !!handlePdfPageChange,
+                           hasOnPdfPagesChange: !!handlePdfPagesChange,
+                           timestamp: Date.now()
+                       })}
+                       <Whiteboard
+                           key="whiteboard-stable"
+                           userId={stableUserId.current}
+                           username={stableUsername.current}
+                           screenShareStream={null}
+                           isScreenShareActive={isScreenShareActive}
+                           currentImageUrl={currentImageUrl}
+                           containerSize={dynamicContainerSize}
+                           onClose={handleWhiteboardClose}
+                           onBackgroundCleared={handleWhiteboardBackgroundCleared}
+                           onImageChange={handleImageChange}
+                           onPdfChange={handlePdfChange}
+                           onPDFDimensionsChange={handlePDFDimensionsChange}
+                           webRTCProvider={provider}
+                           selectedPeer={selectedPeer}
+                           currentTool={currentTool}
+                           currentColor={currentColor}
+                           onToolChange={handleToolChange}
+                           onColorChange={handleColorChange}
+                           onUndo={whiteboardUndoRef}
+                           onRedo={whiteboardRedoRef}
+                           onHistoryChange={handleWhiteboardHistoryChange}
+                           isMobileDrawingMode={isMobileDrawingMode}
+                           onImageUpload={handleWhiteboardImageUpload}
+                           onFileUpload={handleWhiteboardFileUpload}
+                           onClear={handleWhiteboardClear}
+                           canUndo={canUndo}
+                           canRedo={canRedo}
+                           // PDF Navigation props
+                           pdfCurrentPage={pdfCurrentPage}
+                           pdfScale={pdfScale}
+                           onPdfPageChange={handlePdfPageChange}
+                           onPdfPagesChange={handlePdfPagesChange}
+                           ref={whiteboardImageUploadRef}
+                       />
+                   </>
                )}
                 
                 <ScreenShareWindow

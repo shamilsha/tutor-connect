@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useImperativeHandle, forwardRef, useCallback, useMemo } from 'react';
+import PDFRenderer from './PDFRenderer';
 import { Stage, Layer, Line, Circle, Ellipse, Rect, Transformer, Group, Text, RegularPolygon } from 'react-konva';
 import { v4 as uuidv4 } from 'uuid';
 import { throttle } from 'lodash';
@@ -37,6 +38,7 @@ const Whiteboard = forwardRef(({
   onBackgroundCleared = null,
   onImageChange = null, 
   onPdfChange = null,
+  onPDFDimensionsChange = null,
   webRTCProvider = null, 
   selectedPeer = null,
   // New props from toolbar
@@ -64,6 +66,11 @@ const Whiteboard = forwardRef(({
   // Drawing state
   const [lines, setLines] = useState([]);
   const [shapes, setShapes] = useState([]);
+
+  // State to track background dimensions - MOVED TO TOP TO PREVENT HOISTING ERRORS
+  const [backgroundDimensions, setBackgroundDimensions] = useState({ width: 0, height: 0 });
+  // State to track screen share dimensions - MOVED TO TOP TO PREVENT HOISTING ERRORS
+  const [screenShareDimensions, setScreenShareDimensions] = useState({ width: 0, height: 0 });
   
   // PDF render timing
   const [pdfRenderStartTime, setPdfRenderStartTime] = useState(null);
@@ -122,10 +129,6 @@ const Whiteboard = forwardRef(({
   const [currentContainerSize, setCurrentContainerSize] = useState(containerSize);
   const [pageShapes, setPageShapes] = useState({});
   const [pageLines, setPageLines] = useState({});
-  // State to track background dimensions
-  const [backgroundDimensions, setBackgroundDimensions] = useState({ width: 0, height: 0 });
-  // State to track screen share dimensions
-  const [screenShareDimensions, setScreenShareDimensions] = useState({ width: 0, height: 0 });
 
   // Calculate container dimensions - will be set in useEffect
   const [finalWidth, setFinalWidth] = useState(containerSize.width);
@@ -205,18 +208,8 @@ const Whiteboard = forwardRef(({
   // Container size tracking - use dynamic dimensions (logging removed to prevent re-renders)
 
   // Track background dimensions changes only during background transitions
-  useEffect(() => {
-    log('INFO', 'Whiteboard', '📐 BACKGROUND DIMENSIONS CHANGED (Background Transition)', {
-      backgroundDimensions,
-      currentContainerSize,
-      isScreenShareActive,
-      screenShareDimensions,
-      backgroundType,
-      pdfLoaded: backgroundType === 'pdf',
-      isMobile: isMobile,
-      timestamp: Date.now()
-    });
-  }, [isScreenShareActive, backgroundType]); // Only log during background transitions
+  // REMOVED: Background dimensions useEffect that was causing Whiteboard remounts
+  // This useEffect was running on every background type change and causing unnecessary remounts
 
   // Calculate screen share dimensions when screen share is active
   
@@ -1011,60 +1004,30 @@ const Whiteboard = forwardRef(({
   // Simple coordinate calculation is sufficient: stage.getPointerPosition()
 
   // Unified PDF rendering function for both peers
+
   const renderPDF = useCallback((pdfUrl, numPages = null) => {
-    const isRemote = !pdfUrl.includes('blob:') && !pdfUrl.includes('data:');
-    log('INFO', 'Whiteboard', '🎯 UNIFIED PDF RENDERING STARTED', {
-      pdfUrl,
-      numPages,
-      isRemote,
-      peerType: isRemote ? 'REMOTE PEER' : 'LOCAL PEER',
-      timestamp: Date.now()
-    });
-
-    // Step 1: Clear all drawings first
-    log('INFO', 'Whiteboard', '🧹 Clearing all drawings before PDF render');
+    log('INFO', 'Whiteboard', 'Loading PDF file', { pdfUrl, numPages });
+    
+    // Clear all drawings first
     clearAllDrawings();
-
-    // Step 2: Reset background dimensions
-    setBackgroundDimensions({ width: 0, height: 0 });
-
-    // Step 3: Set PDF as background
+    
+    // Set background file and type - PDFRenderer will handle the rest
     setBackgroundFile(pdfUrl);
     setBackgroundType('pdf');
-
-    // Step 4: Calculate dimensions using centralized function (ONCE)
-    const { containerWidth, pageWidth, pageHeight } = calculatePDFDimensions();
     
-    // Step 5: Set initial dimensions (will be updated when pages render)
-    setBackgroundDimensions({ 
-      width: pageWidth, 
-      height: 0 // Will be updated when pages render
-    });
-    
-    // Cache the dimensions to avoid recalculating for every page
-    // Store in a ref so it's accessible throughout the component
-    pdfDimensionsRef.current = { 
-      containerWidth, 
-      pageWidth,
-      pageHeight
-    };
-
-    // Step 6: Set PDF pages if provided
+    // Set PDF pages if provided
     if (numPages) {
       setPdfPages(numPages);
-      log('INFO', 'Whiteboard', '📄 PDF pages set', numPages);
     }
-
-    // Step 7: Add to history (only once during PDF load)
+    
+    // Add to history
     addToHistory();
+    
+    log('INFO', 'Whiteboard', 'PDF file set for rendering', { pdfUrl });
+  }, []);
 
-    log('INFO', 'Whiteboard', '✅ UNIFIED PDF RENDERING COMPLETED', {
-      pageWidth,
-      containerWidth,
-      numPages,
-      timestamp: Date.now()
-    });
-  }, [calculatePDFDimensions]);
+
+
 
   // Add to history when drawing is completed (only on mouse up, not during drawing)
   useEffect(() => {
@@ -1402,6 +1365,24 @@ const Whiteboard = forwardRef(({
     });
     
     sendWhiteboardMsg('backgroundTransition', { transitionData: enhancedTransitionData });
+  }, []);
+
+  // New function to handle PDF dimensions from PDFRenderer component
+  const handlePDFDimensionsChange = useCallback((dimensions) => {
+    log('INFO', 'Whiteboard', 'PDF dimensions changed', dimensions);
+    setBackgroundDimensions(dimensions);
+    
+    // Forward dimensions to parent DashboardPage to update container size
+    if (onPDFDimensionsChange) {
+      log('INFO', 'Whiteboard', 'Forwarding PDF dimensions to parent', dimensions);
+      onPDFDimensionsChange(dimensions);
+    }
+  }, [onPDFDimensionsChange]);
+
+  const handlePDFLoadComplete = useCallback(({ numPages, dimensions }) => {
+    log('INFO', 'Whiteboard', 'PDF load complete', { numPages, dimensions });
+    setPdfPages(numPages);
+    setBackgroundDimensions(dimensions);
   }, []);
 
   // Memoized container style - only recalculates during background transitions
@@ -1949,10 +1930,8 @@ const Whiteboard = forwardRef(({
       const newPage = currentPage - 1;
       setCurrentPage(newPage);
       scrollToPage(newPage);
-      // Notify parent component
-      if (onPdfPageChange) {
-        onPdfPageChange(newPage);
-      }
+      // CRITICAL: Don't notify parent to prevent remounts during scrolling
+      // The parent doesn't need to know about internal page changes
     }
   };
 
@@ -1962,10 +1941,8 @@ const Whiteboard = forwardRef(({
       const newPage = currentPage + 1;
       setCurrentPage(newPage);
       scrollToPage(newPage);
-      // Notify parent component
-      if (onPdfPageChange) {
-        onPdfPageChange(newPage);
-      }
+      // CRITICAL: Don't notify parent to prevent remounts during scrolling
+      // The parent doesn't need to know about internal page changes
     }
   };
 
@@ -2001,6 +1978,16 @@ const Whiteboard = forwardRef(({
     });
   }, [backgroundType]);
 
+  // COMPREHENSIVE LOGGING: Track all useEffect dependencies
+  useEffect(() => {
+    log('DEBUG', 'Whiteboard', '🔄 USEEFFECT - Background Type Dependencies', {
+      backgroundType,
+      pdfPages,
+      currentPage,
+      timestamp: Date.now()
+    });
+  }, [backgroundType, pdfPages, currentPage]);
+
   // Update current page when scrolling
   useEffect(() => {
     if (backgroundType === 'pdf' && pdfPages > 1) {
@@ -2010,6 +1997,8 @@ const Whiteboard = forwardRef(({
           const visiblePage = getCurrentVisiblePage();
           if (visiblePage !== currentPage) {
             setCurrentPage(visiblePage);
+            // CRITICAL: Don't notify parent during scroll to prevent remounts
+            // The parent doesn't need to know about scroll-based page changes
           }
         };
         
@@ -2051,13 +2040,47 @@ const Whiteboard = forwardRef(({
     });
   };
 
-  log('DEBUG', 'Whiteboard', 'Rendering whiteboard with toolbar', {
-            userId,
-            username,
+  // COMPREHENSIVE LOGGING: Track all props that could cause remounts
+  log('INFO', 'Whiteboard', '🔄 WHITEBOARD RENDER - All Props', {
+    // Core props
+    userId,
+    username,
     isScreenShareActive,
+    currentImageUrl,
+    containerSize,
+    // Background props
     hasBackgroundFile: !!backgroundFile,
     backgroundType,
-    containerSize
+    // WebRTC props
+    hasWebRTCProvider: !!webRTCProvider,
+    selectedPeer,
+    // Tool props
+    currentTool,
+    currentColor,
+    // History props
+    canUndo,
+    canRedo,
+    // Mobile props
+    isMobileDrawingMode,
+    // PDF props
+    pdfCurrentPage,
+    pdfScale,
+    // Function props (check if they exist)
+    hasOnClose: !!onClose,
+    hasOnBackgroundCleared: !!onBackgroundCleared,
+    hasOnImageChange: !!onImageChange,
+    hasOnPdfChange: !!onPdfChange,
+    hasOnPDFDimensionsChange: !!onPDFDimensionsChange,
+    hasOnToolChange: !!onToolChange,
+    hasOnColorChange: !!onColorChange,
+    hasOnUndo: !!onUndo,
+    hasOnRedo: !!onRedo,
+    hasOnHistoryChange: !!onHistoryChange,
+    hasOnImageUpload: !!onImageUpload,
+    hasOnFileUpload: !!onFileUpload,
+    hasOnClear: !!onClear,
+    hasOnPdfPageChange: !!onPdfPageChange,
+    hasOnPdfPagesChange: !!onPdfPagesChange
   });
 
   // Debug: Track what's causing remounts (removed to reduce noise)
@@ -2176,255 +2199,14 @@ const Whiteboard = forwardRef(({
               });
             }}
           >
-            {backgroundType === 'pdf' ? (
-              <Document
-                file={backgroundFile}
-                {...unifiedPdfOptions}
-                onLoadStart={() => {
-                  const downloadStartTime = performance.now();
-                  log('DEBUG', 'Whiteboard', 'PDF download started', {
-                    url: backgroundFile,
-                    timestamp: downloadStartTime
-                  });
-                  // Store start time for later calculation
-                  window.pdfDownloadStartTime = downloadStartTime;
-                }}
-                onLoadSuccess={({ numPages }) => {
-                  const renderStartTime = performance.now();
-                  setPdfRenderStartTime(renderStartTime);
-                  window.pdfRenderStartTime = renderStartTime;
-                  const downloadTime = window.pdfDownloadStartTime ? 
-                    (renderStartTime - window.pdfDownloadStartTime) : null;
-                  
-                  log('INFO', 'Whiteboard', 'PDF loaded successfully with pages', numPages);
-                  
-                  // Only set pages count - renderPDF was already called during initial load
-                  // Avoid duplicate rendering and calculations
-                  if (numPages && numPages !== pdfPages) {
-                    setPdfPages(numPages);
-                    log('INFO', 'Whiteboard', '📄 PDF pages updated', numPages);
-                  }
-                  
-                  if (downloadTime) {
-                    log('DEBUG', 'Whiteboard', 'PDF download timing', {
-                      downloadTime: `${downloadTime.toFixed(2)}ms`,
-                      url: backgroundFile,
-                      fileSize: 'Unknown (from proxy)'
-                    });
-                  }
-                  
-                  // Notify parent component about PDF pages
-                  if (onPdfPagesChange) {
-                    onPdfPagesChange(numPages);
-                  }
-                  
-                  // Debug: Log actual dimensions after a short delay to see rendered size
-                  setTimeout(() => {
-                    const pdfContainer = document.querySelector('.pdf-pages-container');
-                    if (pdfContainer) {
-                      const rect = pdfContainer.getBoundingClientRect();
-                      const renderEndTime = performance.now();
-                      log('DEBUG', 'Whiteboard', 'Actual PDF container dimensions', {
-                        width: rect.width,
-                        height: rect.height,
-                        expectedHeight: 'Will be calculated when pages render',
-                        difference: 'N/A - using dynamic calculation',
-                        hasExtraSpacing: 'N/A - using dynamic calculation'
-                      });
-                      log('DEBUG', 'Whiteboard', 'PDF render timing', {
-                        renderTime: pdfRenderStartTime ? `${(renderEndTime - pdfRenderStartTime).toFixed(2)}ms` : 'N/A',
-                        numPages: numPages,
-                        renderSpeed: pdfRenderStartTime ? `${(numPages / ((renderEndTime - pdfRenderStartTime) / 1000)).toFixed(2)} pages/sec` : 'N/A'
-                      });
-                    }
-                  }, 1000);
-                }}
-                onLoadError={(error) => {
-                  log('ERROR', 'Whiteboard', '📄 PDF load error', {
-                    error: error.message,
-                    url: backgroundFile,
-                    isMobile: isMobile,
-                    timestamp: Date.now()
-                  });
-                }}
-                loading={<div>Loading PDF...</div>}
-              >
-                {/* PDF Navigation is now handled by external PDFNavigation component */}
-
-                {/* Render ALL pages with 6px gaps between pages only */}
-                <div 
-                  className="pdf-pages-container"
-                  style={{
-                    position: 'relative',
-                    zIndex: 1,
-                    pointerEvents: 'none'
-                  }}
-                  ref={(el) => {
-                    if (el) {
-                      log('INFO', 'Whiteboard', '📄 PDF container rendered', {
-                        containerVisible: el.offsetWidth > 0 && el.offsetHeight > 0,
-                        containerWidth: el.offsetWidth,
-                        containerHeight: el.offsetHeight,
-                        totalPages: pdfPages,
-                        isMobile: isMobile
-                      });
-                    }
-                  }}
-                >
-                  {Array.from({ length: pdfPages }, (_, index) => {
-                    log('INFO', 'Whiteboard', `📄 Creating PDF page ${index + 1}`, {
-                      pageNumber: index + 1,
-                      totalPages: pdfPages,
-                      isMobile: isMobile,
-                      backgroundFile: backgroundFile
-                    });
-                    return (
-                      <div 
-                        key={index + 1} 
-                        className="pdf-page-container"
-                      style={{
-                          marginBottom: index < pdfPages - 1 ? '6px' : '0px' // 6px gap between pages, no gap after last page
-                        }}
-                      >
-                          <Page
-                        pageNumber={index + 1}
-                            width={pdfDimensionsRef.current?.pageWidth || 1180} // Use cached dimensions
-                            renderTextLayer={false}
-                            renderAnnotationLayer={false}
-                        error={<div>Error loading page {index + 1}!</div>}
-                        loading={<div>Loading page {index + 1}...</div>}
-                        onLoadSuccess={(page) => {
-                            const pageRenderTime = performance.now();
-                          log('INFO', 'Whiteboard', `📄 PDF Page ${index + 1} rendered successfully`, {
-                            pageNumber: index + 1,
-                            totalPages: pdfPages,
-                              renderTime: pdfRenderStartTime ? `${(pageRenderTime - pdfRenderStartTime).toFixed(2)}ms` : 'N/A',
-                              cumulativeTime: `${(pageRenderTime - (window.pdfDownloadStartTime || pdfRenderStartTime || 0)).toFixed(2)}ms`,
-                            isMobile: isMobile,
-                            backgroundFile: backgroundFile
-                            });
-                          
-                          // Get actual PDF page dimensions from metadata
-                          if (page && page.originalWidth && page.originalHeight) {
-                            log('DEBUG', 'Whiteboard', `Page ${index + 1} PDF metadata`, {
-                              originalWidth: page.originalWidth,
-                              originalHeight: page.originalHeight,
-                              scale: page.scale,
-                              renderedWidth: page.width,
-                              renderedHeight: page.height
-                            });
-                            
-                            // Calculate the actual rendered height based on PDF metadata
-                            // Use cached dimensions to avoid recalculating
-                            const currentPageWidth = pdfDimensionsRef.current?.pageWidth || 1180;
-                            const scale = currentPageWidth / page.originalWidth;
-                            const actualPageHeight = page.originalHeight * scale;
-                            
-                            log('DEBUG', 'Whiteboard', `Page ${index + 1} calculated dimensions`, {
-                              pdfOriginalWidth: page.originalWidth,
-                              pdfOriginalHeight: page.originalHeight,
-                              renderedWidth: currentPageWidth,
-                              calculatedHeight: actualPageHeight,
-                              scale: scale
-                            });
-                            
-                            // Update background dimensions with actual PDF metadata
-                            // Include gaps in height calculation since they affect the total rendered height
-                            const gap = 6;
-                            const contentHeight = actualPageHeight * pdfPages; // Just the page heights
-                            const totalGapSpace = (pdfPages - 1) * gap; // Total space taken by gaps between pages
-                            const totalHeight = contentHeight + totalGapSpace + 20; // Add gaps + 20px for padding
-                            
-                            setBackgroundDimensions(prev => ({
-                              ...prev,
-                              height: totalHeight
-                            }));
-                            
-                            log('DEBUG', 'Whiteboard', 'Updated background dimensions from PDF metadata', {
-                              width: currentPageWidth,
-                              height: totalHeight,
-                              contentHeight: contentHeight,
-                              totalGapSpace: totalGapSpace,
-                              padding: 20,
-                              actualPageHeight,
-                              numPages: pdfPages,
-                              gapPerPage: gap,
-                              source: 'PDF metadata'
-                            });
-                            
-                            // Debug: Check actual DOM dimensions after a short delay
-                            setTimeout(() => {
-                              const pdfDoc = document.querySelector('.react-pdf__Document');
-                              const pdfContainer = document.querySelector('.pdf-pages-container');
-                              const parentDiv = pdfDoc?.parentElement;
-                              const pageContainers = document.querySelectorAll('.pdf-page-container');
-                              
-                              if (pdfDoc && pdfContainer && parentDiv) {
-                                const docRect = pdfDoc.getBoundingClientRect();
-                                const containerRect = pdfContainer.getBoundingClientRect();
-                                const parentRect = parentDiv.getBoundingClientRect();
-                                
-                                // Check individual page containers
-                                const pageHeights = Array.from(pageContainers).map((container, index) => {
-                                  const rect = container.getBoundingClientRect();
-                                  const computedStyle = window.getComputedStyle(container);
-                                  return {
-                                    page: index + 1,
-                                    height: rect.height,
-                                    marginBottom: computedStyle.marginBottom,
-                                    backgroundColor: computedStyle.backgroundColor
-                                  };
-                                });
-                                
-                                // Check dashboard-content dimensions
-                                const dashboardContent = document.querySelector('.dashboard-content');
-                                const dashboardRect = dashboardContent?.getBoundingClientRect();
-                                
-                                log('DEBUG', 'Whiteboard', 'Actual DOM dimensions', {
-                                  reactPdfHeight: docRect.height,
-                                  pdfContainerHeight: containerRect.height,
-                                  parentDivHeight: parentRect.height,
-                                  difference: parentRect.height - docRect.height,
-                                  expectedDifference: 20, // Only padding, gaps are applied via CSS
-                                  gapAppliedViaCSS: (pdfPages - 1) * 6,
-                                  pageContainers: pageHeights,
-                                  dashboardContent: {
-                                    width: dashboardRect?.width,
-                                    height: dashboardRect?.height,
-                                    scrollWidth: dashboardContent?.scrollWidth,
-                                    scrollHeight: dashboardContent?.scrollHeight,
-                                    hasHorizontalScroll: dashboardContent?.scrollWidth > dashboardContent?.clientWidth,
-                                    hasVerticalScroll: dashboardContent?.scrollHeight > dashboardContent?.clientHeight
-                                  }
-                                });
-                              }
-                            }, 500);
-                          } else {
-                            log('WARN', 'Whiteboard', `Page ${index + 1} - No PDF metadata available, using fallback`);
-                          }
-                          
-                          // Log end-to-end timing for the last page
-                          if (index + 1 === pdfPages) {
-                            const absoluteEndTime = Date.now();
-                            const totalEndToEndTime = absoluteEndTime - window.pdfUploadStartTime;
-                            log('DEBUG', 'Whiteboard', 'End-to-end complete', {
-                              totalTime: `${totalEndToEndTime}ms`,
-                              totalTimeSeconds: `${(totalEndToEndTime / 1000).toFixed(2)}s`,
-                              timestamp: new Date(absoluteEndTime).toISOString(),
-                              breakdown: {
-                                upload: `${(window.pdfUploadEndTime - window.pdfUploadStartTime).toFixed(2)}ms`,
-                                render: `${(pageRenderTime - window.pdfRenderStartTime).toFixed(2)}ms`,
-                                total: `${totalEndToEndTime}ms`
-                              }
-                            });
-                          }
-                        }}
-                      />
-                    </div>
-                    );
-                  })}
-                </div>
-              </Document>
+          {backgroundType === 'pdf' ? (
+            <PDFRenderer
+              pdfUrl={backgroundFile}
+              onDimensionsChange={handlePDFDimensionsChange}
+              onLoadComplete={handlePDFLoadComplete}
+              containerWidth={currentContainerSize.width || 1200}
+              isMobile={isMobile}
+            />
             ) : backgroundType === 'image' ? (
               <img
                 src={backgroundFile}
