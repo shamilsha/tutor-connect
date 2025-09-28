@@ -168,8 +168,8 @@ const Whiteboard = forwardRef(({
   const [pdfPages, setPdfPages] = useState(1);
   const [currentPage, setCurrentPage] = useState(1);
   const [scale, setScale] = useState(1);
-  // Use dynamic container size from props
-  const [currentContainerSize, setCurrentContainerSize] = useState(containerSize);
+  // Use fixed container size for consistency between peers
+  const [currentContainerSize, setCurrentContainerSize] = useState({ width: 1200, height: 800 });
   const [pageShapes, setPageShapes] = useState({});
   const [pageLines, setPageLines] = useState({});
 
@@ -236,7 +236,7 @@ const Whiteboard = forwardRef(({
         timestamp: Date.now()
       });
     }
-  }, [isScreenShareActive, backgroundType]); // Removed backgroundDimensions and screenShareDimensions to prevent remounts
+  }, [isScreenShareActive, backgroundType, backgroundDimensions, screenShareDimensions]); // Include dimensions to recalculate when they change
 
   // Handle image dimension updates directly in the image onLoad callback to prevent useEffect re-renders
 
@@ -606,13 +606,12 @@ const Whiteboard = forwardRef(({
             timestamp: Date.now()
           });
           
-          // Sync PDF dimensions from peer for consistency
-          if (data.transitionData.pdfDimensions && data.transitionData.backgroundType === 'pdf') {
-            pdfDimensionsRef.current = data.transitionData.pdfDimensions;
-            log('INFO', 'Whiteboard', '📐 SYNCED PDF DIMENSIONS FROM PEER', {
-              containerWidth: data.transitionData.pdfDimensions.containerWidth,
-              pageWidth: data.transitionData.pdfDimensions.pageWidth,
-              pageHeight: data.transitionData.pdfDimensions.pageHeight
+          // PDF dimensions will be calculated identically by both peers
+          // No need to sync dimensions - both peers use same calculation function
+          if (data.transitionData.backgroundType === 'pdf') {
+            log('INFO', 'Whiteboard', '📐 PDF BACKGROUND - Both peers will calculate dimensions identically', {
+              backgroundType: data.transitionData.backgroundType,
+              timestamp: Date.now()
             });
           }
           
@@ -1292,18 +1291,18 @@ const Whiteboard = forwardRef(({
       return;
     }
     
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
       log('ERROR', 'Whiteboard', 'Invalid file type', file.type);
-      return;
-    }
-    
-    // Validate file size (max 10MB)
-    if (file.size > 10 * 1024 * 1024) {
+        return;
+      }
+      
+      // Validate file size (max 10MB)
+      if (file.size > 10 * 1024 * 1024) {
       log('ERROR', 'Whiteboard', 'File too large', file.size);
-      return;
-    }
-    
+        return;
+      }
+      
     log('INFO', 'Whiteboard', '📤 IDEAL FLOW: Delegating to parent for upload + processing', { fileName: file.name });
     
     // DELEGATE TO PARENT: Parent handles the complete ideal flow
@@ -1427,7 +1426,7 @@ const Whiteboard = forwardRef(({
       containerStyle.height = `${finalHeight}px`;
       containerStyle.minWidth = `${finalWidth}px`;
       containerStyle.minHeight = `${finalHeight}px`;
-    } else {
+        } else {
       // For PDFs and screen share, use fixed dimensions
       containerStyle.width = `${finalWidth}px`;
       containerStyle.height = `${finalHeight}px`;
@@ -1479,7 +1478,7 @@ const Whiteboard = forwardRef(({
       currentBackgroundDimensions: backgroundDimensions,
       currentFinalWidth: finalWidth,
       currentFinalHeight: finalHeight,
-      timestamp: Date.now()
+          timestamp: Date.now()
     });
     
     setBackgroundDimensions(dimensions);
@@ -1782,6 +1781,7 @@ const Whiteboard = forwardRef(({
     delete window.hasDrawings;
     };
   }, [lines, shapes, pageLines, pageShapes, historyStep, history]);
+
 
   // Expose functions to parent component
   useImperativeHandle(ref, () => ({
@@ -2227,8 +2227,8 @@ const Whiteboard = forwardRef(({
       >
         {/* Background Layer - PDF and Images */}
         {backgroundFile && (
-                          <div 
-                      style={{
+          <div
+            style={{
               position: 'absolute',
               top: 0,
               left: 0,
@@ -2240,8 +2240,8 @@ const Whiteboard = forwardRef(({
                 : '100%',
               zIndex: 1,
               backgroundColor: '#f5f5f5',
-                              display: 'flex',
-                              justifyContent: 'center',
+              display: 'flex',
+              justifyContent: 'flex-start', // Left-align instead of center
               alignItems: 'flex-start', // Start from top instead of center
               padding: '10px', // Add 10px padding around the PDF
               pointerEvents: 'none' // Allow mouse events to pass through to Stage
@@ -2272,7 +2272,7 @@ const Whiteboard = forwardRef(({
               pdfUrl={backgroundFile}
               onDimensionsChange={handlePDFDimensionsChange}
               onLoadComplete={handlePDFLoadComplete}
-              containerWidth={currentContainerSize.width || 1200}
+              containerWidth={1200}
               isMobile={isMobile}
             />
             ) : (
@@ -2290,16 +2290,16 @@ const Whiteboard = forwardRef(({
                       if (backgroundDimensions.width !== dimensions.width || backgroundDimensions.height !== dimensions.height) {
                         console.log('🔍 DEBUG: Whiteboard - Dimensions changed, updating canvas');
                         setBackgroundDimensions(dimensions);
-                      } else {
+                          } else {
                         console.log('🔍 DEBUG: Whiteboard - Dimensions unchanged, skipping update');
                       }
                     }}
-                    containerWidth={currentContainerSize.width}
-                    containerHeight={currentContainerSize.height}
+                    containerWidth={1200}
+                    containerHeight={800}
                   />
                 )}
-              </div>
-            )}
+                  </div>
+                )}
           </div>
         )}
 
@@ -2308,6 +2308,8 @@ const Whiteboard = forwardRef(({
           width={(() => {
             const stageWidth = isScreenShareActive && screenShareDimensions.width > 0 
               ? screenShareDimensions.width 
+              : backgroundType === 'pdf' 
+                ? backgroundDimensions.width > 0 ? backgroundDimensions.width : 1200  // Use PDF width for left-aligned layout
               : backgroundDimensions.width > 0 
                 ? backgroundDimensions.width 
                 : currentContainerSize.width;
@@ -2323,6 +2325,8 @@ const Whiteboard = forwardRef(({
           height={(() => {
             const stageHeight = isScreenShareActive && screenShareDimensions.height > 0 
               ? screenShareDimensions.height 
+              : backgroundType === 'pdf' 
+                ? backgroundDimensions.height > 0 ? backgroundDimensions.height : 800  // Use PDF height for drawing area
               : backgroundDimensions.height > 0 
                 ? backgroundDimensions.height 
                 : currentContainerSize.height;

@@ -238,9 +238,9 @@ useEffect(() => {
         backgroundColor: '#f5f5f5',
         display: 'flex',
         flexDirection: 'column',
-        alignItems: 'center',
+        alignItems: 'flex-start', // Left-align instead of center
         justifyContent: 'flex-start',
-        padding: '10px 15px', // Add horizontal and vertical padding
+        padding: '10px 10px', // 10px gap on left side
         boxSizing: 'border-box', // Include padding in width calculation
       }}
     >
@@ -263,11 +263,11 @@ useEffect(() => {
           style={{
             display: 'flex',
             flexDirection: 'column',
-            alignItems: 'center',
+            alignItems: 'flex-start', // Left-align instead of center
             justifyContent: 'flex-start',
             width: '100%',
             height: '100%',
-            padding: '0 10px', // Add horizontal padding to the wrapper instead of individual pages
+            padding: '0 0', // Remove horizontal padding since we're left-aligning
           }}
         >
           {Array.from({ length: pdfPages }, (_, index) => (

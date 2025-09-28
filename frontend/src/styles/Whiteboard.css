@@ -112,6 +112,6 @@
   padding: 0 !important;
   display: flex !important;
   flex-direction: column !important;
-  align-items: center !important;
+  align-items: flex-start !important; /* Left-align instead of center */
   line-height: 0 !important;
 }

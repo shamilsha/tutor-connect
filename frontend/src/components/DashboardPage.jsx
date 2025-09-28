@@ -14,6 +14,7 @@ import { useCommunication } from '../context/CommunicationContext';
 import { WebSocketProvider } from '../services/WebSocketProvider';
 import { getBuildDisplay } from '../utils/buildVersion';
 
+
 // Logging system
 const LOG_LEVELS = { ERROR: 0, WARN: 1, INFO: 2, DEBUG: 3, VERBOSE: 4 };
 const LOG_LEVEL = process.env.REACT_APP_LOG_LEVEL || 'INFO';
