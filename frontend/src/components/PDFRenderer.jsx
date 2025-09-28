@@ -31,6 +31,7 @@ const PDFRenderer = ({
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
   const [containerDimensions, setContainerDimensions] = useState({ width: 0, height: 0 });
+  const [dimensionsReady, setDimensionsReady] = useState(false);
   const pdfPageDimensionsRef = useRef({ pageWidth: 0, pageHeight: 0 });
   const pageRefs = useRef([]);
 
@@ -80,6 +81,9 @@ const PDFRenderer = ({
       const { pageWidth, pageHeight } = calculatePageDimensions(originalWidth, originalHeight);
       pdfPageDimensionsRef.current = { pageWidth, pageHeight };
       
+      // Mark dimensions as ready for the useEffect to trigger
+      setDimensionsReady(true);
+      
       // DON'T set dimensions yet - wait for all pages to load
       log('INFO', 'PDFRenderer', '📐 PDF dimensions calculated but NOT set to prevent remounts', { 
         pageWidth, 
@@ -96,25 +100,31 @@ const PDFRenderer = ({
 
   // Set dimensions only after all pages are loaded to prevent Whiteboard remounts
   useEffect(() => {
-    if (pdfPages > 0 && pdfPageDimensionsRef.current.pageWidth > 0) {
+    if (pdfPages > 0 && dimensionsReady && pdfPageDimensionsRef.current.pageWidth > 0) {
       // All pages are loaded, now set dimensions
       const { pageWidth, pageHeight } = pdfPageDimensionsRef.current;
-      const totalHeight = pageHeight * pdfPages + (pdfPages - 1) * 6 + 20; // 6px gap + 20px padding
-      const dimensions = { width: pageWidth, height: totalHeight };
+      // Calculate total width: page width + wrapper padding (10px left + 10px right)
+      const totalWidth = pageWidth + 20; // 10px left + 10px right wrapper padding
+      // Calculate total height: pages + gaps + container padding (10px top + 10px bottom)
+      const totalHeight = pageHeight * pdfPages + (pdfPages - 1) * 6 + 20; // 6px gap + 20px container padding
+      const dimensions = { width: totalWidth, height: totalHeight };
       
       setContainerDimensions(dimensions);
       onDimensionsChange(dimensions);
       onLoadComplete({ numPages: pdfPages, dimensions });
       
-      log('INFO', 'PDFRenderer', '📐 PDF dimensions set AFTER all pages loaded', { 
+      log('INFO', 'PDFRenderer', '🚀 PDF DIMENSIONS SET - Canvas should now match PDF total dimensions with proper centering', { 
         dimensions, 
+        pageWidth,
         pageHeight, 
         pdfPages, 
         gaps: (pdfPages - 1) * 6,
-        padding: 20
+        containerPadding: 20,
+        wrapperPadding: 20, // 10px left + 10px right wrapper padding
+        note: 'Canvas should now be 980px × 10,388px for 19 pages (960px + 20px wrapper padding)'
       });
     }
-  }, [pdfPages, onDimensionsChange, onLoadComplete]);
+  }, [pdfPages, dimensionsReady, onDimensionsChange, onLoadComplete]);
 
   // Add this useEffect for complete cleanup
 useEffect(() => {
@@ -206,6 +216,7 @@ useEffect(() => {
       setLoadError(null);
       setPdfPages(0);
       setContainerDimensions({ width: 0, height: 0 });
+      setDimensionsReady(false);
       pdfPageDimensionsRef.current = { pageWidth: 0, pageHeight: 0 };
       pageRefs.current = [];
       log('INFO', 'PDFRenderer', '🔄 Resetting PDFRenderer state for new URL', { pdfUrl: pdfUrl.substring(0, 50) + '...' });
@@ -229,6 +240,8 @@ useEffect(() => {
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'flex-start',
+        padding: '10px 15px', // Add horizontal and vertical padding
+        boxSizing: 'border-box', // Include padding in width calculation
       }}
     >
       {isLoading && <div className="pdf-loading-overlay">Loading PDF...</div>}
@@ -251,8 +264,10 @@ useEffect(() => {
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
+            justifyContent: 'flex-start',
             width: '100%',
             height: '100%',
+            padding: '0 10px', // Add horizontal padding to the wrapper instead of individual pages
           }}
         >
           {Array.from({ length: pdfPages }, (_, index) => (
@@ -264,6 +279,9 @@ useEffect(() => {
                 marginBottom: index < pdfPages - 1 ? '6px' : '0px',
                 width: pdfPageDimensionsRef.current.pageWidth > 0 ? `${pdfPageDimensionsRef.current.pageWidth}px` : 'auto',
                 height: pdfPageDimensionsRef.current.pageHeight > 0 ? `${pdfPageDimensionsRef.current.pageHeight}px` : 'auto',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)', // Add subtle shadow for better visual separation
+                borderRadius: '4px', // Add slight rounding for modern look
+                overflow: 'hidden', // Ensure content doesn't overflow rounded corners
               }}
             >
               <Page

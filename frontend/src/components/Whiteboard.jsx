@@ -41,11 +41,11 @@ const Whiteboard = forwardRef(({
   onPDFDimensionsChange = null,
   webRTCProvider = null, 
   selectedPeer = null,
-  // New props from toolbar
-  currentTool = null,
-  currentColor = '#000000',
-  onToolChange = null,
-  onColorChange = null,
+  // GLOBAL STATE APPROACH: Not needed anymore
+  // currentTool = null,
+  // currentColor = '#000000',
+  // onToolChange = null,
+  // onColorChange = null,
   onUndo = null,
   onRedo = null,
   onHistoryChange = null,
@@ -62,6 +62,32 @@ const Whiteboard = forwardRef(({
   onPdfPageChange = null,
   onPdfPagesChange = null,
 }, ref) => {
+  // COMPLETELY DIFFERENT APPROACH: Use global state that doesn't require props
+  // Initialize global state if not exists
+  if (!window.whiteboardToolState) {
+    window.whiteboardToolState = {
+      currentTool: 'pen',
+      currentColor: '#000000'
+    };
+  }
+  
+  // CRITICAL FIX: Read from global state dynamically every time
+  const getActualTool = () => window.whiteboardToolState?.currentTool || 'pen';
+  const getActualColor = () => window.whiteboardToolState?.currentColor || '#000000';
+  
+  // For logging purposes, get current values
+  const actualTool = getActualTool();
+  const actualColor = getActualColor();
+  
+  // PROPER FIX: Log current values for debugging
+  console.log('[Whiteboard] 🔧 PROPER FIX: Current values', {
+    // GLOBAL STATE APPROACH: Not needed anymore
+    // currentTool,
+    // currentColor,
+    actualTool,
+    actualColor,
+    timestamp: Date.now()
+  });
   
   // Drawing state
   const [lines, setLines] = useState([]);
@@ -89,7 +115,8 @@ const Whiteboard = forwardRef(({
   const [historyStep, setHistoryStep] = useState(0);
   
   // Ensure we have a default tool for drawing (accessible to all functions)
-  const drawingTool = currentTool || 'pen';
+  // CRITICAL FIX: Make drawingTool always reflect current actualTool
+  const drawingTool = actualTool || 'pen';
   
   // Log current state after all state variables are declared
   log('DEBUG', 'Whiteboard', 'Current state on mount', { lines: lines.length, shapes: shapes.length, historyStep, historyLength: history.length });
@@ -97,27 +124,42 @@ const Whiteboard = forwardRef(({
   // Calculate proper container dimensions before rendering
   const calculateContainerDimensions = () => {
     let finalWidth, finalHeight;
+    let source = 'unknown';
     
     if (isScreenShareActive && screenShareDimensions.width > 0 && screenShareDimensions.height > 0) {
       // Use screen share dimensions
       finalWidth = screenShareDimensions.width;
       finalHeight = screenShareDimensions.height;
+      source = 'screenShare';
     } else if (backgroundDimensions.width > 0 && backgroundDimensions.height > 0) {
       // Use background dimensions
       finalWidth = backgroundDimensions.width;
       finalHeight = backgroundDimensions.height;
+      source = 'background';
     } else {
       // Use default container size
       finalWidth = currentContainerSize.width;
       finalHeight = currentContainerSize.height;
+      source = 'default';
     }
+    
+    log('DEBUG', 'Whiteboard', '📐 CALCULATE CONTAINER DIMENSIONS', {
+      isScreenShareActive,
+      screenShareDimensions,
+      backgroundDimensions,
+      currentContainerSize,
+      source,
+      finalWidth,
+      finalHeight,
+      timestamp: Date.now()
+    });
     
     return { finalWidth, finalHeight };
   };
   
   const [defaultFill, setDefaultFill] = useState(false);
-  const [strokeColor, setStrokeColor] = useState(currentColor);
-  const [fillColor, setFillColor] = useState(currentColor);
+  const [strokeColor, setStrokeColor] = useState(actualColor);
+  const [fillColor, setFillColor] = useState(actualColor);
   const [triangleType, setTriangleType] = useState('equilateral');
   const [cursors, setCursors] = useState(new Map());
   const [backgroundFile, setBackgroundFile] = useState(null);
@@ -146,10 +188,11 @@ const Whiteboard = forwardRef(({
   const selectedPeerRef = useRef(null);
   const pdfDimensionsRef = useRef(null); // Cache PDF dimensions to avoid recalculating
 
-  // Update stroke color when currentColor prop changes
+  // PROPER FIX: Update stroke color when actualColor changes
   useEffect(() => {
-    setStrokeColor(currentColor);
-  }, [currentColor]);
+    setStrokeColor(actualColor);
+    setFillColor(actualColor);
+  }, [actualColor]);
 
   // Update container size when prop changes
   useEffect(() => {
@@ -179,8 +222,20 @@ const Whiteboard = forwardRef(({
         isMobile: isMobile,
         timestamp: Date.now()
       });
+    } else {
+      log('DEBUG', 'Whiteboard', '📐 CONTAINER DIMENSIONS - No change needed', {
+        currentFinalWidth: finalWidth,
+        currentFinalHeight: finalHeight,
+        calculatedWidth: newWidth,
+        calculatedHeight: newHeight,
+        isScreenShareActive,
+        backgroundType,
+        screenShareDimensions,
+        backgroundDimensions,
+        timestamp: Date.now()
+      });
     }
-  }, [isScreenShareActive, backgroundType]); // Only background type changes, not dimension changes
+  }, [isScreenShareActive, backgroundType, backgroundDimensions, screenShareDimensions]); // Include dimension changes
 
   // Handle image dimension updates directly in the image onLoad callback to prevent useEffect re-renders
 
@@ -505,8 +560,8 @@ const Whiteboard = forwardRef(({
               file: data.background.file,
               timestamp: Date.now()
             });
-        }
-        break;
+          }
+          break;
       case 'backgroundTransition':
         if (data.transitionData) {
           log('INFO', 'Whiteboard', '🔄 RECEIVED BACKGROUND TRANSITION', {
@@ -536,8 +591,8 @@ const Whiteboard = forwardRef(({
             // This would need to be passed up to parent component
             log('INFO', 'Whiteboard', '🔄 APPLYING REMOTE TRANSITION', transitionStyle);
           }
-        }
-        break;
+          }
+          break;
       // Note: clearBackground case removed - now using checkExclusivity() approach
       default:
         log('WARN', 'Whiteboard', 'Unknown action', data.action);
@@ -581,7 +636,7 @@ const Whiteboard = forwardRef(({
         action,
         userId,
         username,
-        color: currentColor,
+        color: actualColor,
         backgroundType: backgroundType
       };
 
@@ -650,12 +705,12 @@ const Whiteboard = forwardRef(({
     // Early return if not drawing - no calculations needed for layout
     if (!isDrawing) {
       // Only send cursor position when a tool is selected AND not on mobile (throttled to avoid spam)
-      if (currentTool && !isMobile) {
+      if (actualTool && !isMobile) {
         const now = Date.now();
         if (!window.lastCursorTime || now - window.lastCursorTime > 500) { // Send max every 500ms
           window.lastCursorTime = now;
-          const stage = e.target.getStage();
-          const point = stage.getPointerPosition();
+    const stage = e.target.getStage();
+    const point = stage.getPointerPosition();
           sendWhiteboardMsg('cursor', { position: point });
         }
       }
@@ -669,7 +724,7 @@ const Whiteboard = forwardRef(({
     const correctedY = point.y;
     
     // Log coordinates when drawing with line tool (only if debug enabled)
-    if (DEBUG_MOUSE_MOVEMENT && currentTool === 'line') {
+    if (DEBUG_MOUSE_MOVEMENT && actualTool === 'line') {
       log('VERBOSE', 'Whiteboard', 'Mouse move - Using simple coordinates', { 
         correctedX, 
         correctedY, 
@@ -679,7 +734,7 @@ const Whiteboard = forwardRef(({
     }
 
     // Send cursor position when drawing (throttled to avoid spam)
-    if (currentTool && !isMobile) {
+    if (actualTool && !isMobile) {
       const now = Date.now();
       if (!window.lastCursorTime || now - window.lastCursorTime > 500) { // Send max every 500ms
         window.lastCursorTime = now;
@@ -687,7 +742,17 @@ const Whiteboard = forwardRef(({
       }
     }
 
-    if (currentTool === 'pen') {
+    if (actualTool === 'pen') {
+      // CRITICAL FIX: Debug what values are being used for drawing
+      console.log('[Whiteboard] 🔧 CRITICAL FIX: Drawing with pen - Current values', {
+        actualTool,
+        actualColor,
+        strokeColor,
+        fillColor,
+        drawingTool,
+        timestamp: Date.now()
+      });
+      
       // Use regular lines storage for all backgrounds (including PDF)
       let lastLine = lines[lines.length - 1];
       const newLastLine = {
@@ -704,50 +769,50 @@ const Whiteboard = forwardRef(({
       
       // Use regular shapes storage for all backgrounds (including PDF)
       const updatedShapes = shapes.map(shape => {
-          if (shape.id === selectedShape.id) {
-            switch (shape.type) {
-              case 'line':
-                if (DEBUG_MOUSE_MOVEMENT) {
+        if (shape.id === selectedShape.id) {
+          switch (shape.type) {
+            case 'line':
+              if (DEBUG_MOUSE_MOVEMENT) {
                 log('VERBOSE', 'Whiteboard', 'Line drawing mouse', { correctedX, correctedY, startX: startPoint.x, startY: startPoint.y, deltaX: dx, deltaY: dy });
-                }
-                return {
-                  ...shape,
+              }
+              return {
+                ...shape,
                 points: [startPoint.x, startPoint.y, correctedX, correctedY]  // Absolute coordinates: start at actual mouse down position, end at current mouse position
-                };
-              case 'circle':
-                    return {
-                      ...shape,
-                  radius: Math.sqrt(dx * dx + dy * dy)
-                };
-              case 'ellipse':
-                    return {
-                      ...shape,
-                  radiusX: Math.abs(dx),
-                  radiusY: Math.abs(dy)
-                };
-              case 'rectangle':
-                return {
-                  ...shape,
-                  width: Math.abs(dx),
-                  height: Math.abs(dy)
-                };
-              case 'triangle':
-                return {
-                  ...shape,
-                  width: Math.abs(dx),
-                  height: Math.abs(dy)
-                };
-              default:
-                return shape;
-            }
+              };
+            case 'circle':
+                  return {
+                    ...shape,
+                radius: Math.sqrt(dx * dx + dy * dy)
+              };
+            case 'ellipse':
+                  return {
+                    ...shape,
+                radiusX: Math.abs(dx),
+                radiusY: Math.abs(dy)
+              };
+            case 'rectangle':
+              return {
+                ...shape,
+                width: Math.abs(dx),
+                height: Math.abs(dy)
+              };
+            case 'triangle':
+              return {
+                ...shape,
+                width: Math.abs(dx),
+                height: Math.abs(dy)
+              };
+            default:
+              return shape;
           }
-          return shape;
-        });
+        }
+        return shape;
+      });
       setShapes(updatedShapes);
       // Send shape update via WebRTC data channel - send the updated shape
       const updatedShape = updatedShapes.find(shape => shape.id === selectedShape.id);
       if (updatedShape) {
-        log('INFO', 'Whiteboard', `📤 SENDING ${currentTool} tool update`, {
+        log('INFO', 'Whiteboard', `📤 SENDING ${actualTool} tool update`, {
           shapeId: updatedShape.id,
           shapeX: updatedShape.x,
           shapeY: updatedShape.y,
@@ -764,6 +829,20 @@ const Whiteboard = forwardRef(({
   };
 
   const handleMouseDown = (e) => {
+    // CRITICAL FIX: Get fresh values from global state when drawing starts
+    const currentTool = getActualTool();
+    const currentColor = getActualColor();
+    
+    // COMPREHENSIVE LOGGING: Track tool/color values when drawing starts
+    console.log('[Whiteboard] 🎯 DRAWING START - Tool/Color Values', {
+      globalTool: window.whiteboardToolState?.currentTool,
+      globalColor: window.whiteboardToolState?.currentColor,
+      currentTool,
+      currentColor,
+      isDrawing,
+      timestamp: Date.now()
+    });
+    
     log('VERBOSE', 'Whiteboard', 'Mouse down - Current state', {
       tool: currentTool,
       isDrawing,
@@ -781,13 +860,16 @@ const Whiteboard = forwardRef(({
       log('VERBOSE', 'Whiteboard', 'Mouse down - Using simple coordinates', { correctedX, correctedY });
     }
 
-    if (drawingTool === 'pen') {
+    if (currentTool === 'pen') { // CRITICAL FIX: Use fresh currentTool instead of stale actualTool
+      // CRITICAL FIX: Use fresh currentColor directly for pen tool as well
+      const lineColor = currentColor;
+      
       const newLine = {
         id: `${userId}-${Date.now()}-${uuidv4()}`,
-        tool: 'pen',
+        tool: currentTool, // CRITICAL FIX: Use fresh currentTool instead of hardcoded 'pen'
         type: 'line',
         points: [correctedX, correctedY],
-        stroke: currentColor,
+        stroke: lineColor, // CRITICAL FIX: Use direct value
         strokeWidth: 2,
         lineCap: 'round',
         lineJoin: 'round'
@@ -800,21 +882,43 @@ const Whiteboard = forwardRef(({
       // Send line creation via WebRTC data channel
       sendWhiteboardMsg('draw', { shape: newLine });
     } else {
+      // PROPER FIX: Debug what values are being used for shape creation
+      console.log('[Whiteboard] 🔧 PROPER FIX: Creating shape - Current values', {
+        currentTool,
+        currentColor,
+        strokeColor,
+        fillColor,
+        drawingTool,
+        defaultFill,
+        timestamp: Date.now()
+      });
+      
+      // CRITICAL FIX: Use fresh currentColor directly instead of state variables to ensure immediate values
+      const shapeColor = currentColor;
+      const shapeFill = defaultFill ? currentColor : 'transparent';
+      
+      console.log('[Whiteboard] 🔧 CRITICAL FIX: Using direct values for shape', {
+        shapeColor,
+        shapeFill,
+        currentColor,
+        defaultFill
+      });
+      
       const newShape = {
         id: `${userId}-${Date.now()}-${uuidv4()}`,
-        tool: drawingTool,
-        type: drawingTool,
+        tool: currentTool, // CRITICAL FIX: Use fresh currentTool instead of drawingTool
+        type: currentTool, // CRITICAL FIX: Use fresh currentTool instead of drawingTool
         x: correctedX,
         y: correctedY,
-        stroke: currentColor,
+        stroke: shapeColor, // CRITICAL FIX: Use direct value
         strokeWidth: 2,
-        fill: defaultFill ? currentColor : 'transparent'
+        fill: shapeFill // CRITICAL FIX: Use direct value
       };
 
       log('DEBUG', 'Whiteboard', 'Creating new shape', newShape);
 
       // Set specific properties based on shape type
-      switch (drawingTool) {
+      switch (actualTool) { // CRITICAL FIX: Use actualTool instead of drawingTool
         case 'line':
           newShape.points = [0, 0, 0, 0];  // Initialize with relative coordinates for current layout
           break;
@@ -863,7 +967,7 @@ const Whiteboard = forwardRef(({
     if (DEBUG_MOUSE_MOVEMENT) {
       log('VERBOSE', 'Whiteboard', 'Mouse up - Current state', {
         isDrawing,
-        tool: currentTool,
+        tool: actualTool,
         selectedShape: selectedShape?.id,
         startPoint: startPointRef.current
       });
@@ -885,7 +989,7 @@ const Whiteboard = forwardRef(({
   const handleClick = (e) => {
     if (DEBUG_MOUSE_MOVEMENT) {
       log('VERBOSE', 'Whiteboard', 'Click - Current state', {
-        tool: currentTool,
+        tool: actualTool,
         isDrawing,
         selectedShape: selectedShape?.id,
         clickedTarget: e.target.constructor.name,
@@ -894,9 +998,9 @@ const Whiteboard = forwardRef(({
     }
 
     // If a tool is active, don't handle click (let mouse up handle it)
-    if (currentTool) {
+    if (actualTool) {
       if (DEBUG_MOUSE_MOVEMENT) {
-        log('VERBOSE', 'Whiteboard', 'Click - Tool is active, returning early', currentTool);
+        log('VERBOSE', 'Whiteboard', 'Click - Tool is active, returning early', actualTool);
       }
       return;
     }
@@ -945,14 +1049,14 @@ const Whiteboard = forwardRef(({
     const now = Date.now();
     if (!window.lastStateTime || now - window.lastStateTime > 5000) { // Send max every 5 seconds during transitions
       window.lastStateTime = now;
-      sendWhiteboardMsg('state', { 
-        state: {
-          lines: currentLines, 
-          shapes: currentShapes, 
-          historyStep: newHistory.length - 1,
-          history: newHistory
-        }
-      });
+    sendWhiteboardMsg('state', { 
+          state: {
+        lines: currentLines, 
+        shapes: currentShapes, 
+        historyStep: newHistory.length - 1,
+        history: newHistory
+      } 
+    });
     }
   };
 
@@ -1071,8 +1175,8 @@ const Whiteboard = forwardRef(({
       // Send current state to peers so they can sync their history
       sendWhiteboardMsg('state', { 
         state: {
-          lines: prevState.lines,
-          shapes: prevState.shapes,
+          lines: prevState.lines, 
+          shapes: prevState.shapes, 
           historyStep: newStep,
           history: history
         }
@@ -1102,8 +1206,8 @@ const Whiteboard = forwardRef(({
       // Send current state to peers so they can sync their history
       sendWhiteboardMsg('state', { 
         state: {
-          lines: state.lines,
-          shapes: state.shapes,
+          lines: state.lines, 
+          shapes: state.shapes, 
           historyStep: newStep,
           history: history
         }
@@ -1302,7 +1406,7 @@ const Whiteboard = forwardRef(({
       finalWidth,
       finalHeight,
       isMobileDrawingMode,
-      timestamp: Date.now()
+          timestamp: Date.now()
     });
     
     // Calculate Z-index and positioning based on background type
@@ -1342,6 +1446,20 @@ const Whiteboard = forwardRef(({
       containerStyle.height = `${finalHeight}px`;
       containerStyle.minWidth = `${finalWidth}px`;
       containerStyle.minHeight = `${finalHeight}px`;
+      
+      log('DEBUG', 'Whiteboard', '📦 CONTAINER STYLE CALCULATION', {
+        backgroundType,
+        finalWidth,
+        finalHeight,
+        backgroundDimensions,
+        containerStyle: {
+          width: containerStyle.width,
+          height: containerStyle.height,
+          minWidth: containerStyle.minWidth,
+          minHeight: containerStyle.minHeight
+        },
+        note: 'Container should match PDF total dimensions for drawing across all pages'
+      });
     }
     
     return containerStyle;
@@ -1369,8 +1487,21 @@ const Whiteboard = forwardRef(({
 
   // New function to handle PDF dimensions from PDFRenderer component
   const handlePDFDimensionsChange = useCallback((dimensions) => {
-    log('INFO', 'Whiteboard', 'PDF dimensions changed', dimensions);
+    log('INFO', 'Whiteboard', '📐 PDF DIMENSIONS RECEIVED FROM PDFRENDERER', {
+      receivedDimensions: dimensions,
+      currentBackgroundDimensions: backgroundDimensions,
+      currentFinalWidth: finalWidth,
+      currentFinalHeight: finalHeight,
+      timestamp: Date.now()
+    });
+    
     setBackgroundDimensions(dimensions);
+    
+    log('INFO', 'Whiteboard', '📐 PDF DIMENSIONS UPDATED - Let useEffect handle dimension transition', {
+      newBackgroundDimensions: dimensions,
+      note: 'useEffect will handle finalWidth/finalHeight update based on backgroundDimensions',
+      timestamp: Date.now()
+    });
     
     // Forward dimensions to parent DashboardPage to update container size
     if (onPDFDimensionsChange) {
@@ -2043,8 +2174,8 @@ const Whiteboard = forwardRef(({
   // COMPREHENSIVE LOGGING: Track all props that could cause remounts
   log('INFO', 'Whiteboard', '🔄 WHITEBOARD RENDER - All Props', {
     // Core props
-    userId,
-    username,
+            userId,
+            username,
     isScreenShareActive,
     currentImageUrl,
     containerSize,
@@ -2054,9 +2185,10 @@ const Whiteboard = forwardRef(({
     // WebRTC props
     hasWebRTCProvider: !!webRTCProvider,
     selectedPeer,
+    // GLOBAL STATE APPROACH: Not needed anymore
     // Tool props
-    currentTool,
-    currentColor,
+    // currentTool,
+    // currentColor,
     // History props
     canUndo,
     canRedo,
@@ -2071,8 +2203,9 @@ const Whiteboard = forwardRef(({
     hasOnImageChange: !!onImageChange,
     hasOnPdfChange: !!onPdfChange,
     hasOnPDFDimensionsChange: !!onPDFDimensionsChange,
-    hasOnToolChange: !!onToolChange,
-    hasOnColorChange: !!onColorChange,
+    // GLOBAL STATE APPROACH: Not needed anymore
+    // hasOnToolChange: !!onToolChange,
+    // hasOnColorChange: !!onColorChange,
     hasOnUndo: !!onUndo,
     hasOnRedo: !!onRedo,
     hasOnHistoryChange: !!onHistoryChange,
@@ -2152,9 +2285,9 @@ const Whiteboard = forwardRef(({
   return (
     <>
       {/* Whiteboard Container - Drawing Surface Only */}
-       <div 
-         ref={containerRef}
-         className={`whiteboard-container ${isScreenShareActive ? 'screen-share-overlay' : ''}`}
+      <div 
+        ref={containerRef}
+        className={`whiteboard-container ${isScreenShareActive ? 'screen-share-overlay' : ''}`}
          style={containerStyle}
       >
         {/* Background Layer - PDF and Images */}
@@ -2320,12 +2453,17 @@ const Whiteboard = forwardRef(({
               : backgroundDimensions.height > 0 
                 ? backgroundDimensions.height 
                 : currentContainerSize.height;
-            log('DEBUG', 'Whiteboard', 'Stage height set', {
+            
+            log('DEBUG', 'Whiteboard', '🎯 KONVA STAGE HEIGHT CALCULATION', {
               isScreenShareActive,
+              backgroundType,
               screenShareDimensions,
               backgroundDimensions,
               currentContainerSize,
-              finalStageHeight: stageHeight
+              finalWidth,
+              finalHeight,
+              calculatedStageHeight: stageHeight,
+              note: 'Stage height should match container height for PDF drawing across all pages'
             });
             return stageHeight;
           })()}
@@ -2333,7 +2471,7 @@ const Whiteboard = forwardRef(({
           onMouseEnter={() => {
             // No calculations needed for hover - just log essential info
             log('INFO', 'Whiteboard', '🎯 STAGE HOVER', {
-              currentTool,
+              actualTool,
               isDrawing,
               timestamp: Date.now()
             });
@@ -2341,7 +2479,7 @@ const Whiteboard = forwardRef(({
           onMouseDown={(e) => {
             // Only log essential drawing info - no background calculations needed during drawing
             log('INFO', 'Whiteboard', '🖱️ STAGE MOUSE DOWN', {
-              currentTool,
+              actualTool,
               isDrawing,
               timestamp: Date.now()
             });
@@ -2375,7 +2513,7 @@ const Whiteboard = forwardRef(({
                 if (e.preventDefault) e.preventDefault();
                 if (e.stopPropagation) e.stopPropagation();
                 log('INFO', 'Whiteboard', '👆 STAGE TOUCH START (Drawing Mode)', {
-                  currentTool,
+                  actualTool,
                   isDrawing,
                   touchCount: nativeEvent.touches?.length || 0,
                   isMobileDrawingMode,
@@ -2412,7 +2550,7 @@ const Whiteboard = forwardRef(({
                 }
               } else {
                 log('INFO', 'Whiteboard', '👆 STAGE TOUCH START (Scroll Mode)', {
-                  currentTool,
+                  actualTool,
                   isDrawing,
                   touchCount: nativeEvent.touches?.length || 0,
                   isMobileDrawingMode,
@@ -2457,7 +2595,7 @@ const Whiteboard = forwardRef(({
               if (e.preventDefault) e.preventDefault();
               if (e.stopPropagation) e.stopPropagation();
               log('INFO', 'Whiteboard', '👆 STAGE TOUCH MOVE (Drawing Mode)', {
-                currentTool,
+                actualTool,
                 isDrawing,
                 touchCount: nativeEvent.touches?.length || 0,
                 isMobileDrawingMode,
@@ -2487,7 +2625,7 @@ const Whiteboard = forwardRef(({
               }
             } else {
               log('INFO', 'Whiteboard', '👆 STAGE TOUCH MOVE (Scroll Mode)', {
-                currentTool,
+                actualTool,
                 isDrawing,
                 touchCount: nativeEvent.touches?.length || 0,
                 isMobileDrawingMode,
@@ -2505,7 +2643,7 @@ const Whiteboard = forwardRef(({
               if (e.preventDefault) e.preventDefault();
               if (e.stopPropagation) e.stopPropagation();
               log('INFO', 'Whiteboard', '👆 STAGE TOUCH END (Drawing Mode)', {
-                currentTool,
+                actualTool,
                 isDrawing,
                 touchCount: nativeEvent.touches?.length || 0,
                 isMobileDrawingMode,
@@ -2535,7 +2673,7 @@ const Whiteboard = forwardRef(({
               }
             } else {
               log('INFO', 'Whiteboard', '👆 STAGE TOUCH END (Scroll Mode)', {
-                currentTool,
+                actualTool,
                 isDrawing,
                 touchCount: nativeEvent.touches?.length || 0,
                 isMobileDrawingMode,
@@ -2555,7 +2693,7 @@ const Whiteboard = forwardRef(({
                     strokeWidth={line.strokeWidth}
                     lineCap={line.lineCap}
                     lineJoin={line.lineJoin}
-                    draggable={!currentTool}
+                    draggable={!actualTool}
                     onClick={() => setSelectedShape(line)}
                   />
               ))}
@@ -2569,7 +2707,7 @@ const Whiteboard = forwardRef(({
                       stroke: shape.stroke,
                       strokeWidth: shape.strokeWidth,
                       fill: shape.fill,
-                      draggable: !currentTool,
+                      draggable: !actualTool,
                       onClick: () => setSelectedShape(shape)
                     };
 

@@ -21,15 +21,11 @@ const WhiteboardToolbar = ({
   userId, 
   username, 
   isScreenShareActive,
-  onToolChange,
-  onColorChange,
   onUndo,
   onRedo,
   onImageUpload,
   onFileUpload,
   onClear,
-  currentTool,
-  currentColor,
   canUndo,
   canRedo,
   // Mobile toggle props
@@ -37,14 +33,51 @@ const WhiteboardToolbar = ({
   onMobileModeToggle
 }) => {
   const [triangleType, setTriangleType] = useState('equilateral');
+  
+  // GLOBAL STATE APPROACH: Initialize with default values
+  const [internalSelectedTool, setInternalSelectedTool] = useState('pen');
+  const [internalSelectedColor, setInternalSelectedColor] = useState('#000000');
+
+  // STEP 1 TEST: Log every render to see if toolbar re-renders cause remounts
+  console.log('[WhiteboardToolbar] 🔬 STEP 1 TEST: Toolbar component rendered', {
+    internalSelectedTool,
+    internalSelectedColor,
+    timestamp: Date.now()
+  });
+  
+  // DEBUG: Log the active state for the pen button specifically
+  console.log('[WhiteboardToolbar] 🔍 DEBUG: Pen button active state:', {
+    internalSelectedTool,
+    isPenActive: internalSelectedTool === 'pen',
+    className: `tool-button ${internalSelectedTool === 'pen' ? 'active' : ''}`
+  });
 
   const handleToolClick = (toolName) => {
     console.log('[WhiteboardToolbar] 🖊️ Tool clicked:', toolName);
-    onToolChange(toolName);
+    
+    // CRITICAL FIX: Update global state FIRST, before any other operations
+    if (!window.whiteboardToolState) {
+      window.whiteboardToolState = {};
+    }
+    window.whiteboardToolState.currentTool = toolName;
+    console.log('[WhiteboardToolbar] 🔧 CRITICAL FIX: Updated global tool IMMEDIATELY to:', toolName);
+    
+    // Then update internal state for UI
+    setInternalSelectedTool(toolName);
+    console.log('[WhiteboardToolbar] 🔧 CRITICAL FIX: Internal tool changed to:', toolName);
   };
 
   const handleColorChange = (color) => {
-    onColorChange(color);
+    // CRITICAL FIX: Update global state FIRST, before any other operations
+    if (!window.whiteboardToolState) {
+      window.whiteboardToolState = {};
+    }
+    window.whiteboardToolState.currentColor = color;
+    console.log('[WhiteboardToolbar] 🔧 CRITICAL FIX: Updated global color IMMEDIATELY to:', color);
+    
+    // Then update internal state for UI
+    setInternalSelectedColor(color);
+    console.log('[WhiteboardToolbar] 🔧 CRITICAL FIX: Internal color changed to:', color);
   };
 
   const handleUndo = () => {
@@ -104,7 +137,7 @@ const WhiteboardToolbar = ({
         <label>Your Color:</label>
         <input
           type="color"
-          value={currentColor}
+          value={internalSelectedColor}
           onChange={(e) => handleColorChange(e.target.value)}
           className="color-picker"
         />
@@ -126,15 +159,17 @@ const WhiteboardToolbar = ({
       <div className="toolbar">
         {/* Drawing Tools */}
         <button
-          className={`tool-button ${currentTool === 'pen' ? 'active' : ''}`}
+          className={`tool-button ${internalSelectedTool === 'pen' ? 'active' : ''}`}
           onClick={() => handleToolClick('pen')}
           title="Pen"
+          data-debug-active={internalSelectedTool === 'pen'}
+          data-debug-tool={internalSelectedTool}
         >
           <FaPen />
         </button>
         
         <button
-          className={`tool-button ${currentTool === 'eraser' ? 'active' : ''}`}
+          className={`tool-button ${internalSelectedTool === 'eraser' ? 'active' : ''}`}
           onClick={() => handleToolClick('eraser')}
           title="Eraser"
         >
@@ -142,7 +177,7 @@ const WhiteboardToolbar = ({
         </button>
         
         <button
-          className={`tool-button ${currentTool === 'line' ? 'active' : ''}`}
+          className={`tool-button ${internalSelectedTool === 'line' ? 'active' : ''}`}
           onClick={() => handleToolClick('line')}
           title="Line"
         >
@@ -150,7 +185,7 @@ const WhiteboardToolbar = ({
         </button>
         
         <button
-          className={`tool-button ${currentTool === 'circle' ? 'active' : ''}`}
+          className={`tool-button ${internalSelectedTool === 'circle' ? 'active' : ''}`}
           onClick={() => handleToolClick('circle')}
           title="Circle"
         >
@@ -158,7 +193,7 @@ const WhiteboardToolbar = ({
         </button>
         
         <button
-          className={`tool-button ${currentTool === 'ellipse' ? 'active' : ''}`}
+          className={`tool-button ${internalSelectedTool === 'ellipse' ? 'active' : ''}`}
           onClick={() => handleToolClick('ellipse')}
           title="Ellipse"
         >
@@ -166,7 +201,7 @@ const WhiteboardToolbar = ({
         </button>
         
         <button
-          className={`tool-button ${currentTool === 'rectangle' ? 'active' : ''}`}
+          className={`tool-button ${internalSelectedTool === 'rectangle' ? 'active' : ''}`}
           onClick={() => handleToolClick('rectangle')}
           title="Rectangle"
         >
@@ -174,7 +209,7 @@ const WhiteboardToolbar = ({
         </button>
         
         <button
-          className={`tool-button ${currentTool === 'triangle' && triangleType === 'equilateral' ? 'active' : ''}`}
+          className={`tool-button ${internalSelectedTool === 'triangle' && triangleType === 'equilateral' ? 'active' : ''}`}
           onClick={() => {
             setTriangleType('equilateral');
             handleToolClick('triangle');
@@ -185,7 +220,7 @@ const WhiteboardToolbar = ({
         </button>
         
         <button
-          className={`tool-button ${currentTool === 'triangle' && triangleType === 'right' ? 'active' : ''}`}
+          className={`tool-button ${internalSelectedTool === 'triangle' && triangleType === 'right' ? 'active' : ''}`}
           onClick={() => {
             setTriangleType('right');
             handleToolClick('triangle');
@@ -196,7 +231,7 @@ const WhiteboardToolbar = ({
         </button>
         
         <button
-          className={`tool-button ${currentTool === 'triangle' && triangleType === 'isosceles' ? 'active' : ''}`}
+          className={`tool-button ${internalSelectedTool === 'triangle' && triangleType === 'isosceles' ? 'active' : ''}`}
           onClick={() => {
             setTriangleType('isosceles');
             handleToolClick('triangle');

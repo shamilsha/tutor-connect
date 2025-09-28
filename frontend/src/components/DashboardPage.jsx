@@ -86,9 +86,9 @@ const DashboardPage = () => {
     const [showPdfNavigation, setShowPdfNavigation] = useState(false);
     const [isWhiteboardActive, setIsWhiteboardActive] = useState(false);
     
-    // Whiteboard toolbar state
-    const [currentTool, setCurrentTool] = useState(null);
-    const [currentColor, setCurrentColor] = useState('#000000');
+    // Whiteboard toolbar state - GLOBAL STATE APPROACH: Not needed anymore
+    // const [currentTool, setCurrentTool] = useState('pen');
+    // const [currentColor, setCurrentColor] = useState('#000000');
     const [canUndo, setCanUndo] = useState(false);
     const [canRedo, setCanRedo] = useState(false);
     const [isScreenShareActive, setIsScreenShareActive] = useState(false);
@@ -1963,16 +1963,16 @@ const DashboardPage = () => {
         log('INFO', 'DashboardPage', 'Whiteboard state updated', { newWhiteboardState });
     };
 
-    // Whiteboard toolbar handlers
-    const handleToolChange = (tool) => {
-        log('INFO', 'DashboardPage', 'Tool changed to', { tool });
-        setCurrentTool(tool);
-    };
+    // GLOBAL STATE APPROACH: Not needed anymore
+    // const handleToolChange = (tool) => {
+    //     log('INFO', 'DashboardPage', 'Tool changed to', { tool });
+    //     setCurrentTool(tool);
+    // };
 
-    const handleColorChange = (color) => {
-        log('INFO', 'DashboardPage', 'Color changed to', { color });
-        setCurrentColor(color);
-    };
+    // const handleColorChange = (color) => {
+    //     log('INFO', 'DashboardPage', 'Color changed to', { color });
+    //     setCurrentColor(color);
+    // };
 
     const handleWhiteboardUndo = () => {
         log('INFO', 'DashboardPage', 'Undo requested');
@@ -1996,10 +1996,22 @@ const DashboardPage = () => {
         }
     };
 
+    // CRITICAL FIX: Use refs to track previous values and prevent unnecessary re-renders
+    const prevCanUndoRef = useRef(canUndo);
+    const prevCanRedoRef = useRef(canRedo);
+    
     const handleWhiteboardHistoryChange = useCallback((historyState) => {
         log('INFO', 'DashboardPage', 'History changed', historyState);
-        setCanUndo(historyState.canUndo);
-        setCanRedo(historyState.canRedo);
+        
+        // CRITICAL FIX: Only update state if values actually changed
+        if (prevCanUndoRef.current !== historyState.canUndo) {
+            prevCanUndoRef.current = historyState.canUndo;
+            setCanUndo(historyState.canUndo);
+        }
+        if (prevCanRedoRef.current !== historyState.canRedo) {
+            prevCanRedoRef.current = historyState.canRedo;
+            setCanRedo(historyState.canRedo);
+        }
     }, []);
 
     // Centralized mutual exclusivity function
@@ -2174,8 +2186,9 @@ const DashboardPage = () => {
             handleWhiteboardBackgroundCleared: !!handleWhiteboardBackgroundCleared,
             handleImageChange: !!handleImageChange,
             handlePdfChange: !!handlePdfChange,
-            handleToolChange: !!handleToolChange,
-            handleColorChange: !!handleColorChange,
+            // GLOBAL STATE APPROACH: Not needed anymore
+            // handleToolChange: !!handleToolChange,
+            // handleColorChange: !!handleColorChange,
             handleWhiteboardHistoryChange: !!handleWhiteboardHistoryChange,
             handleWhiteboardImageUpload: !!handleWhiteboardImageUpload,
             handleWhiteboardFileUpload: !!handleWhiteboardFileUpload,
@@ -2193,8 +2206,9 @@ const DashboardPage = () => {
         handleWhiteboardBackgroundCleared,
         handleImageChange,
         handlePdfChange,
-        handleToolChange,
-        handleColorChange,
+        // GLOBAL STATE APPROACH: Not needed anymore
+        // handleToolChange,
+        // handleColorChange,
         handleWhiteboardHistoryChange,
         handleWhiteboardImageUpload,
         handleWhiteboardFileUpload,
@@ -2298,8 +2312,9 @@ const DashboardPage = () => {
       isScreenSharing,
       isScreenShareSupported,
       isWhiteboardActive,
-      currentTool,
-      currentColor,
+      // GLOBAL STATE APPROACH: Not needed anymore
+      // currentTool,
+      // currentColor,
       canUndo,
       canRedo,
       receivedMessages: receivedMessages.length
@@ -2390,15 +2405,11 @@ const DashboardPage = () => {
                     userId={userRef.current?.id}
                     username={userRef.current?.name || userEmail}
                     isScreenShareActive={isScreenShareActive}
-                    onToolChange={handleToolChange}
-                    onColorChange={handleColorChange}
                     onUndo={handleWhiteboardUndo}
                     onRedo={handleWhiteboardRedo}
                     onImageUpload={handleWhiteboardImageUpload}
                     onFileUpload={handleWhiteboardFileUpload}
                     onClear={handleWhiteboardClear}
-                    currentTool={currentTool}
-                    currentColor={currentColor}
                     canUndo={canUndo}
                     canRedo={canRedo}
                     isMobileDrawingMode={isMobileDrawingMode}
@@ -2458,9 +2469,10 @@ const DashboardPage = () => {
                            // WebRTC props
                            hasWebRTCProvider: !!provider,
                            selectedPeer,
+                           // GLOBAL STATE APPROACH: Not needed anymore
                            // Tool props
-                           currentTool,
-                           currentColor,
+                           // currentTool,
+                           // currentColor,
                            // History props
                            canUndo,
                            canRedo,
@@ -2475,8 +2487,9 @@ const DashboardPage = () => {
                            hasOnImageChange: !!handleImageChange,
                            hasOnPdfChange: !!handlePdfChange,
                            hasOnPDFDimensionsChange: !!handlePDFDimensionsChange,
-                           hasOnToolChange: !!handleToolChange,
-                           hasOnColorChange: !!handleColorChange,
+                           // GLOBAL STATE APPROACH: Not needed anymore
+                           // hasOnToolChange: !!handleToolChange,
+                           // hasOnColorChange: !!handleColorChange,
                            hasOnUndo: !!whiteboardUndoRef,
                            hasOnRedo: !!whiteboardRedoRef,
                            hasOnHistoryChange: !!handleWhiteboardHistoryChange,
@@ -2502,10 +2515,11 @@ const DashboardPage = () => {
                            onPDFDimensionsChange={handlePDFDimensionsChange}
                            webRTCProvider={provider}
                            selectedPeer={selectedPeer}
-                           currentTool={currentTool}
-                           currentColor={currentColor}
-                           onToolChange={handleToolChange}
-                           onColorChange={handleColorChange}
+                           // GLOBAL STATE APPROACH: Not needed anymore
+                           // currentTool={currentTool}
+                           // currentColor={currentColor}
+                           // onToolChange={handleToolChange}
+                           // onColorChange={handleColorChange}
                            onUndo={whiteboardUndoRef}
                            onRedo={whiteboardRedoRef}
                            onHistoryChange={handleWhiteboardHistoryChange}
