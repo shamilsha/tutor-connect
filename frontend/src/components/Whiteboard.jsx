@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useImperativeHandle, forwardRef, useCallback, useMemo } from 'react';
 import PDFRenderer from './PDFRenderer';
+import ImageRenderer from './ImageRenderer';
 import { Stage, Layer, Line, Circle, Ellipse, Rect, Transformer, Group, Text, RegularPolygon } from 'react-konva';
 import { v4 as uuidv4 } from 'uuid';
 import { throttle } from 'lodash';
@@ -235,7 +236,7 @@ const Whiteboard = forwardRef(({
         timestamp: Date.now()
       });
     }
-  }, [isScreenShareActive, backgroundType, backgroundDimensions, screenShareDimensions]); // Include dimension changes
+  }, [isScreenShareActive, backgroundType]); // Removed backgroundDimensions and screenShareDimensions to prevent remounts
 
   // Handle image dimension updates directly in the image onLoad callback to prevent useEffect re-renders
 
@@ -536,10 +537,11 @@ const Whiteboard = forwardRef(({
             log('INFO', 'Whiteboard', 'Clearing all drawings due to remote background change');
             clearAllDrawings();
             
-            // Check mutual exclusivity when receiving background from remote peer
+            // UNIFIED IMAGE LOADING: Both peers use identical logic with state-aware cleanup
             if (data.background.type === 'image' && onImageChange) {
-              log('INFO', 'Whiteboard', 'Remote image received, checking exclusivity');
-              log('INFO', 'Whiteboard', 'Triggering image exclusivity check', data.background.file);
+              log('INFO', 'Whiteboard', '🖼️ UNIFIED: Remote image received, calling loadImage with state-aware cleanup');
+              log('INFO', 'Whiteboard', 'Remote image URL', { imageUrl: data.background.file });
+              // UNIFIED APPROACH: Both peers use same loadImage function with smart cleanup
               onImageChange(data.background.file);
             } else if (data.background.type === 'pdf' && onPdfChange) {
               log('INFO', 'Whiteboard', '📨 REMOTE PDF RECEIVED - Starting unified process', {
@@ -560,6 +562,37 @@ const Whiteboard = forwardRef(({
               file: data.background.file,
               timestamp: Date.now()
             });
+          }
+          
+          // Handle batched state if present
+          if (data.state) {
+            log('INFO', 'Whiteboard', '📦 BATCHED STATE: Processing state from background message', {
+              linesCount: data.state.lines?.length || 0,
+              shapesCount: data.state.shapes?.length || 0,
+              historyStep: data.state.historyStep,
+              historyLength: data.state.history?.length || 0
+            });
+            
+            setLines(data.state.lines || []);
+            setShapes(data.state.shapes || []);
+            setHistoryStep(data.state.historyStep || 0);
+            
+            // Sync history if provided
+            if (data.state.history) {
+              setHistory(data.state.history);
+              log('INFO', 'Whiteboard', '📚 BATCHED HISTORY SYNCED from peer', {
+                historyLength: data.state.history.length,
+                historyStep: data.state.historyStep,
+                linesCount: data.state.lines?.length || 0,
+                shapesCount: data.state.shapes?.length || 0
+              });
+            }
+            
+            // For PDFs, also update page-specific state if provided
+            if (data.background?.type === 'pdf' && data.state.pageLines && data.state.pageShapes) {
+              setPageLines(data.state.pageLines);
+              setPageShapes(data.state.pageShapes);
+            }
           }
           break;
       case 'backgroundTransition':
@@ -1259,83 +1292,24 @@ const Whiteboard = forwardRef(({
       return;
     }
     
-    log('INFO', 'Whiteboard', 'Image upload started', file.name);
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      log('ERROR', 'Whiteboard', 'Invalid file type', file.type);
+      return;
+    }
     
-    try {
-      // Validate file type
-      if (!file.type.startsWith('image/')) {
-        log('ERROR', 'Whiteboard', 'Invalid file type', file.type);
-        return;
-      }
-      
-      // Validate file size (max 10MB)
-      if (file.size > 10 * 1024 * 1024) {
-        log('ERROR', 'Whiteboard', 'File too large', file.size);
-        return;
-      }
-      
-      // Upload to backend
-      const formData = new FormData();
-      formData.append('file', file);
-      
-      const backendUrl = process.env.REACT_APP_BACKEND_URL || 'https://tutor-cancen-backend-bxepcjdqeca7f6bk.canadacentral-01.azurewebsites.net';
-      const response = await fetch(`${backendUrl}/api/files/upload`, {
-        method: 'POST',
-        body: formData
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Upload failed: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      log('INFO', 'Whiteboard', 'Upload successful', result);
-      
-      // Use backend proxy URL to avoid CORS issues
-      const imageUrl = `${backendUrl}/api/files/proxy/${result.filename}`;
-      
-      // Clear PDF-specific state when switching to image
-      setPdfPages(0);
-      
-      // Clear PDF dimensions to prevent layout conflicts
-      setBackgroundDimensions({ width: 0, height: 0 });
-      
-      // Clear all drawings when switching to image
-      clearAllDrawings();
-      
-      // Set background (preserve existing drawings)
-      setBackgroundFile(imageUrl);
-      setBackgroundType('image');
-      
-      // Add to history with current state (preserve existing drawings)
-      addToHistory();
-      
-      // Notify parent component
-      if (onImageChange) {
-        onImageChange(imageUrl);
-      }
-      
-      // Send to remote peers
-        if (webRTCProvider && selectedPeer) {
-          log('INFO', 'Whiteboard', 'Sending image to remote peer', { selectedPeer, imageUrl });
-          log('INFO', 'Whiteboard', 'Sending image to remote peer', { peer: selectedPeer, imageUrl });
-          webRTCProvider.sendWhiteboardMessage(selectedPeer, {
-            action: 'background',
-            background: {
-              file: imageUrl,
-              type: 'image'
-            }
-          });
-        } else {
-          log('WARN', 'Whiteboard', 'Cannot send image to remote peer', { 
-            hasWebRTCProvider: !!webRTCProvider, 
-            selectedPeer, 
-            imageUrl 
-          });
-        }
-      
-    } catch (error) {
-      log('ERROR', 'Whiteboard', 'Upload failed', error);
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      log('ERROR', 'Whiteboard', 'File too large', file.size);
+      return;
+    }
+    
+    log('INFO', 'Whiteboard', '📤 IDEAL FLOW: Delegating to parent for upload + processing', { fileName: file.name });
+    
+    // DELEGATE TO PARENT: Parent handles the complete ideal flow
+    if (onImageChange) {
+      // Parent will handle: uploadImage(file) → processImage(imageUrl)
+      onImageChange(file);
     }
   };
 
@@ -1350,23 +1324,34 @@ const Whiteboard = forwardRef(({
     setHistoryStep(0);
   };
 
-  // Function to set background directly (for remote peers)
+  // Function to set background directly (for remote peers) - REMOUNT-SAFE
   const setBackgroundDirectly = (type, url) => {
-    log('INFO', 'Whiteboard', 'Setting background directly', { type, url });
+    log('INFO', 'Whiteboard', '🖼️ UNIFIED: Setting background directly', { type, url });
     
     if (type === 'pdf') {
       // Use unified PDF rendering for consistent dimensions
       log('INFO', 'Whiteboard', 'Using unified PDF rendering for remote PDF');
       renderPDF(url);
     } else {
-      // For non-PDF backgrounds, use the original logic
-      clearAllDrawings();
+      // For images, use REMOUNT-SAFE approach
+      log('INFO', 'Whiteboard', '🖼️ UNIFIED: Setting image background safely');
+      
+      // Only clear drawings if there are any (avoid unnecessary state changes)
+      if (lines.length > 0 || shapes.length > 0) {
+        log('INFO', 'Whiteboard', 'Clearing existing drawings before image load');
+        clearAllDrawings();
+      }
+      
+      // Set background state (these are necessary for image display)
       setBackgroundFile(url);
       setBackgroundType(type);
-      addToHistory();
+      
+      // Skip addToHistory() to avoid unnecessary state changes
+      // History will be managed by the parent component
+      log('INFO', 'Whiteboard', '🖼️ UNIFIED: Image background set without history update');
     }
     
-    log('INFO', 'Whiteboard', 'Background set directly', { type, url });
+    log('INFO', 'Whiteboard', '✅ UNIFIED: Background set directly', { type, url });
   };
 
   // Mobile detection for UI purposes only
@@ -1406,6 +1391,8 @@ const Whiteboard = forwardRef(({
       finalWidth,
       finalHeight,
       isMobileDrawingMode,
+      backgroundFile,
+      currentImageUrl,
           timestamp: Date.now()
     });
     
@@ -2171,64 +2158,7 @@ const Whiteboard = forwardRef(({
     });
   };
 
-  // COMPREHENSIVE LOGGING: Track all props that could cause remounts
-  log('INFO', 'Whiteboard', '🔄 WHITEBOARD RENDER - All Props', {
-    // Core props
-            userId,
-            username,
-    isScreenShareActive,
-    currentImageUrl,
-    containerSize,
-    // Background props
-    hasBackgroundFile: !!backgroundFile,
-    backgroundType,
-    // WebRTC props
-    hasWebRTCProvider: !!webRTCProvider,
-    selectedPeer,
-    // GLOBAL STATE APPROACH: Not needed anymore
-    // Tool props
-    // currentTool,
-    // currentColor,
-    // History props
-    canUndo,
-    canRedo,
-    // Mobile props
-    isMobileDrawingMode,
-    // PDF props
-    pdfCurrentPage,
-    pdfScale,
-    // Function props (check if they exist)
-    hasOnClose: !!onClose,
-    hasOnBackgroundCleared: !!onBackgroundCleared,
-    hasOnImageChange: !!onImageChange,
-    hasOnPdfChange: !!onPdfChange,
-    hasOnPDFDimensionsChange: !!onPDFDimensionsChange,
-    // GLOBAL STATE APPROACH: Not needed anymore
-    // hasOnToolChange: !!onToolChange,
-    // hasOnColorChange: !!onColorChange,
-    hasOnUndo: !!onUndo,
-    hasOnRedo: !!onRedo,
-    hasOnHistoryChange: !!onHistoryChange,
-    hasOnImageUpload: !!onImageUpload,
-    hasOnFileUpload: !!onFileUpload,
-    hasOnClear: !!onClear,
-    hasOnPdfPageChange: !!onPdfPageChange,
-    hasOnPdfPagesChange: !!onPdfPagesChange
-  });
 
-  // Debug: Track what's causing remounts (removed to reduce noise)
-
-  // Debug transparency issues
-  log('DEBUG', 'Whiteboard', 'Transparency debug', {
-    isScreenShareActive,
-    containerBackgroundColor: isScreenShareActive ? 'transparent' : 'rgba(230, 243, 255, 0.9)',
-    scrollContainerBackgroundColor: isScreenShareActive ? 'transparent' : '#f0f8ff',
-    drawingSurfaceBackgroundColor: isScreenShareActive ? 'transparent' : 'transparent',
-    stageBackground: isScreenShareActive ? 'transparent' : 'transparent',
-    hasBackgroundFile: !!backgroundFile,
-    backgroundType,
-    showBackgroundLayer: backgroundFile && !isScreenShareActive
-  });
 
   // Add useEffect to debug actual computed styles
   useEffect(() => {
@@ -2282,6 +2212,11 @@ const Whiteboard = forwardRef(({
     }
   }, [isScreenShareActive]);
 
+  
+
+      // Image preloading handled by ImageRenderer component
+
+
   return (
     <>
       {/* Whiteboard Container - Drawing Surface Only */}
@@ -2292,8 +2227,8 @@ const Whiteboard = forwardRef(({
       >
         {/* Background Layer - PDF and Images */}
         {backgroundFile && (
-          <div
-            style={{
+                          <div 
+                      style={{
               position: 'absolute',
               top: 0,
               left: 0,
@@ -2305,14 +2240,14 @@ const Whiteboard = forwardRef(({
                 : '100%',
               zIndex: 1,
               backgroundColor: '#f5f5f5',
-              display: 'flex',
-              justifyContent: 'center',
+                              display: 'flex',
+                              justifyContent: 'center',
               alignItems: 'flex-start', // Start from top instead of center
               padding: '10px', // Add 10px padding around the PDF
               pointerEvents: 'none' // Allow mouse events to pass through to Stage
             }}
             onLoad={() => {
-              log('DEBUG', 'Whiteboard', 'Background div rendered', {
+              log('INFO', 'Whiteboard', 'Background div rendered', {
                 backgroundType,
                 backgroundDimensions,
                 width: backgroundType === 'image' 
@@ -2332,7 +2267,7 @@ const Whiteboard = forwardRef(({
               });
             }}
           >
-          {backgroundType === 'pdf' ? (
+            {backgroundType === 'pdf' ? (
             <PDFRenderer
               pdfUrl={backgroundFile}
               onDimensionsChange={handlePDFDimensionsChange}
@@ -2340,93 +2275,31 @@ const Whiteboard = forwardRef(({
               containerWidth={currentContainerSize.width || 1200}
               isMobile={isMobile}
             />
-            ) : backgroundType === 'image' ? (
-              <img
-                src={backgroundFile}
-                alt="Background Image"
-                style={{
-                  width: 'auto',
-                  height: 'auto',
-                  display: 'block',
-                  maxWidth: 'none',
-                  maxHeight: 'none',
-                  objectFit: 'none'
-                }}
-                onLoad={(e) => {
-                  const img = e.target;
-                  const naturalWidth = img.naturalWidth;
-                  const naturalHeight = img.naturalHeight;
-                  
-                  // Use centralized image dimensions calculation
-                  const { width, height } = calculateImageDimensions(backgroundFile, naturalWidth, naturalHeight);
-                  
-                  log('INFO', 'Whiteboard', 'Image loaded successfully', {
-                    src: backgroundFile,
-                    naturalWidth,
-                    naturalHeight,
-                    calculatedWidth: width,
-                    calculatedHeight: height,
-                    displayWidth: img.offsetWidth,
-                    displayHeight: img.offsetHeight,
-                    imageStyle: {
-                      width: img.style.width,
-                      height: img.style.height,
-                      maxWidth: img.style.maxWidth,
-                      maxHeight: img.style.maxHeight,
-                      objectFit: img.style.objectFit
-                    }
-                  });
-                  
-                  // Set background dimensions using centralized calculation
-                  setBackgroundDimensions({ width, height });
-                  
-                  // Update container dimensions directly to prevent useEffect re-renders
-                  setFinalWidth(width);
-                  setFinalHeight(height);
-                  
-                  log('INFO', 'Whiteboard', '📐 IMAGE DIMENSIONS UPDATED DIRECTLY', {
-                    backgroundDimensions: { width, height },
-                    calculatedWidth: width,
-                    calculatedHeight: height,
-                    timestamp: Date.now()
-                  });
-                  
-                  // Log container size changes
-                  log('DEBUG', 'Whiteboard', 'Container dimensions will change from', {
-                    currentWidth: currentContainerSize.width,
-                    currentHeight: currentContainerSize.height
-                  });
-                  log('DEBUG', 'Whiteboard', 'Container dimensions will change to', {
-                    newWidth: width,
-                    newHeight: height,
-                    exceedsDashboardContent: width > 1200 || height > 800,
-                    shouldShowScrollbars: width > 1200 || height > 800 ? 'YES - Image exceeds dashboard-content (1200x800)' : 'NO - Image fits in dashboard-content'
-                  });
-                  
-                  // Additional debugging - check actual image dimensions after a short delay
-                  setTimeout(() => {
-                    const actualImg = e.target;
-                    log('DEBUG', 'Whiteboard', 'Image dimensions after load (delayed check)', {
-                      naturalWidth: actualImg.naturalWidth,
-                      naturalHeight: actualImg.naturalHeight,
-                      offsetWidth: actualImg.offsetWidth,
-                      offsetHeight: actualImg.offsetHeight,
-                      clientWidth: actualImg.clientWidth,
-                      clientHeight: actualImg.clientHeight,
-                      scrollWidth: actualImg.scrollWidth,
-                      scrollHeight: actualImg.scrollHeight,
-                      computedStyle: {
-                        width: window.getComputedStyle(actualImg).width,
-                        height: window.getComputedStyle(actualImg).height,
-                        maxWidth: window.getComputedStyle(actualImg).maxWidth,
-                        maxHeight: window.getComputedStyle(actualImg).maxHeight
+            ) : (
+              <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                {/* ImageRenderer handles ALL image logic - parent only needs dimensions for canvas matching */}
+                {backgroundType === 'image' && backgroundFile && (
+                  <ImageRenderer
+                    imageUrl={backgroundFile}
+                    onDimensionsChange={(dimensions) => {
+                      console.log('🔍 DEBUG: Whiteboard - Image dimensions received for canvas matching', {
+                        dimensions,
+                        timestamp: Date.now()
+                      });
+                      // CONDITIONAL UPDATE: Only update if dimensions actually changed (REDUCES REMOUNTS)
+                      if (backgroundDimensions.width !== dimensions.width || backgroundDimensions.height !== dimensions.height) {
+                        console.log('🔍 DEBUG: Whiteboard - Dimensions changed, updating canvas');
+                        setBackgroundDimensions(dimensions);
+                      } else {
+                        console.log('🔍 DEBUG: Whiteboard - Dimensions unchanged, skipping update');
                       }
-                    });
-                  }, 100);
-                }}
-                onError={(e) => console.error('[Whiteboard] 🖼️ Image failed to load:', backgroundFile, e)}
-              />
-            ) : null}
+                    }}
+                    containerWidth={currentContainerSize.width}
+                    containerHeight={currentContainerSize.height}
+                  />
+                )}
+              </div>
+            )}
           </div>
         )}
 

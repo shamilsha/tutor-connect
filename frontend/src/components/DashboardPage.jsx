@@ -98,6 +98,9 @@ const DashboardPage = () => {
     // Dynamic container size that can expand based on content (images, PDFs, etc.)
     const [dynamicContainerSize, setDynamicContainerSize] = useState({ width: 1200, height: 800 });
     
+    // STABLE CONTAINER SIZE: Use ref to prevent remounts
+    const stableContainerSize = useRef({ width: 1200, height: 800 });
+    
     // Stable refs for Whiteboard props to prevent remounts
     const stableUserId = useRef(0);
     const stableUsername = useRef('Unknown');
@@ -2003,26 +2006,32 @@ const DashboardPage = () => {
     const handleWhiteboardHistoryChange = useCallback((historyState) => {
         log('INFO', 'DashboardPage', 'History changed', historyState);
         
-        // CRITICAL FIX: Only update state if values actually changed
-        if (prevCanUndoRef.current !== historyState.canUndo) {
-            prevCanUndoRef.current = historyState.canUndo;
-            setCanUndo(historyState.canUndo);
+        // CRITICAL FIX: Only update state if values actually changed to prevent remounts
+        const newCanUndo = historyState.canUndo;
+        const newCanRedo = historyState.canRedo;
+        
+        // Only update if values actually changed (prevents unnecessary re-renders)
+        if (newCanUndo !== prevCanUndoRef.current) {
+            setCanUndo(newCanUndo);
+            prevCanUndoRef.current = newCanUndo;
         }
-        if (prevCanRedoRef.current !== historyState.canRedo) {
-            prevCanRedoRef.current = historyState.canRedo;
-            setCanRedo(historyState.canRedo);
+        
+        if (newCanRedo !== prevCanRedoRef.current) {
+            setCanRedo(newCanRedo);
+            prevCanRedoRef.current = newCanRedo;
         }
     }, []);
 
-    // Centralized mutual exclusivity function
+    // Centralized mutual exclusivity function - OPTIMIZED for performance
     const checkExclusivity = async (newType, newValue) => {
         log('DEBUG', 'DashboardPage', 'Checking exclusivity', { newType, newValue, currentImageUrl: currentImageUrlRef.current, isScreenSharing });
         
-        // ALWAYS clear any existing content before loading new content
-        // This ensures mutual exclusivity regardless of what's currently active
+        // PERFORMANCE OPTIMIZATION: Only do heavy work if actually needed
+        let hasWorkToDo = false;
         
-        // 1. Clear screen share if active
+        // 1. Check if screen share needs to be stopped
         if (isScreenSharing && provider) {
+            hasWorkToDo = true;
             log('INFO', 'DashboardPage', `Stopping existing screen share due to ${newType} activation`);
             try {
                 await provider.stopScreenShare();
@@ -2038,47 +2047,256 @@ const DashboardPage = () => {
             }
         }
         
-        // 2. Clear image/pdf if active (but not if we're setting the same type)
+        // 2. Check if image needs to be cleared (but not if we're setting the same type)
         if (currentImageUrlRef.current && newType !== 'image') {
+            hasWorkToDo = true;
             log('INFO', 'DashboardPage', `Clearing existing image due to ${newType} activation`);
             log('DEBUG', 'DashboardPage', 'Previous currentImageUrl was', { currentImageUrl: currentImageUrlRef.current });
-            setCurrentImageUrl(null);
+            // REMOUNT-SAFE: Only clear if actually different
+            if (currentImageUrl !== null) {
+                setCurrentImageUrl(null);
+            }
             currentImageUrlRef.current = null;
             log('DEBUG', 'DashboardPage', 'currentImageUrl cleared, should now be null');
         }
         
-        // Always clear Whiteboard's internal background state when screen share is activated
+        // 3. Clear Whiteboard's internal background state when screen share is activated
         if (newType === 'screenShare' && whiteboardImageUploadRef.current && typeof whiteboardImageUploadRef.current.clearBackground === 'function') {
+            hasWorkToDo = true;
             log('INFO', 'DashboardPage', 'Clearing Whiteboard background due to screen share activation');
             whiteboardImageUploadRef.current.clearBackground();
         }
         
-        log('INFO', 'DashboardPage', `All existing content cleared, ready for ${newType}`);
+        if (hasWorkToDo) {
+            log('INFO', 'DashboardPage', `All existing content cleared, ready for ${newType}`);
+        } else {
+            log('INFO', 'DashboardPage', `🚀 PERFORMANCE: No exclusivity work needed for ${newType} - already in correct state`);
+        }
     };
 
-    const handleImageChange = async (imageUrl) => {
-        log('INFO', 'DashboardPage', 'Image changed', { imageUrl });
+    // UNIVERSAL STATE TRANSITION CLEANUP - ANY STATE TO ANY STATE
+    const cleanupCurrentState = async (targetState) => {
+        log('INFO', 'DashboardPage', '🧹 UNIVERSAL CLEANUP: Any state → any state', { targetState });
         
-        if (imageUrl === null) {
-            log('INFO', 'DashboardPage', 'Image cleared (received from remote peer)');
+        // Detect current active states
+        const currentStates = {
+            image: !!currentImageUrl,
+            pdf: pdfTotalPages > 0,
+            screenShare: isScreenSharing || isScreenShareActive
+        };
+        
+        log('INFO', 'DashboardPage', '🔍 Current active states', {
+            currentStates,
+            targetState,
+            currentImageUrl: !!currentImageUrl,
+            pdfTotalPages,
+            isScreenSharing,
+            isScreenShareActive
+        });
+        
+        // CLEANUP IMAGE STATE (if currently active and not transitioning to image)
+        if (currentStates.image && targetState !== 'image') {
+            log('INFO', 'DashboardPage', '🖼️ CLEANUP: Removing image state');
+            // BATCH IMAGE CLEANUP (REDUCES REMOUNTS)
+            React.startTransition(() => {
+                setCurrentImageUrl(null);
+                setBackgroundDimensions({ width: 0, height: 0 });
+            });
+            currentImageUrlRef.current = null;
+        }
+        
+        // CLEANUP PDF STATE (if currently active and not transitioning to pdf)
+        if (currentStates.pdf && targetState !== 'pdf') {
+            log('INFO', 'DashboardPage', '📄 CLEANUP: Removing PDF state');
+            // BATCH PDF CLEANUP (REDUCES REMOUNTS)
+            React.startTransition(() => {
+                setPdfPages(0);
+                setPdfTotalPages(0);
+                setShowPdfNavigation(false);
+                setPdfCurrentPage(1);
+                setBackgroundDimensions({ width: 0, height: 0 });
+            });
+        }
+        
+        // CLEANUP SCREEN SHARE STATE (if currently active and not transitioning to screenShare)
+        if (currentStates.screenShare && targetState !== 'screenShare') {
+            log('INFO', 'DashboardPage', '🖥️ CLEANUP: Stopping screen share (I am initiator)');
+            try {
+                if (provider) {
+                    await provider.stopScreenShare();
+                    setIsScreenSharing(false);
+                    setIsScreenShareActive(false);
+                }
+                log('INFO', 'DashboardPage', '✅ Screen share stopped successfully');
+            } catch (error) {
+                log('ERROR', 'DashboardPage', 'Failed to stop screen share', error);
+                setIsScreenSharing(false);
+                setIsScreenShareActive(false);
+            }
+        }
+        
+        // Clear Whiteboard drawings only when transitioning between different states
+        // Don't clear drawings when starting from no state (first image load)
+        if ((currentStates.image && targetState !== 'image') || 
+            (currentStates.pdf && targetState !== 'pdf') || 
+            (currentStates.screenShare && targetState !== 'screenShare')) {
+            log('INFO', 'DashboardPage', '🎨 CLEANUP: Clearing all drawings for state transition between different states');
+            if (whiteboardImageUploadRef.current && typeof whiteboardImageUploadRef.current.clearAllDrawings === 'function') {
+                whiteboardImageUploadRef.current.clearAllDrawings();
+            }
+        } else {
+            log('INFO', 'DashboardPage', '🎨 CLEANUP: No state transition - preserving drawings');
+        }
+        
+        log('INFO', 'DashboardPage', '✅ UNIVERSAL CLEANUP completed', { targetState });
+    };
+
+    // PURE UPLOAD FUNCTION - NO REMOUNTS (Steps 1-5)
+    const uploadImage = async (file) => {
+        log('INFO', 'DashboardPage', '📤 PURE UPLOAD: Starting upload flow', { fileName: file.name });
+        
+        try {
+            // Step 1-3: Upload to backend (NO REMOUNTS)
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            const backendUrl = process.env.REACT_APP_BACKEND_URL || 'https://tutor-cancen-backend-bxepcjdqeca7f6bk.canadacentral-01.azurewebsites.net';
+            const response = await fetch(`${backendUrl}/api/files/upload`, {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Upload failed: ${response.status}`);
+            }
+            
+            const result = await response.json();
+            const imageUrl = `${backendUrl}/api/files/proxy/${result.filename}`;
+            
+            log('INFO', 'DashboardPage', '✅ PURE UPLOAD: Upload completed', { imageUrl });
+            return imageUrl;
+            
+        } catch (error) {
+            log('ERROR', 'DashboardPage', '❌ PURE UPLOAD: Upload failed', error);
+            throw error;
+        }
+    };
+
+    // PURE PROCESSING FUNCTION - REMOUNTS HAPPEN HERE (Steps 7+)
+    const processImage = async (cdnUrl) => {
+        log('INFO', 'DashboardPage', '🖼️ PURE PROCESSING: Starting image processing', { cdnUrl });
+        
+        if (cdnUrl === null) {
+            log('INFO', 'DashboardPage', 'Image cleared');
             setCurrentImageUrl(null);
             currentImageUrlRef.current = null;
             return;
         }
         
-        // Set the new image FIRST, then check exclusivity
-        log('INFO', 'DashboardPage', 'Setting currentImageUrl to', { imageUrl });
-        setCurrentImageUrl(imageUrl);
-        currentImageUrlRef.current = imageUrl;
-        log('DEBUG', 'DashboardPage', 'currentImageUrl state should now be', { imageUrl });
+        // STEP 1: Universal cleanup (any state → image) - REMOUNT ZONE STARTS
+        log('INFO', 'DashboardPage', '🧹 STEP 1: Universal cleanup (any state → image)');
+        await cleanupCurrentState('image');
         
-        // Hide PDF navigation when image is loaded
-        setShowPdfNavigation(false);
-        setPdfTotalPages(0);
+        // STEP 2: BATCH ALL STATE CHANGES IN ONE TRANSACTION (REDUCES REMOUNTS)
+        log('INFO', 'DashboardPage', '📝 STEP 2: Batching state changes to reduce remounts');
+        React.startTransition(() => {
+            // Batch all state changes together - causes only ONE remount
+            setCurrentImageUrl(cdnUrl);
+        });
         
-        // Check mutual exclusivity after setting the image
-        // Note: We pass the imageUrl directly to avoid relying on state that might not be updated yet
-        await checkExclusivity('image', imageUrl);
+        // Update ref immediately (no remount)
+        currentImageUrlRef.current = cdnUrl;
+        
+        // STEP 3: Set background in Whiteboard (direct call - no remount)
+        log('INFO', 'DashboardPage', '🖼️ STEP 3: Setting background in Whiteboard');
+        if (whiteboardImageUploadRef.current && typeof whiteboardImageUploadRef.current.setBackgroundDirectly === 'function') {
+            whiteboardImageUploadRef.current.setBackgroundDirectly('image', cdnUrl);
+        }
+        
+        log('INFO', 'DashboardPage', '✅ PURE PROCESSING: Image processing completed', { cdnUrl });
+    };
+
+    // LEGACY FUNCTION - now calls pure functions
+    const loadImage = async (imageUrl) => {
+        log('INFO', 'DashboardPage', '🔄 LEGACY: loadImage calling processImage', { imageUrl });
+        await processImage(imageUrl);
+    };
+
+    // UNIVERSAL PDF LOADING FUNCTION - UNIVERSAL STATE TRANSITION
+    const loadPDF = async (pdfFile) => {
+        log('INFO', 'DashboardPage', '📄 UNIFIED loadPDF called', { pdfFile });
+        
+        // STEP 1: Universal cleanup (any state → pdf)
+        log('INFO', 'DashboardPage', '🧹 STEP 1: Universal cleanup (any state → pdf)');
+        await cleanupCurrentState('pdf');
+        
+        // STEP 2: Set new PDF state
+        log('INFO', 'DashboardPage', '📝 STEP 2: Setting new PDF state');
+        setBackgroundType('pdf');
+        setPdfTotalPages(0); // Will be set by PDFRenderer
+        
+        // STEP 3: Set background in Whiteboard
+        log('INFO', 'DashboardPage', '📄 STEP 3: Setting PDF background in Whiteboard');
+        if (whiteboardImageUploadRef.current && typeof whiteboardImageUploadRef.current.setBackgroundDirectly === 'function') {
+            whiteboardImageUploadRef.current.setBackgroundDirectly('pdf', pdfFile);
+        }
+        
+        log('INFO', 'DashboardPage', '✅ UNIFIED loadPDF completed', { pdfFile });
+    };
+
+    // UNIVERSAL SCREEN SHARE FUNCTION - UNIVERSAL STATE TRANSITION
+    const startScreenShare = async () => {
+        log('INFO', 'DashboardPage', '🖥️ UNIFIED startScreenShare called');
+        
+        // STEP 1: Universal cleanup (any state → screenShare)
+        log('INFO', 'DashboardPage', '🧹 STEP 1: Universal cleanup (any state → screenShare)');
+        await cleanupCurrentState('screenShare');
+        
+        // STEP 2: Start screen share
+        log('INFO', 'DashboardPage', '📝 STEP 2: Starting screen share');
+        if (provider) {
+            await provider.startScreenShare();
+            setIsScreenSharing(true);
+            setIsScreenShareActive(true);
+        }
+        
+        log('INFO', 'DashboardPage', '✅ UNIFIED startScreenShare completed');
+    };
+
+    // IDEAL FLOW: Separated upload vs processing
+    const handleImageUpload = async (file) => {
+        log('INFO', 'DashboardPage', '📤 IDEAL FLOW: Starting image upload', { fileName: file.name });
+        
+        try {
+            // Steps 1-5: Pure upload flow (NO REMOUNTS)
+            const imageUrl = await uploadImage(file);
+            
+            // Step 6: Send to remote peer (NO REMOUNTS)
+            if (provider && selectedPeer) {
+                log('INFO', 'DashboardPage', '📡 Sending image URL to remote peer', { imageUrl });
+                provider.sendWhiteboardMessage(selectedPeer, {
+                    action: 'background',
+                    background: {
+                        file: imageUrl,
+                        type: 'image'
+                    }
+                });
+            }
+            
+            // Step 7+: Process image (REMOUNTS HAPPEN HERE)
+            await processImage(imageUrl);
+            
+            log('INFO', 'DashboardPage', '✅ IDEAL FLOW: Image upload and processing completed', { imageUrl });
+            
+        } catch (error) {
+            log('ERROR', 'DashboardPage', '❌ IDEAL FLOW: Image upload failed', error);
+        }
+    };
+
+    // LEGACY WRAPPER - calls pure processing function
+    const handleImageChange = async (imageUrl) => {
+        log('INFO', 'DashboardPage', '🖼️ LEGACY: handleImageChange calling processImage', { imageUrl });
+        await processImage(imageUrl);
     };
 
     const handlePdfChange = async (pdfFile) => {
@@ -2086,30 +2304,12 @@ const DashboardPage = () => {
         
         // Check if this is a URL string (from remote peer) or File object (from local upload)
         if (typeof pdfFile === 'string') {
-            // This is a URL from remote peer - just set the background directly
-            log('INFO', 'DashboardPage', 'Remote PDF URL received, setting background directly', { pdfUrl: pdfFile });
-            
-            // Check mutual exclusivity first
-            await checkExclusivity('pdf', pdfFile);
-            
-            // Set the PDF URL directly in the Whiteboard component
-            if (whiteboardImageUploadRef.current && whiteboardImageUploadRef.current.setBackgroundDirectly) {
-                log('INFO', 'DashboardPage', '🎯 CALLING UNIFIED PDF RENDERING for remote peer', {
-                    pdfUrl: pdfFile,
-                    willUseRenderPDF: true,
-                    timestamp: Date.now()
-                });
-                whiteboardImageUploadRef.current.setBackgroundDirectly('pdf', pdfFile);
-                log('INFO', 'DashboardPage', 'PDF URL set directly in Whiteboard component');
-            } else {
-                log('WARN', 'DashboardPage', 'Whiteboard ref not available for direct background setting');
-            }
+            // This is a URL from remote peer - use universal PDF loading
+            log('INFO', 'DashboardPage', 'Remote PDF URL received, using universal loadPDF');
+            await loadPDF(pdfFile);
         } else {
             // This is a File object from local upload - proceed with normal upload
             log('INFO', 'DashboardPage', 'Local PDF file received, proceeding with upload');
-            
-            // Check mutual exclusivity first
-            await checkExclusivity('pdf', pdfFile);
             
             // Pass the PDF file to Whiteboard component
             if (whiteboardImageUploadRef.current && whiteboardImageUploadRef.current.handleFileUpload) {
@@ -2465,7 +2665,7 @@ const DashboardPage = () => {
                            username: stableUsername.current,
                            isScreenShareActive,
                            currentImageUrl,
-                           containerSize: dynamicContainerSize,
+                           containerSize: stableContainerSize.current,
                            // WebRTC props
                            hasWebRTCProvider: !!provider,
                            selectedPeer,
@@ -2507,10 +2707,10 @@ const DashboardPage = () => {
                            screenShareStream={null}
                            isScreenShareActive={isScreenShareActive}
                            currentImageUrl={currentImageUrl}
-                           containerSize={dynamicContainerSize}
+                           containerSize={stableContainerSize.current}
                            onClose={handleWhiteboardClose}
                            onBackgroundCleared={handleWhiteboardBackgroundCleared}
-                           onImageChange={handleImageChange}
+                           onImageChange={handleImageUpload}
                            onPdfChange={handlePdfChange}
                            onPDFDimensionsChange={handlePDFDimensionsChange}
                            webRTCProvider={provider}

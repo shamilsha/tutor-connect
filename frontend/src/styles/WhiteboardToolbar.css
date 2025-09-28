@@ -215,3 +215,6 @@
     min-width: 70px;
   }
 }
+
+/* Upload progress styles */
+/* Removed visual progress indicator CSS to prevent excessive re-renders */

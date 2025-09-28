@@ -37,6 +37,8 @@ const WhiteboardToolbar = ({
   // GLOBAL STATE APPROACH: Initialize with default values
   const [internalSelectedTool, setInternalSelectedTool] = useState('pen');
   const [internalSelectedColor, setInternalSelectedColor] = useState('#000000');
+  
+  // Removed visual progress states to prevent excessive re-renders
 
   // STEP 1 TEST: Log every render to see if toolbar re-renders cause remounts
   console.log('[WhiteboardToolbar] 🔬 STEP 1 TEST: Toolbar component rendered', {
@@ -88,7 +90,7 @@ const WhiteboardToolbar = ({
     onRedo();
   };
 
-  const handleImageUpload = (event) => {
+  const handleImageUpload = async (event) => {
     console.log('[WhiteboardToolbar] 🎨 File input onChange triggered directly');
     console.log('[WhiteboardToolbar] 🎨 File input element during onChange:', event.target);
     console.log('[WhiteboardToolbar] 🎨 File input files during onChange:', event.target.files);
@@ -99,15 +101,33 @@ const WhiteboardToolbar = ({
       fileSize: event.target.files[0]?.size || 0,
       fileType: event.target.files[0]?.type || 'No type'
     });
-    console.log('[WhiteboardToolbar] 🎨 Image upload triggered, calling onImageUpload');
-    console.log('[WhiteboardToolbar] 🎨 onImageUpload function:', typeof onImageUpload);
     
-    // Call the upload handler
-    onImageUpload(event);
+    if (event.target.files.length === 0) return;
     
-    // Clear the file input value so the same file can be selected again
-    event.target.value = '';
-    console.log('[WhiteboardToolbar] 🎨 File input value cleared for next selection');
+    try {
+      console.log('[WhiteboardToolbar] 🎨 Image upload triggered, calling onImageUpload');
+      console.log('[WhiteboardToolbar] 🎨 onImageUpload function:', typeof onImageUpload);
+      
+      // Call the upload handler directly (no visual progress simulation)
+      console.log('[WhiteboardToolbar] 🎨 PROGRESS: Calling onImageUpload...');
+      const uploadStartTime = performance.now();
+      await onImageUpload(event);
+      const uploadEndTime = performance.now();
+      console.log('[WhiteboardToolbar] 🎨 PROGRESS: onImageUpload completed');
+      
+      // Log upload timing for analysis
+      console.log('[WhiteboardToolbar] 🎨 UPLOAD TIMING ANALYSIS', {
+        totalTime: `${(uploadEndTime - uploadStartTime).toFixed(2)}ms`,
+        timestamp: Date.now()
+      });
+      
+      // Clear the file input value so the same file can be selected again
+      event.target.value = '';
+      console.log('[WhiteboardToolbar] 🎨 File input value cleared for next selection');
+      
+    } catch (error) {
+      console.error('[WhiteboardToolbar] 🎨 Upload failed:', error);
+    }
   };
 
   const handleFileUpload = (event) => {
