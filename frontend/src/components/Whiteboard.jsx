@@ -37,6 +37,7 @@ const Whiteboard = forwardRef(({
   containerSize = { width: 1200, height: 800 },
   onClose = null, 
   onBackgroundCleared = null,
+  onRemoteStateTransition = null,
   onImageChange = null, 
   onPdfChange = null,
   onPDFDimensionsChange = null,
@@ -595,6 +596,26 @@ const Whiteboard = forwardRef(({
             }
           }
           break;
+      case 'stateTransition':
+        log('INFO', 'Whiteboard', '🔄 RECEIVED STATE TRANSITION', {
+          newState: data.newState,
+          timestamp: Date.now()
+        });
+        
+        // Clear drawings first (always needed for state transitions)
+        log('INFO', 'Whiteboard', '🎨 CLEANUP: Clearing drawings due to remote state transition');
+        clearAllDrawings();
+        
+        // Notify parent component about state change (with React.startTransition to prevent remounts)
+        if (onRemoteStateTransition) {
+          log('INFO', 'Whiteboard', '📡 Notifying parent of remote state transition', { newState: data.newState });
+          // Use setTimeout to ensure this runs after current render cycle
+          setTimeout(() => {
+            onRemoteStateTransition(data.newState);
+          }, 0);
+        }
+        break;
+        
       case 'backgroundTransition':
         if (data.transitionData) {
           log('INFO', 'Whiteboard', '🔄 RECEIVED BACKGROUND TRANSITION', {

@@ -24,10 +24,10 @@ const log = (level, component, message, data = null) => {
     const prefix = `[${component}] ${level}:`;
     if (data) {
       console.log(prefix, message, data);
-    } else {
+        } else {
       console.log(prefix, message);
+        }
     }
-  }
 };
 
 
@@ -106,10 +106,89 @@ const DashboardPage = () => {
     const stableUserId = useRef(0);
     const stableUsername = useRef('Unknown');
     
+    // Background state enum
+    const BACKGROUND_STATES = {
+        NONE: 'none',
+        IMAGE: 'image', 
+        PDF: 'pdf',
+        SCREEN_SHARE: 'screenShare'
+    };
+
+    // Single active background state
+    const [activeBackgroundState, setActiveBackgroundState] = useState(BACKGROUND_STATES.NONE);
+
+    // Unified state transition function
+    const transitionToBackgroundState = async (newState) => {
+        log('INFO', 'DashboardPage', '🔄 STATE TRANSITION', { 
+            from: activeBackgroundState, 
+            to: newState 
+        });
+        
+        // Always clear drawings on state transition
+        log('INFO', 'DashboardPage', '🎨 CLEANUP: Clearing all drawings for state transition');
+        if (typeof window.clearDrawings === 'function') {
+            window.clearDrawings();
+        }
+        
+        // Cleanup based on current active state
+        switch (activeBackgroundState) {
+            case BACKGROUND_STATES.IMAGE:
+                log('INFO', 'DashboardPage', '🖼️ CLEANUP: Removing image state');
+                setCurrentImageUrl(null);
+                currentImageUrlRef.current = null;
+                break;
+                
+            case BACKGROUND_STATES.PDF:
+                log('INFO', 'DashboardPage', '📄 CLEANUP: Removing PDF state');
+                setPdfTotalPages(0);
+                setShowPdfNavigation(false);
+                setPdfCurrentPage(1);
+                break;
+                
+            case BACKGROUND_STATES.SCREEN_SHARE:
+                log('INFO', 'DashboardPage', '🖥️ CLEANUP: Stopping screen share');
+                if (provider) {
+                    await provider.stopScreenShare();
+                    setIsScreenSharing(false);
+                    setIsScreenShareActive(false);
+                }
+                break;
+                
+            case BACKGROUND_STATES.NONE:
+                log('INFO', 'DashboardPage', '✅ CLEANUP: Already in none state');
+                break;
+        }
+        
+        // Set new active state
+        setActiveBackgroundState(newState);
+        
+        // Send state transition to remote peer (only if different from current state)
+        if (provider && selectedPeer && activeBackgroundState !== newState) {
+            log('INFO', 'DashboardPage', '📡 Sending state transition to remote peer', { 
+                newState, 
+                peer: selectedPeer,
+                currentState: activeBackgroundState
+            });
+            provider.sendWhiteboardMessage(selectedPeer, {
+                action: 'stateTransition',
+                newState: newState
+            });
+        } else if (activeBackgroundState === newState) {
+            log('INFO', 'DashboardPage', '📡 SKIPPING: State unchanged, no message needed', { 
+                newState, 
+                currentState: activeBackgroundState 
+            });
+        }
+        
+        log('INFO', 'DashboardPage', '✅ STATE TRANSITION COMPLETED', { 
+            newActiveState: newState 
+        });
+    };
+    
     // Whiteboard function references
     const whiteboardUndoRef = useRef(null);
     const whiteboardRedoRef = useRef(null);
-    const whiteboardImageUploadRef = useRef(null);
+    const whiteboardRef = useRef(null);
     
     // Stable callback functions to prevent Whiteboard remounting
     const handleWhiteboardClose = useCallback(() => {
@@ -119,6 +198,32 @@ const DashboardPage = () => {
     const handleWhiteboardBackgroundCleared = useCallback(() => {
         log('INFO', 'DashboardPage', 'Background file cleared from whiteboard');
     }, []);
+    
+    // Handle remote state transition - optimized to prevent remounts
+    const handleRemoteStateTransition = useCallback((newState) => {
+        log('INFO', 'DashboardPage', '🔄 REMOTE STATE TRANSITION RECEIVED', { 
+            newState, 
+            currentState: activeBackgroundState 
+        });
+        
+        // Only sync if state is actually different to prevent unnecessary updates
+        if (activeBackgroundState !== newState) {
+            log('INFO', 'DashboardPage', '🔄 SYNCING STATE: Different state detected', { 
+                from: activeBackgroundState, 
+                to: newState 
+            });
+            
+            // Use React.startTransition to batch state updates and prevent remounts
+            React.startTransition(() => {
+                setActiveBackgroundState(newState);
+            });
+        } else {
+            log('INFO', 'DashboardPage', '✅ STATE ALREADY SYNCED: No update needed', { newState });
+        }
+        
+        // Drawings are already cleared in Whiteboard.jsx, no need to call again
+        log('INFO', 'DashboardPage', '✅ REMOTE STATE SYNCHRONIZED', { newState });
+    }, [activeBackgroundState]);
     
     // Handle PDF dimension changes to prevent Whiteboard remounts
     const handlePDFDimensionsChange = useCallback((dimensions) => {
@@ -1125,11 +1230,23 @@ const DashboardPage = () => {
             });
         }
                 
-                log('INFO', 'DashboardPage', 'CONNECTION ESTABLISHED', {
-                    selectedPeer: selectedPeer,
-                    clearedDisconnectedPeer: true,
-                    clearedHandledLogoutPeers: true
+            log('INFO', 'DashboardPage', 'CONNECTION ESTABLISHED', {
+                selectedPeer: selectedPeer,
+                clearedDisconnectedPeer: true,
+                clearedHandledLogoutPeers: true
+            });
+            
+            // Sync current state with newly connected peer
+            if (activeBackgroundState !== BACKGROUND_STATES.NONE) {
+                log('INFO', 'DashboardPage', '📡 SYNCING STATE WITH NEW PEER', { 
+                    currentState: activeBackgroundState,
+                    peer: selectedPeer 
                 });
+                provider.sendWhiteboardMessage(selectedPeer, {
+                    action: 'stateTransition',
+                    newState: activeBackgroundState
+                });
+            }
             } else if (state === 'connecting') {
                 setIsConnecting(true);
                 setIsPeerConnected(false);
@@ -1926,18 +2043,16 @@ const DashboardPage = () => {
             }
             
             if (newScreenShareState) {
-                // Start screen sharing
+                // Start screen sharing - use unified state transition
                 log('INFO', 'DashboardPage', 'Starting screen share...');
                 await currentProvider.startScreenShare();
                 setIsScreenSharing(true);
+                await transitionToBackgroundState(BACKGROUND_STATES.SCREEN_SHARE);
                 log('INFO', 'DashboardPage', 'Screen share started');
-                
-                // Note: checkExclusivity is handled by handleStreamChange when stream starts
             } else {
-                // Stop screen sharing
+                // Stop screen sharing - use unified state transition
                 log('INFO', 'DashboardPage', 'Stopping screen share...');
-                await currentProvider.stopScreenShare();
-                setIsScreenSharing(false);
+                await transitionToBackgroundState(BACKGROUND_STATES.NONE);
                 log('INFO', 'DashboardPage', 'Screen share stopped');
             }
         } catch (err) {
@@ -2003,7 +2118,7 @@ const DashboardPage = () => {
     // CRITICAL FIX: Use refs to track previous values and prevent unnecessary re-renders
     const prevCanUndoRef = useRef(canUndo);
     const prevCanRedoRef = useRef(canRedo);
-    
+
     const handleWhiteboardHistoryChange = useCallback((historyState) => {
         log('INFO', 'DashboardPage', 'History changed', historyState);
         
@@ -2055,17 +2170,17 @@ const DashboardPage = () => {
             log('DEBUG', 'DashboardPage', 'Previous currentImageUrl was', { currentImageUrl: currentImageUrlRef.current });
             // REMOUNT-SAFE: Only clear if actually different
             if (currentImageUrl !== null) {
-                setCurrentImageUrl(null);
+            setCurrentImageUrl(null);
             }
             currentImageUrlRef.current = null;
             log('DEBUG', 'DashboardPage', 'currentImageUrl cleared, should now be null');
         }
         
         // 3. Clear Whiteboard's internal background state when screen share is activated
-        if (newType === 'screenShare' && whiteboardImageUploadRef.current && typeof whiteboardImageUploadRef.current.clearBackground === 'function') {
+        if (newType === 'screenShare' && whiteboardRef.current && typeof whiteboardRef.current.clearBackground === 'function') {
             hasWorkToDo = true;
             log('INFO', 'DashboardPage', 'Clearing Whiteboard background due to screen share activation');
-            whiteboardImageUploadRef.current.clearBackground();
+            whiteboardRef.current.clearBackground();
         }
         
         if (hasWorkToDo) {
@@ -2142,8 +2257,8 @@ const DashboardPage = () => {
             (currentStates.pdf && targetState !== 'pdf') || 
             (currentStates.screenShare && targetState !== 'screenShare')) {
             log('INFO', 'DashboardPage', '🎨 CLEANUP: Clearing all drawings for state transition between different states');
-            if (whiteboardImageUploadRef.current && typeof whiteboardImageUploadRef.current.clearAllDrawings === 'function') {
-                whiteboardImageUploadRef.current.clearAllDrawings();
+            if (whiteboardRef.current && typeof whiteboardRef.current.clearAllDrawings === 'function') {
+                whiteboardRef.current.clearAllDrawings();
             }
         } else {
             log('INFO', 'DashboardPage', '🎨 CLEANUP: No state transition - preserving drawings');
@@ -2196,7 +2311,7 @@ const DashboardPage = () => {
         
         // STEP 1: Universal cleanup (any state → image) - REMOUNT ZONE STARTS
         log('INFO', 'DashboardPage', '🧹 STEP 1: Universal cleanup (any state → image)');
-        await cleanupCurrentState('image');
+        // cleanupCurrentState call removed - using unified transitionToBackgroundState instead
         
         // STEP 2: BATCH ALL STATE CHANGES IN ONE TRANSACTION (REDUCES REMOUNTS)
         log('INFO', 'DashboardPage', '📝 STEP 2: Batching state changes to reduce remounts');
@@ -2210,8 +2325,8 @@ const DashboardPage = () => {
         
         // STEP 3: Set background in Whiteboard (direct call - no remount)
         log('INFO', 'DashboardPage', '🖼️ STEP 3: Setting background in Whiteboard');
-        if (whiteboardImageUploadRef.current && typeof whiteboardImageUploadRef.current.setBackgroundDirectly === 'function') {
-            whiteboardImageUploadRef.current.setBackgroundDirectly('image', cdnUrl);
+        if (whiteboardRef.current && typeof whiteboardRef.current.setBackgroundDirectly === 'function') {
+            whiteboardRef.current.setBackgroundDirectly('image', cdnUrl);
         }
         
         log('INFO', 'DashboardPage', '✅ PURE PROCESSING: Image processing completed', { cdnUrl });
@@ -2229,7 +2344,7 @@ const DashboardPage = () => {
         
         // STEP 1: Universal cleanup (any state → pdf)
         log('INFO', 'DashboardPage', '🧹 STEP 1: Universal cleanup (any state → pdf)');
-        await cleanupCurrentState('pdf');
+        // cleanupCurrentState call removed - using unified transitionToBackgroundState instead
         
         // STEP 2: Set new PDF state
         log('INFO', 'DashboardPage', '📝 STEP 2: Setting new PDF state');
@@ -2238,8 +2353,8 @@ const DashboardPage = () => {
         
         // STEP 3: Set background in Whiteboard
         log('INFO', 'DashboardPage', '📄 STEP 3: Setting PDF background in Whiteboard');
-        if (whiteboardImageUploadRef.current && typeof whiteboardImageUploadRef.current.setBackgroundDirectly === 'function') {
-            whiteboardImageUploadRef.current.setBackgroundDirectly('pdf', pdfFile);
+        if (whiteboardRef.current && typeof whiteboardRef.current.setBackgroundDirectly === 'function') {
+            whiteboardRef.current.setBackgroundDirectly('pdf', pdfFile);
         }
         
         log('INFO', 'DashboardPage', '✅ UNIFIED loadPDF completed', { pdfFile });
@@ -2251,7 +2366,7 @@ const DashboardPage = () => {
         
         // STEP 1: Universal cleanup (any state → screenShare)
         log('INFO', 'DashboardPage', '🧹 STEP 1: Universal cleanup (any state → screenShare)');
-        await cleanupCurrentState('screenShare');
+        // cleanupCurrentState call removed - using unified transitionToBackgroundState instead
         
         // STEP 2: Start screen share
         log('INFO', 'DashboardPage', '📝 STEP 2: Starting screen share');
@@ -2269,6 +2384,9 @@ const DashboardPage = () => {
         log('INFO', 'DashboardPage', '📤 IDEAL FLOW: Starting image upload', { fileName: file.name });
         
         try {
+            // Use unified state transition to IMAGE
+            await transitionToBackgroundState(BACKGROUND_STATES.IMAGE);
+            
             // Steps 1-5: Pure upload flow (NO REMOUNTS)
             const imageUrl = await uploadImage(file);
             
@@ -2303,6 +2421,9 @@ const DashboardPage = () => {
     const handlePdfChange = async (pdfFile) => {
         log('INFO', 'DashboardPage', 'PDF changed', { pdfFile });
         
+        // Use unified state transition to PDF
+        await transitionToBackgroundState(BACKGROUND_STATES.PDF);
+        
         // Check if this is a URL string (from remote peer) or File object (from local upload)
         if (typeof pdfFile === 'string') {
             // This is a URL from remote peer - use universal PDF loading
@@ -2311,27 +2432,27 @@ const DashboardPage = () => {
         } else {
             // This is a File object from local upload - proceed with normal upload
             log('INFO', 'DashboardPage', 'Local PDF file received, proceeding with upload');
-            
-            // Pass the PDF file to Whiteboard component
-            if (whiteboardImageUploadRef.current && whiteboardImageUploadRef.current.handleFileUpload) {
+        
+        // Pass the PDF file to Whiteboard component
+            if (whiteboardRef.current && whiteboardRef.current.handleFileUpload) {
                 log('INFO', 'DashboardPage', 'Passing PDF to Whiteboard component', {
-                    fileName: pdfFile.name,
-                    fileSize: pdfFile.size,
-                    fileType: pdfFile.type
-                });
-                // Create a synthetic event object for the Whiteboard component
-                const syntheticEvent = {
-                    target: {
-                        files: [pdfFile]
-                    }
-                };
+                fileName: pdfFile.name,
+                fileSize: pdfFile.size,
+                fileType: pdfFile.type
+            });
+            // Create a synthetic event object for the Whiteboard component
+            const syntheticEvent = {
+                target: {
+                    files: [pdfFile]
+                }
+            };
                 log('INFO', 'DashboardPage', 'Calling Whiteboard.handleFileUpload with synthetic event');
-                whiteboardImageUploadRef.current.handleFileUpload(syntheticEvent);
+                whiteboardRef.current.handleFileUpload(syntheticEvent);
                 log('INFO', 'DashboardPage', 'PDF successfully passed to Whiteboard component');
-            } else {
+        } else {
                 log('WARN', 'DashboardPage', 'Whiteboard ref not available', {
-                    hasRef: !!whiteboardImageUploadRef.current,
-                    hasHandleFileUpload: !!(whiteboardImageUploadRef.current && whiteboardImageUploadRef.current.handleFileUpload)
+                    hasRef: !!whiteboardRef.current,
+                    hasHandleFileUpload: !!(whiteboardRef.current && whiteboardRef.current.handleFileUpload)
                 });
             }
         }
@@ -2352,9 +2473,9 @@ const DashboardPage = () => {
         log('DEBUG', 'DashboardPage', 'Screen share state', { isScreenShareActive, isScreenSharing });
         
         // Pass the file directly to the Whiteboard component
-        if (whiteboardImageUploadRef.current && typeof whiteboardImageUploadRef.current.handleImageUpload === 'function') {
+        if (whiteboardRef.current && typeof whiteboardRef.current.handleImageUpload === 'function') {
             log('INFO', 'DashboardPage', 'Calling Whiteboard handleImageUpload');
-            whiteboardImageUploadRef.current.handleImageUpload(event);
+            whiteboardRef.current.handleImageUpload(event);
         } else {
             log('ERROR', 'DashboardPage', 'Ref not available or handleImageUpload not a function');
         }
@@ -2701,42 +2822,43 @@ const DashboardPage = () => {
                            hasOnPdfPagesChange: !!handlePdfPagesChange,
                            timestamp: Date.now()
                        })}
-                       <Whiteboard
-                           key="whiteboard-stable"
+                   <Whiteboard
+                       key="whiteboard-stable"
                            userId={stableUserId.current}
                            username={stableUsername.current}
-                           screenShareStream={null}
-                           isScreenShareActive={isScreenShareActive}
-                           currentImageUrl={currentImageUrl}
+                       screenShareStream={null}
+                       isScreenShareActive={isScreenShareActive}
+                       currentImageUrl={currentImageUrl}
                            containerSize={stableContainerSize.current}
-                           onClose={handleWhiteboardClose}
+                       onClose={handleWhiteboardClose}
                            onBackgroundCleared={handleWhiteboardBackgroundCleared}
+                           onRemoteStateTransition={handleRemoteStateTransition}
                            onImageChange={handleImageUpload}
-                           onPdfChange={handlePdfChange}
+                       onPdfChange={handlePdfChange}
                            onPDFDimensionsChange={handlePDFDimensionsChange}
-                           webRTCProvider={provider}
-                           selectedPeer={selectedPeer}
+                       webRTCProvider={provider}
+                       selectedPeer={selectedPeer}
                            // GLOBAL STATE APPROACH: Not needed anymore
                            // currentTool={currentTool}
                            // currentColor={currentColor}
                            // onToolChange={handleToolChange}
                            // onColorChange={handleColorChange}
-                           onUndo={whiteboardUndoRef}
-                           onRedo={whiteboardRedoRef}
-                           onHistoryChange={handleWhiteboardHistoryChange}
+                       onUndo={whiteboardUndoRef}
+                       onRedo={whiteboardRedoRef}
+                       onHistoryChange={handleWhiteboardHistoryChange}
                            isMobileDrawingMode={isMobileDrawingMode}
-                           onImageUpload={handleWhiteboardImageUpload}
-                           onFileUpload={handleWhiteboardFileUpload}
-                           onClear={handleWhiteboardClear}
-                           canUndo={canUndo}
-                           canRedo={canRedo}
-                           // PDF Navigation props
-                           pdfCurrentPage={pdfCurrentPage}
-                           pdfScale={pdfScale}
-                           onPdfPageChange={handlePdfPageChange}
-                           onPdfPagesChange={handlePdfPagesChange}
-                           ref={whiteboardImageUploadRef}
-                       />
+                       onImageUpload={handleWhiteboardImageUpload}
+                       onFileUpload={handleWhiteboardFileUpload}
+                       onClear={handleWhiteboardClear}
+                       canUndo={canUndo}
+                       canRedo={canRedo}
+                       // PDF Navigation props
+                       pdfCurrentPage={pdfCurrentPage}
+                       pdfScale={pdfScale}
+                       onPdfPageChange={handlePdfPageChange}
+                       onPdfPagesChange={handlePdfPagesChange}
+                           ref={whiteboardRef}
+                   />
                    </>
                )}
                 
