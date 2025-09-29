@@ -83,9 +83,6 @@ const Whiteboard = forwardRef(({
   
   // PROPER FIX: Log current values for debugging
   console.log('[Whiteboard] 🔧 PROPER FIX: Current values', {
-    // GLOBAL STATE APPROACH: Not needed anymore
-    // currentTool,
-    // currentColor,
     actualTool,
     actualColor,
     timestamp: Date.now()
@@ -179,7 +176,7 @@ const Whiteboard = forwardRef(({
   const [finalHeight, setFinalHeight] = useState(containerSize.height);
 
   // Debug flag to control verbose logging
-  const DEBUG_MOUSE_MOVEMENT = LOG_LEVEL === 'VERBOSE'; // Enable mouse movement logs in VERBOSE mode
+  const DEBUG_MOUSE_MOVEMENT = LOG_LEVEL === 'INFO'; //'VERBOSE'; // Enable mouse movement logs in VERBOSE mode
 
   // Refs
   const startPointRef = useRef(null);
@@ -189,6 +186,11 @@ const Whiteboard = forwardRef(({
   const webRTCProviderRef = useRef(null);
   const selectedPeerRef = useRef(null);
   const pdfDimensionsRef = useRef(null); // Cache PDF dimensions to avoid recalculating
+  const stageRef = useRef(null); // Konva stage reference for direct rendering
+  const layerRef = useRef(null); // Konva layer reference for direct API calls
+  const currentLineRef = useRef(null); // Reference to current Konva Line being drawn
+  const currentShapeRef = useRef(null); // Reference to current Konva shape being drawn (rect, circle, etc.)
+  const startPosRef = useRef({ x: 0, y: 0 }); // Track initial mouse position for shape drawing
 
   // PROPER FIX: Update stroke color when actualColor changes
   useEffect(() => {
@@ -373,8 +375,8 @@ const Whiteboard = forwardRef(({
             timestamp: Date.now()
           });
           
-          if (data.shape.tool === 'pen' || data.shape.tool === 'line') {
-            // Use regular lines storage for all backgrounds (including PDF)
+          if (data.shape.tool === 'pen') {
+            // Use regular lines storage for pen tool only
             log('INFO', 'Whiteboard', '🖼️ UPDATING regular lines', {
               shapeType: data.shape.type,
               pointsCount: data.shape.points?.length,
@@ -405,9 +407,11 @@ const Whiteboard = forwardRef(({
               return newLines;
             });
             } else {
-            // Use regular shapes storage for all backgrounds (including PDF)
-            log('INFO', 'Whiteboard', '📨 RECEIVING line tool creation', {
+            // KONVA-BASED REMOTE SYNC: Create Konva objects for shapes
+            log('INFO', 'Whiteboard', '📨 RECEIVING shape creation', {
                 shapeId: data.shape.id,
+              shapeType: data.shape.type,
+              shapeTool: data.shape.tool,
               shapeX: data.shape.x,
               shapeY: data.shape.y,
               points: data.shape.points,
@@ -416,35 +420,137 @@ const Whiteboard = forwardRef(({
               shapeTool: data.shape.tool,
               timestamp: Date.now()
             });
-            setShapes(prev => [...prev, data.shape]);
+            
+            // Create Konva object for remote peer
+            if (layerRef.current) {
+              let konvaShape;
+              switch (data.shape.type) {
+                case 'line':
+                  konvaShape = new Konva.Line({
+                    id: data.shape.id,
+                    points: data.shape.points,
+                    stroke: data.shape.stroke,
+                    strokeWidth: data.shape.strokeWidth,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                  });
+                  break;
+                case 'circle':
+                  konvaShape = new Konva.Circle({
+                    id: data.shape.id,
+                    x: data.shape.x,
+                    y: data.shape.y,
+                    radius: data.shape.radius,
+                    stroke: data.shape.stroke,
+                    strokeWidth: data.shape.strokeWidth,
+                    fill: data.shape.fill
+                  });
+                  break;
+                case 'ellipse':
+                  konvaShape = new Konva.Ellipse({
+                    id: data.shape.id,
+                    x: data.shape.x,
+                    y: data.shape.y,
+                    radiusX: data.shape.radiusX,
+                    radiusY: data.shape.radiusY,
+                    stroke: data.shape.stroke,
+                    strokeWidth: data.shape.strokeWidth,
+                    fill: data.shape.fill
+                  });
+                  break;
+                case 'rectangle':
+                  konvaShape = new Konva.Rect({
+                    id: data.shape.id,
+                    x: data.shape.x,
+                    y: data.shape.y,
+                    width: data.shape.width,
+                    height: data.shape.height,
+                    stroke: data.shape.stroke,
+                    strokeWidth: data.shape.strokeWidth,
+                    fill: data.shape.fill
+                  });
+                  break;
+                case 'triangle':
+                  konvaShape = new Konva.RegularPolygon({
+                    id: data.shape.id,
+                    x: data.shape.x,
+                    y: data.shape.y,
+                    sides: 3,
+                    radius: data.shape.radius,
+                    stroke: data.shape.stroke,
+                    strokeWidth: data.shape.strokeWidth,
+                    fill: data.shape.fill
+                  });
+                  break;
+              }
+              if (konvaShape) {
+                layerRef.current.add(konvaShape);
+                layerRef.current.batchDraw();
+              }
+            }
           }
         }
         break;
       case 'update':
         if (data.shape) {
-          if (data.shape.tool === 'pen' || data.shape.tool === 'line') {
-            // Use regular lines storage for all backgrounds (including PDF)
+          if (data.shape.tool === 'pen') {
+            // Use regular lines storage for pen tool only
             setLines(prev => prev.map(line => line.id === data.shape.id ? data.shape : line));
           } else {
-            // Use regular shapes storage for all backgrounds (including PDF)
-            log('INFO', 'Whiteboard', '📨 RECEIVING line tool update', {
+            // KONVA-BASED REMOTE SYNC: Update Konva objects for shapes
+            log('INFO', 'Whiteboard', '📨 RECEIVING shape update', {
               shapeId: data.shape.id,
+              shapeType: data.shape.type,
+              shapeTool: data.shape.tool,
               shapeX: data.shape.x,
               shapeY: data.shape.y,
               points: data.shape.points,
               pointsString: JSON.stringify(data.shape.points),
-              shapeType: data.shape.type,
-              shapeTool: data.shape.tool,
               timestamp: Date.now()
             });
-            setShapes(prev => prev.map(shape => shape.id === data.shape.id ? data.shape : shape));
+            
+            // Update Konva object for remote peer
+            if (layerRef.current) {
+              const existingShape = layerRef.current.findOne(`#${data.shape.id}`);
+              if (existingShape) {
+                // Update existing Konva object
+                switch (data.shape.type) {
+                  case 'line':
+                    existingShape.points(data.shape.points);
+                    break;
+                  case 'circle':
+                    existingShape.x(data.shape.x);
+                    existingShape.y(data.shape.y);
+                    existingShape.radius(data.shape.radius);
+                    break;
+                  case 'ellipse':
+                    existingShape.x(data.shape.x);
+                    existingShape.y(data.shape.y);
+                    existingShape.radiusX(data.shape.radiusX);
+                    existingShape.radiusY(data.shape.radiusY);
+                    break;
+                  case 'rectangle':
+                    existingShape.x(data.shape.x);
+                    existingShape.y(data.shape.y);
+                    existingShape.width(data.shape.width);
+                    existingShape.height(data.shape.height);
+                    break;
+                  case 'triangle':
+                    existingShape.x(data.shape.x);
+                    existingShape.y(data.shape.y);
+                    existingShape.radius(data.shape.radius);
+                    break;
+                }
+                layerRef.current.batchDraw();
+              }
+            }
           }
         }
         break;
       case 'erase':
         if (data.shape) {
-          if (data.shape.tool === 'pen' || data.shape.tool === 'line') {
-            // Use regular lines storage for all backgrounds (including PDF)
+          if (data.shape.tool === 'pen') {
+            // Use regular lines storage for pen tool only
             setLines(prev => prev.filter(line => line.id !== data.shape.id));
           } else {
             // Use regular shapes storage for all backgrounds (including PDF)
@@ -453,35 +559,243 @@ const Whiteboard = forwardRef(({
         }
         break;
       case 'undo':
-        log('INFO', 'Whiteboard', '📨 RECEIVED UNDO from peer');
-        if (historyStep > 0) {
-          const newStep = historyStep - 1;
-          const prevState = history[newStep];
-          setLines(prevState.lines);
-          setShapes(prevState.shapes);
-          setHistoryStep(newStep);
+        log('INFO', 'Whiteboard', '📨 RECEIVED UNDO from peer', {
+          receivedState: data.state,
+          receivedHistoryStep: data.state?.historyStep,
+          receivedLinesCount: data.state?.lines?.length,
+          receivedShapesCount: data.state?.shapes?.length
+        });
+        
+        // Use the remote state instead of local history
+        if (data.state) {
+          setLines(data.state.lines || []);
+          setHistoryStep(data.state.historyStep || 0);
+          
+          if (data.state.history) {
+            setHistory(data.state.history);
+          }
+          
+          const prevState = data.state;
+          
+          // KONVA-BASED REMOTE UNDO: Clear and recreate Konva objects
+          if (layerRef.current) {
+            layerRef.current.destroyChildren();
+            
+            // Recreate lines from history
+            if (prevState.lines) {
+              prevState.lines.forEach(line => {
+                const konvaLine = new Konva.Line({
+                  id: line.id,
+                  points: line.points,
+                  stroke: line.stroke,
+                  strokeWidth: line.strokeWidth,
+                  lineCap: line.lineCap,
+                  lineJoin: line.lineJoin,
+                  tension: 0.5
+                });
+                layerRef.current.add(konvaLine);
+              });
+            }
+            
+            // Recreate shapes from history
+            if (prevState.shapes) {
+              prevState.shapes.forEach(shape => {
+                let konvaShape;
+                switch (shape.type) {
+                  case 'line':
+                    konvaShape = new Konva.Line({
+                      id: shape.id,
+                      points: shape.points,
+                      stroke: shape.stroke,
+                      strokeWidth: shape.strokeWidth,
+                      lineCap: 'round',
+                      lineJoin: 'round'
+                    });
+                    break;
+                  case 'circle':
+                    konvaShape = new Konva.Circle({
+                      id: shape.id,
+                      x: shape.x,
+                      y: shape.y,
+                      radius: shape.radius,
+                      stroke: shape.stroke,
+                      strokeWidth: shape.strokeWidth,
+                      fill: shape.fill
+                    });
+                    break;
+                  case 'ellipse':
+                    konvaShape = new Konva.Ellipse({
+                      id: shape.id,
+                      x: shape.x,
+                      y: shape.y,
+                      radiusX: shape.radiusX,
+                      radiusY: shape.radiusY,
+                      stroke: shape.stroke,
+                      strokeWidth: shape.strokeWidth,
+                      fill: shape.fill
+                    });
+                    break;
+                  case 'rectangle':
+                    konvaShape = new Konva.Rect({
+                      id: shape.id,
+                      x: shape.x,
+                      y: shape.y,
+                      width: shape.width,
+                      height: shape.height,
+                      stroke: shape.stroke,
+                      strokeWidth: shape.strokeWidth,
+                      fill: shape.fill
+                    });
+                    break;
+                  case 'triangle':
+                    konvaShape = new Konva.RegularPolygon({
+                      id: shape.id,
+                      x: shape.x,
+                      y: shape.y,
+                      sides: 3,
+                      radius: shape.radius,
+                      stroke: shape.stroke,
+                      strokeWidth: shape.strokeWidth,
+                      fill: shape.fill
+                    });
+                    break;
+                }
+                if (konvaShape) {
+                  layerRef.current.add(konvaShape);
+                }
+              });
+            }
+            
+            layerRef.current.batchDraw();
+          }
           
           // For PDFs, also restore page-specific state
           if (backgroundType === 'pdf' && prevState.pageLines && prevState.pageShapes) {
             setPageLines(prevState.pageLines);
             setPageShapes(prevState.pageShapes);
           }
+        } else {
+          log('WARN', 'Whiteboard', 'No state received in undo message');
         }
         break;
       case 'redo':
-        log('INFO', 'Whiteboard', '📨 RECEIVED REDO from peer');
-        if (historyStep < history.length - 1) {
-          const newStep = historyStep + 1;
-          const state = history[newStep];
-          setLines(state.lines);
-          setShapes(state.shapes);
-          setHistoryStep(newStep);
+        log('INFO', 'Whiteboard', '📨 RECEIVED REDO from peer', {
+          receivedState: data.state,
+          receivedHistoryStep: data.state?.historyStep,
+          receivedLinesCount: data.state?.lines?.length,
+          receivedShapesCount: data.state?.shapes?.length
+        });
+        
+        // Use the remote state instead of local history
+        if (data.state) {
+          setLines(data.state.lines || []);
+          setHistoryStep(data.state.historyStep || 0);
+          
+          if (data.state.history) {
+            setHistory(data.state.history);
+          }
+          
+          const state = data.state;
+          
+          // KONVA-BASED REMOTE REDO: Clear and recreate Konva objects
+          if (layerRef.current) {
+            layerRef.current.destroyChildren();
+            
+            // Recreate lines from history
+            if (state.lines) {
+              state.lines.forEach(line => {
+                const konvaLine = new Konva.Line({
+                  id: line.id,
+                  points: line.points,
+                  stroke: line.stroke,
+                  strokeWidth: line.strokeWidth,
+                  lineCap: line.lineCap,
+                  lineJoin: line.lineJoin,
+                  tension: 0.5
+                });
+                layerRef.current.add(konvaLine);
+              });
+            }
+            
+            // Recreate shapes from history
+            if (state.shapes) {
+              state.shapes.forEach(shape => {
+                let konvaShape;
+                switch (shape.type) {
+                  case 'line':
+                    konvaShape = new Konva.Line({
+                      id: shape.id,
+                      points: shape.points,
+                      stroke: shape.stroke,
+                      strokeWidth: shape.strokeWidth,
+                      lineCap: 'round',
+                      lineJoin: 'round'
+                    });
+                    break;
+                  case 'circle':
+                    konvaShape = new Konva.Circle({
+                      id: shape.id,
+                      x: shape.x,
+                      y: shape.y,
+                      radius: shape.radius,
+                      stroke: shape.stroke,
+                      strokeWidth: shape.strokeWidth,
+                      fill: shape.fill
+                    });
+                    break;
+                  case 'ellipse':
+                    konvaShape = new Konva.Ellipse({
+                      id: shape.id,
+                      x: shape.x,
+                      y: shape.y,
+                      radiusX: shape.radiusX,
+                      radiusY: shape.radiusY,
+                      stroke: shape.stroke,
+                      strokeWidth: shape.strokeWidth,
+                      fill: shape.fill
+                    });
+                    break;
+                  case 'rectangle':
+                    konvaShape = new Konva.Rect({
+                      id: shape.id,
+                      x: shape.x,
+                      y: shape.y,
+                      width: shape.width,
+                      height: shape.height,
+                      stroke: shape.stroke,
+                      strokeWidth: shape.strokeWidth,
+                      fill: shape.fill
+                    });
+                    break;
+                  case 'triangle':
+                    konvaShape = new Konva.RegularPolygon({
+                      id: shape.id,
+                      x: shape.x,
+                      y: shape.y,
+                      sides: 3,
+                      radius: shape.radius,
+                      stroke: shape.stroke,
+                      strokeWidth: shape.strokeWidth,
+                      fill: shape.fill
+                    });
+                    break;
+                }
+                if (konvaShape) {
+                  layerRef.current.add(konvaShape);
+                }
+              });
+            }
+            
+            layerRef.current.batchDraw();
+          }
           
           // For PDFs, also restore page-specific state
           if (backgroundType === 'pdf' && state.pageLines && state.pageShapes) {
             setPageLines(state.pageLines);
             setPageShapes(state.pageShapes);
           }
+        } else {
+          log('WARN', 'Whiteboard', 'No state received in redo message');
         }
         break;
       case 'state':
@@ -626,6 +940,10 @@ const Whiteboard = forwardRef(({
             pdfDimensions: data.transitionData.pdfDimensions,
             timestamp: Date.now()
           });
+          
+          // Clear drawings on remote peer when background changes
+          log('INFO', 'Whiteboard', '🎨 CLEANUP: Clearing drawings due to remote background transition');
+          clearAllDrawings();
           
           // PDF dimensions will be calculated identically by both peers
           // No need to sync dimensions - both peers use same calculation function
@@ -778,7 +1096,7 @@ const Whiteboard = forwardRef(({
     
     // Log coordinates when drawing with line tool (only if debug enabled)
     if (DEBUG_MOUSE_MOVEMENT && actualTool === 'line') {
-      log('VERBOSE', 'Whiteboard', 'Mouse move - Using simple coordinates', { 
+      log('INFO', 'Whiteboard', 'Mouse move - Using simple coordinates', { 
         correctedX, 
         correctedY, 
         konvaX: point.x, 
@@ -796,87 +1114,109 @@ const Whiteboard = forwardRef(({
     }
 
     if (actualTool === 'pen') {
-      // CRITICAL FIX: Debug what values are being used for drawing
-      console.log('[Whiteboard] 🔧 CRITICAL FIX: Drawing with pen - Current values', {
-        actualTool,
-        actualColor,
-        strokeColor,
-        fillColor,
-        drawingTool,
-        timestamp: Date.now()
-      });
-      
-      // Use regular lines storage for all backgrounds (including PDF)
-      let lastLine = lines[lines.length - 1];
-      const newLastLine = {
-        ...lastLine,
-        points: [...lastLine.points, correctedX, correctedY]
-      };
-      setLines(prev => [...prev.slice(0, -1), newLastLine]);
-      // Send line update via WebRTC data channel
-      sendWhiteboardMsg('update', { shape: newLastLine });
+      // DIRECT KONVA API APPROACH: Update the current line directly on Konva object
+      if (currentLineRef.current && layerRef.current) {
+        // Get current points and add new point
+        const currentPoints = currentLineRef.current.points();
+        const newPoints = [...currentPoints, correctedX, correctedY];
+        
+        // Update the Konva Line object directly
+        currentLineRef.current.points(newPoints);
+        
+        // Force Konva to re-render without React state updates
+        layerRef.current.batchDraw();
+        
+        // Send line update via WebRTC data channel (for remote sync)
+        const lineData = {
+          id: currentLineRef.current.id(),
+          tool: actualTool,
+          type: 'line',
+          points: newPoints,
+          stroke: currentLineRef.current.stroke(),
+          strokeWidth: currentLineRef.current.strokeWidth(),
+          lineCap: currentLineRef.current.lineCap(),
+          lineJoin: currentLineRef.current.lineJoin()
+        };
+        sendWhiteboardMsg('update', { shape: lineData });
+      }
     } else if (selectedShape) {
       const startPoint = startPointRef.current;
       const dx = correctedX - startPoint.x;
       const dy = correctedY - startPoint.y;
       
-      // Use regular shapes storage for all backgrounds (including PDF)
-      const updatedShapes = shapes.map(shape => {
-        if (shape.id === selectedShape.id) {
-          switch (shape.type) {
-            case 'line':
-              if (DEBUG_MOUSE_MOVEMENT) {
-                log('VERBOSE', 'Whiteboard', 'Line drawing mouse', { correctedX, correctedY, startX: startPoint.x, startY: startPoint.y, deltaX: dx, deltaY: dy });
-              }
-              return {
-                ...shape,
-                points: [startPoint.x, startPoint.y, correctedX, correctedY]  // Absolute coordinates: start at actual mouse down position, end at current mouse position
-              };
-            case 'circle':
-                  return {
-                    ...shape,
-                radius: Math.sqrt(dx * dx + dy * dy)
-              };
-            case 'ellipse':
-                  return {
-                    ...shape,
-                radiusX: Math.abs(dx),
-                radiusY: Math.abs(dy)
-              };
-            case 'rectangle':
-              return {
-                ...shape,
-                width: Math.abs(dx),
-                height: Math.abs(dy)
-              };
-            case 'triangle':
-              return {
-                ...shape,
-                width: Math.abs(dx),
-                height: Math.abs(dy)
-              };
-            default:
-              return shape;
-          }
+      // DIRECT KONVA API APPROACH: Update Konva shape directly
+      if (currentShapeRef.current) {
+        // Update Konva shape properties directly based on tool type
+        switch (selectedShape.type) {
+              case 'line':
+            // Update line end point
+            const startPoint = startPointRef.current;
+            currentShapeRef.current.points([startPoint.x, startPoint.y, correctedX, correctedY]);
+            break;
+              case 'circle':
+            const radius = Math.sqrt(dx * dx + dy * dy);
+            currentShapeRef.current.radius(radius);
+            break;
+              case 'ellipse':
+            currentShapeRef.current.radiusX(Math.abs(dx));
+            currentShapeRef.current.radiusY(Math.abs(dy));
+            break;
+              case 'rectangle':
+            currentShapeRef.current.width(Math.abs(dx));
+            currentShapeRef.current.height(Math.abs(dy));
+            // Adjust position for negative width/height
+            if (dx < 0) {
+              currentShapeRef.current.x(correctedX);
+            }
+            if (dy < 0) {
+              currentShapeRef.current.y(correctedY);
+            }
+            break;
+              case 'triangle':
+            currentShapeRef.current.radius(Math.sqrt(dx * dx + dy * dy));
+            break;
         }
-        return shape;
-      });
-      setShapes(updatedShapes);
-      // Send shape update via WebRTC data channel - send the updated shape
-      const updatedShape = updatedShapes.find(shape => shape.id === selectedShape.id);
-      if (updatedShape) {
-        log('INFO', 'Whiteboard', `📤 SENDING ${actualTool} tool update`, {
-          shapeId: updatedShape.id,
-          shapeX: updatedShape.x,
-          shapeY: updatedShape.y,
-          dx,
-          dy,
-          correctedX,
-          correctedY,
-          timestamp: Date.now()
-        });
-        // Send shape update via WebRTC data channel
-        sendWhiteboardMsg('update', { shape: updatedShape });
+      }
+      // Force Konva to re-render without React state updates
+      if (layerRef.current) {
+        layerRef.current.batchDraw();
+      }
+      
+      // Send shape update via WebRTC data channel
+      if (currentShapeRef.current) {
+        const shapeData = {
+          id: selectedShape.id,
+          tool: selectedShape.tool,
+          type: selectedShape.type,
+          x: currentShapeRef.current.x(),
+          y: currentShapeRef.current.y(),
+          stroke: currentShapeRef.current.stroke(),
+          strokeWidth: currentShapeRef.current.strokeWidth(),
+          fill: currentShapeRef.current.fill()
+        };
+        
+        // Add tool-specific properties
+        switch (selectedShape.type) {
+            case 'line':
+              shapeData.points = currentShapeRef.current.points();
+              break;
+            case 'circle':
+            shapeData.radius = currentShapeRef.current.radius();
+            break;
+            case 'ellipse':
+            shapeData.radiusX = currentShapeRef.current.radiusX();
+            shapeData.radiusY = currentShapeRef.current.radiusY();
+            break;
+            case 'rectangle':
+              shapeData.width = currentShapeRef.current.width();
+              shapeData.height = currentShapeRef.current.height();
+              break;
+            case 'triangle':
+              shapeData.radius = currentShapeRef.current.radius();
+              break;
+        }
+        
+        sendWhiteboardMsg('update', { shape: shapeData });
       }
     }
   };
@@ -914,67 +1254,143 @@ const Whiteboard = forwardRef(({
     }
 
     if (currentTool === 'pen') { // CRITICAL FIX: Use fresh currentTool instead of stale actualTool
-      // CRITICAL FIX: Use fresh currentColor directly for pen tool as well
-      const lineColor = currentColor;
+      // DIRECT KONVA API APPROACH: Create Konva Line object directly
+      const lineId = `${userId}-${Date.now()}-${uuidv4()}`;
       
+      if (layerRef.current) {
+        // Create Konva Line object directly
+        const konvaLine = new Konva.Line({
+          id: lineId,
+          points: [correctedX, correctedY],
+          stroke: currentColor,
+          strokeWidth: 2,
+          lineCap: 'round',
+          lineJoin: 'round',
+          tension: 0.5
+        });
+        
+        // Add to Konva layer directly
+        layerRef.current.add(konvaLine);
+        currentLineRef.current = konvaLine;
+        
+        // Force initial render
+        layerRef.current.batchDraw();
+      }
+      
+      // Create line data for React state and WebRTC
       const newLine = {
-        id: `${userId}-${Date.now()}-${uuidv4()}`,
-        tool: currentTool, // CRITICAL FIX: Use fresh currentTool instead of hardcoded 'pen'
+        id: lineId,
+        tool: currentTool,
         type: 'line',
         points: [correctedX, correctedY],
-        stroke: lineColor, // CRITICAL FIX: Use direct value
+        stroke: currentColor,
         strokeWidth: 2,
         lineCap: 'round',
         lineJoin: 'round'
       };
       
-      // Use regular lines storage for all backgrounds (including PDF)
+      // Add to React state for persistence
       setLines(prev => [...prev, newLine]);
-      
       setIsDrawing(true);
+      
       // Send line creation via WebRTC data channel
       sendWhiteboardMsg('draw', { shape: newLine });
     } else {
-      // PROPER FIX: Debug what values are being used for shape creation
-      console.log('[Whiteboard] 🔧 PROPER FIX: Creating shape - Current values', {
-        currentTool,
-        currentColor,
-        strokeColor,
-        fillColor,
-        drawingTool,
-        defaultFill,
-        timestamp: Date.now()
-      });
+      // DIRECT KONVA API APPROACH: Create Konva shapes directly
+      if (layerRef.current) {
+        const shapeId = `${userId}-${Date.now()}-${uuidv4()}`;
+        const shapeColor = currentColor;
+        const shapeFill = defaultFill ? currentColor : 'transparent';
+        
+        // Store starting position
+        startPosRef.current = { x: correctedX, y: correctedY };
+        
+        let konvaShape;
       
-      // CRITICAL FIX: Use fresh currentColor directly instead of state variables to ensure immediate values
-      const shapeColor = currentColor;
-      const shapeFill = defaultFill ? currentColor : 'transparent';
-      
-      console.log('[Whiteboard] 🔧 CRITICAL FIX: Using direct values for shape', {
-        shapeColor,
-        shapeFill,
-        currentColor,
-        defaultFill
-      });
-      
+        // Create appropriate Konva shape based on tool
+        switch (currentTool) {
+          case 'line':
+            konvaShape = new Konva.Line({
+              id: shapeId,
+              points: [correctedX, correctedY, correctedX, correctedY], // Start and end at same point initially
+              stroke: shapeColor,
+              strokeWidth: 2,
+              lineCap: 'round',
+              lineJoin: 'round'
+            });
+            break;
+          case 'rectangle':
+            konvaShape = new Konva.Rect({
+              id: shapeId,
+              x: correctedX,
+              y: correctedY,
+              width: 0,
+              height: 0,
+              stroke: shapeColor,
+              strokeWidth: 2,
+              fill: shapeFill
+            });
+            break;
+          case 'circle':
+            konvaShape = new Konva.Circle({
+              id: shapeId,
+              x: correctedX,
+              y: correctedY,
+              radius: 0,
+              stroke: shapeColor,
+              strokeWidth: 2,
+              fill: shapeFill
+            });
+            break;
+          case 'ellipse':
+            konvaShape = new Konva.Ellipse({
+              id: shapeId,
+              x: correctedX,
+              y: correctedY,
+              radiusX: 0,
+              radiusY: 0,
+              stroke: shapeColor,
+              strokeWidth: 2,
+              fill: shapeFill
+            });
+            break;
+          case 'triangle':
+            konvaShape = new Konva.RegularPolygon({
+              id: shapeId,
+              x: correctedX,
+              y: correctedY,
+              sides: 3,
+              radius: 0,
+              stroke: shapeColor,
+              strokeWidth: 2,
+              fill: shapeFill
+            });
+            break;
+          default:
+            return; // Unknown tool
+        }
+
+        // Add to Konva layer directly
+        layerRef.current.add(konvaShape);
+        currentShapeRef.current = konvaShape;
+        
+        // Force initial render
+        layerRef.current.batchDraw();
+        
+        // Create shape data for WebRTC and history (but don't add to React state for rendering)
       const newShape = {
-        id: `${userId}-${Date.now()}-${uuidv4()}`,
-        tool: currentTool, // CRITICAL FIX: Use fresh currentTool instead of drawingTool
-        type: currentTool, // CRITICAL FIX: Use fresh currentTool instead of drawingTool
+          id: shapeId,
+          tool: currentTool,
+          type: currentTool,
         x: correctedX,
         y: correctedY,
-        stroke: shapeColor, // CRITICAL FIX: Use direct value
+          stroke: shapeColor,
         strokeWidth: 2,
-        fill: shapeFill // CRITICAL FIX: Use direct value
+          fill: shapeFill
       };
 
-      log('DEBUG', 'Whiteboard', 'Creating new shape', newShape);
-
       // Set specific properties based on shape type
-      switch (actualTool) { // CRITICAL FIX: Use actualTool instead of drawingTool
-        case 'line':
-          newShape.points = [0, 0, 0, 0];  // Initialize with relative coordinates for current layout
-          break;
+        switch (currentTool) {
         case 'circle':
           newShape.radius = 0;
           break;
@@ -987,32 +1403,18 @@ const Whiteboard = forwardRef(({
           newShape.height = 0;
           break;
         case 'triangle':
-          newShape.width = 0;
-          newShape.height = 0;
+          newShape.radius = 0;
           break;
       }
 
-      // Use regular shapes storage for all backgrounds (including PDF)
-      setShapes(prev => [...prev, newShape]);
-      
+        // Store shape reference for mouse move/up handling
       setSelectedShape(newShape);
       setIsDrawing(true);
       startPointRef.current = { x: correctedX, y: correctedY };
-      if (DEBUG_MOUSE_MOVEMENT) {
-        log('VERBOSE', 'Whiteboard', 'Mouse down - Set startPoint', { x: correctedX, y: correctedY });
+        
+        // Send shape creation via WebRTC data channel
+        sendWhiteboardMsg('draw', { shape: newShape });
       }
-      
-      // Send shape creation via WebRTC data channel
-      log('INFO', 'Whiteboard', `📤 SENDING ${currentTool} tool creation`, {
-        shapeId: newShape.id,
-        shapeX: newShape.x,
-        shapeY: newShape.y,
-        correctedX,
-        correctedY,
-        timestamp: Date.now()
-      });
-      // Send shape creation via WebRTC data channel
-      sendWhiteboardMsg('draw', { shape: newShape });
     }
   };
 
@@ -1027,6 +1429,84 @@ const Whiteboard = forwardRef(({
     }
 
     if (!isDrawing) return;
+
+    // FINALIZE PEN TOOL: Update React state with final line data
+    if (actualTool === 'pen' && currentLineRef.current) {
+      // Get final line data from Konva object
+      const finalLineData = {
+        id: currentLineRef.current.id(),
+        tool: actualTool,
+        type: 'line',
+        points: currentLineRef.current.points(),
+        stroke: currentLineRef.current.stroke(),
+        strokeWidth: currentLineRef.current.strokeWidth(),
+        lineCap: currentLineRef.current.lineCap(),
+        lineJoin: currentLineRef.current.lineJoin()
+      };
+      
+      // Update React state with final line (for persistence and undo/redo)
+      setLines(prev => {
+        const updatedLines = [...prev];
+        const lastIndex = updatedLines.length - 1;
+        if (lastIndex >= 0) {
+          updatedLines[lastIndex] = finalLineData;
+        }
+        return updatedLines;
+      });
+      
+      // Send final line data via WebRTC for remote peer sync
+      sendWhiteboardMsg('update', { shape: finalLineData });
+      
+      // Clear the current line reference
+      currentLineRef.current = null;
+    }
+
+    // FINALIZE SHAPE TOOLS: Update React state with final shape data
+    if (actualTool !== 'pen' && currentShapeRef.current && selectedShape) {
+      // Get final shape data from Konva object
+      const finalShapeData = {
+        id: currentShapeRef.current.id(),
+        tool: selectedShape.tool,
+        type: selectedShape.type,
+        x: currentShapeRef.current.x(),
+        y: currentShapeRef.current.y(),
+        stroke: currentShapeRef.current.stroke(),
+        strokeWidth: currentShapeRef.current.strokeWidth(),
+        fill: currentShapeRef.current.fill()
+      };
+      
+      // Add tool-specific properties
+      switch (selectedShape.type) {
+        case 'line':
+          finalShapeData.points = currentShapeRef.current.points();
+          break;
+        case 'circle':
+          finalShapeData.radius = currentShapeRef.current.radius();
+          break;
+        case 'ellipse':
+          finalShapeData.radiusX = currentShapeRef.current.radiusX();
+          finalShapeData.radiusY = currentShapeRef.current.radiusY();
+          break;
+        case 'rectangle':
+          finalShapeData.width = currentShapeRef.current.width();
+          finalShapeData.height = currentShapeRef.current.height();
+          break;
+        case 'triangle':
+          finalShapeData.radius = currentShapeRef.current.radius();
+          break;
+      }
+      
+      // REMOVED: No longer updating React state for shapes since we're using Konva objects only
+      // The Konva object is already updated and rendered directly
+      
+      // Clear the current shape reference
+      currentShapeRef.current = null;
+      
+      // Add to history for undo/redo (batched to avoid remounts during drawing)
+      React.startTransition(() => {
+        addToHistory();
+      });
+    }
 
     setIsDrawing(false);
       setSelectedShape(null);
@@ -1067,12 +1547,89 @@ const Whiteboard = forwardRef(({
     }
   };
 
-  const addToHistory = (currentLines = lines, currentShapes = shapes) => {
+  // Helper function to extract shapes from Konva layer
+  const getShapesFromKonva = () => {
+    if (!layerRef.current) return [];
+    
+    const shapes = [];
+    layerRef.current.children.forEach(child => {
+      if (child.className === 'Line' && child.id() && !child.id().includes('cursor')) {
+        // This is a shape line (not a pen line)
+        shapes.push({
+          id: child.id(),
+          type: 'line',
+          tool: 'line',
+          x: child.x(),
+          y: child.y(),
+          points: child.points(),
+          stroke: child.stroke(),
+          strokeWidth: child.strokeWidth(),
+          fill: child.fill()
+        });
+      } else if (child.className === 'Circle') {
+        shapes.push({
+          id: child.id(),
+          type: 'circle',
+          tool: 'circle',
+          x: child.x(),
+          y: child.y(),
+          radius: child.radius(),
+          stroke: child.stroke(),
+          strokeWidth: child.strokeWidth(),
+          fill: child.fill()
+        });
+      } else if (child.className === 'Ellipse') {
+        shapes.push({
+          id: child.id(),
+          type: 'ellipse',
+          tool: 'ellipse',
+          x: child.x(),
+          y: child.y(),
+          radiusX: child.radiusX(),
+          radiusY: child.radiusY(),
+          stroke: child.stroke(),
+          strokeWidth: child.strokeWidth(),
+          fill: child.fill()
+        });
+      } else if (child.className === 'Rect') {
+        shapes.push({
+          id: child.id(),
+          type: 'rectangle',
+          tool: 'rectangle',
+          x: child.x(),
+          y: child.y(),
+          width: child.width(),
+          height: child.height(),
+          stroke: child.stroke(),
+          strokeWidth: child.strokeWidth(),
+          fill: child.fill()
+        });
+      } else if (child.className === 'RegularPolygon') {
+        shapes.push({
+          id: child.id(),
+          type: 'triangle',
+          tool: 'triangle',
+          x: child.x(),
+          y: child.y(),
+          radius: child.radius(),
+          stroke: child.stroke(),
+          strokeWidth: child.strokeWidth(),
+          fill: child.fill()
+        });
+      }
+    });
+    return shapes;
+  };
+
+  const addToHistory = (currentLines = lines, currentShapes = null) => {
+    // Get shapes from Konva if not provided
+    const shapes = currentShapes || getShapesFromKonva();
+    
     log('DEBUG', 'Whiteboard', 'Adding to history', { 
       currentHistoryLength: history.length, 
       currentHistoryStep: historyStep,
       linesCount: currentLines.length,
-      shapesCount: currentShapes.length
+      shapesCount: shapes.length
     });
     
     const newHistory = history.slice(0, historyStep + 1);
@@ -1081,12 +1638,12 @@ const Whiteboard = forwardRef(({
     if (backgroundType === 'pdf') {
       newHistory.push({ 
         lines: [...currentLines], 
-        shapes: [...currentShapes],
+        shapes: [...shapes],
         pageLines: { ...pageLines },
         pageShapes: { ...pageShapes }
       });
     } else {
-    newHistory.push({ lines: [...currentLines], shapes: [...currentShapes] });
+    newHistory.push({ lines: [...currentLines], shapes: [...shapes] });
     }
     
     setHistory(newHistory);
@@ -1177,8 +1734,10 @@ const Whiteboard = forwardRef(({
       setPdfPages(numPages);
     }
     
-    // Add to history
-    addToHistory();
+    // Add to history (batched to avoid remounts)
+    React.startTransition(() => {
+      addToHistory();
+    });
     
     log('INFO', 'Whiteboard', 'PDF file set for rendering', { pdfUrl });
   }, []);
@@ -1199,7 +1758,9 @@ const Whiteboard = forwardRef(({
       // Add to history only when drawing is actually completed
       if (hasChanged && (lines.length > 0 || shapes.length > 0)) {
         log('DEBUG', 'Whiteboard', 'Drawing completed - adding to history');
+        React.startTransition(() => {
         addToHistory();
+        });
       }
     }
   }, [isDrawing]); // Only depend on isDrawing, not lines/shapes
@@ -1213,9 +1774,102 @@ const Whiteboard = forwardRef(({
       const prevState = history[newStep];
       log('DEBUG', 'Whiteboard', 'Undoing to step', { newStep, state: prevState });
       
-      // Update state directly
+      // Update React state for lines (still needed for persistence)
       setLines(prevState.lines);
-      setShapes(prevState.shapes);
+      
+      // KONVA-BASED UNDO: Clear and recreate Konva objects
+      if (layerRef.current) {
+        // Clear all Konva objects
+        layerRef.current.destroyChildren();
+        
+        // Recreate lines from history
+        if (prevState.lines) {
+          prevState.lines.forEach(line => {
+            const konvaLine = new Konva.Line({
+              id: line.id,
+              points: line.points,
+              stroke: line.stroke,
+              strokeWidth: line.strokeWidth,
+              lineCap: line.lineCap,
+              lineJoin: line.lineJoin,
+              tension: 0.5
+            });
+            layerRef.current.add(konvaLine);
+          });
+        }
+        
+        // Recreate shapes from history
+        if (prevState.shapes) {
+          prevState.shapes.forEach(shape => {
+            let konvaShape;
+            switch (shape.type) {
+              case 'line':
+                konvaShape = new Konva.Line({
+                  id: shape.id,
+                  points: shape.points,
+                  stroke: shape.stroke,
+                  strokeWidth: shape.strokeWidth,
+                  lineCap: 'round',
+                  lineJoin: 'round'
+                });
+                break;
+              case 'circle':
+                konvaShape = new Konva.Circle({
+                  id: shape.id,
+                  x: shape.x,
+                  y: shape.y,
+                  radius: shape.radius,
+                  stroke: shape.stroke,
+                  strokeWidth: shape.strokeWidth,
+                  fill: shape.fill
+                });
+                break;
+              case 'ellipse':
+                konvaShape = new Konva.Ellipse({
+                  id: shape.id,
+                  x: shape.x,
+                  y: shape.y,
+                  radiusX: shape.radiusX,
+                  radiusY: shape.radiusY,
+                  stroke: shape.stroke,
+                  strokeWidth: shape.strokeWidth,
+                  fill: shape.fill
+                });
+                break;
+              case 'rectangle':
+                konvaShape = new Konva.Rect({
+                  id: shape.id,
+                  x: shape.x,
+                  y: shape.y,
+                  width: shape.width,
+                  height: shape.height,
+                  stroke: shape.stroke,
+                  strokeWidth: shape.strokeWidth,
+                  fill: shape.fill
+                });
+                break;
+              case 'triangle':
+                konvaShape = new Konva.RegularPolygon({
+                  id: shape.id,
+                  x: shape.x,
+                  y: shape.y,
+                  sides: 3,
+                  radius: shape.radius,
+                  stroke: shape.stroke,
+                  strokeWidth: shape.strokeWidth,
+                  fill: shape.fill
+                });
+                break;
+            }
+            if (konvaShape) {
+              layerRef.current.add(konvaShape);
+            }
+          });
+        }
+        
+        // Force re-render
+        layerRef.current.batchDraw();
+      }
       
       // For PDFs, also restore page-specific state
       if (backgroundType === 'pdf' && prevState.pageLines && prevState.pageShapes) {
@@ -1225,8 +1879,8 @@ const Whiteboard = forwardRef(({
       
       setHistoryStep(newStep);
 
-      // Send current state to peers so they can sync their history
-      sendWhiteboardMsg('state', { 
+      // Send undo action to peers for remote sync
+      sendWhiteboardMsg('undo', { 
         state: {
           lines: prevState.lines, 
           shapes: prevState.shapes, 
@@ -1244,9 +1898,102 @@ const Whiteboard = forwardRef(({
       const newStep = historyStep + 1;
       const state = history[newStep];
       
-      // Simple approach - just update state directly
+      // Update React state for lines (still needed for persistence)
       setLines(state.lines);
-      setShapes(state.shapes);
+      
+      // KONVA-BASED REDO: Clear and recreate Konva objects
+      if (layerRef.current) {
+        // Clear all Konva objects
+        layerRef.current.destroyChildren();
+        
+        // Recreate lines from history
+        if (state.lines) {
+          state.lines.forEach(line => {
+            const konvaLine = new Konva.Line({
+              id: line.id,
+              points: line.points,
+              stroke: line.stroke,
+              strokeWidth: line.strokeWidth,
+              lineCap: line.lineCap,
+              lineJoin: line.lineJoin,
+              tension: 0.5
+            });
+            layerRef.current.add(konvaLine);
+          });
+        }
+        
+        // Recreate shapes from history
+        if (state.shapes) {
+          state.shapes.forEach(shape => {
+            let konvaShape;
+            switch (shape.type) {
+              case 'line':
+                konvaShape = new Konva.Line({
+                  id: shape.id,
+                  points: shape.points,
+                  stroke: shape.stroke,
+                  strokeWidth: shape.strokeWidth,
+                  lineCap: 'round',
+                  lineJoin: 'round'
+                });
+                break;
+              case 'circle':
+                konvaShape = new Konva.Circle({
+                  id: shape.id,
+                  x: shape.x,
+                  y: shape.y,
+                  radius: shape.radius,
+                  stroke: shape.stroke,
+                  strokeWidth: shape.strokeWidth,
+                  fill: shape.fill
+                });
+                break;
+              case 'ellipse':
+                konvaShape = new Konva.Ellipse({
+                  id: shape.id,
+                  x: shape.x,
+                  y: shape.y,
+                  radiusX: shape.radiusX,
+                  radiusY: shape.radiusY,
+                  stroke: shape.stroke,
+                  strokeWidth: shape.strokeWidth,
+                  fill: shape.fill
+                });
+                break;
+              case 'rectangle':
+                konvaShape = new Konva.Rect({
+                  id: shape.id,
+                  x: shape.x,
+                  y: shape.y,
+                  width: shape.width,
+                  height: shape.height,
+                  stroke: shape.stroke,
+                  strokeWidth: shape.strokeWidth,
+                  fill: shape.fill
+                });
+                break;
+              case 'triangle':
+                konvaShape = new Konva.RegularPolygon({
+                  id: shape.id,
+                  x: shape.x,
+                  y: shape.y,
+                  sides: 3,
+                  radius: shape.radius,
+                  stroke: shape.stroke,
+                  strokeWidth: shape.strokeWidth,
+                  fill: shape.fill
+                });
+                break;
+            }
+            if (konvaShape) {
+              layerRef.current.add(konvaShape);
+            }
+          });
+        }
+        
+        // Force re-render
+        layerRef.current.batchDraw();
+      }
       
       // For PDFs, also restore page-specific state
       if (backgroundType === 'pdf' && state.pageLines && state.pageShapes) {
@@ -1256,8 +2003,8 @@ const Whiteboard = forwardRef(({
       
       setHistoryStep(newStep);
 
-      // Send current state to peers so they can sync their history
-      sendWhiteboardMsg('state', { 
+      // Send redo action to peers for remote sync
+      sendWhiteboardMsg('redo', { 
         state: {
           lines: state.lines, 
           shapes: state.shapes, 
@@ -1342,6 +2089,13 @@ const Whiteboard = forwardRef(({
     setPageShapes({});
     setHistory([{ lines: [], shapes: [] }]);
     setHistoryStep(0);
+    
+    // KONVA-BASED CLEARING: Clear Konva objects as well
+    if (layerRef.current) {
+      layerRef.current.destroyChildren();
+      layerRef.current.batchDraw();
+      log('INFO', 'Whiteboard', 'Cleared Konva layer');
+    }
   };
 
   // Function to set background directly (for remote peers) - REMOUNT-SAFE
@@ -1945,7 +2699,9 @@ const Whiteboard = forwardRef(({
         setBackgroundType('pdf');
         
         // Add to history with current state (preserve existing drawings)
+        React.startTransition(() => {
         addToHistory();
+        });
       }
       
       // Note: onPdfChange not called to avoid loop
@@ -2005,7 +2761,9 @@ const Whiteboard = forwardRef(({
       setBackgroundType('pdf');
       
       // Add to history with current state (preserve existing drawings)
+      React.startTransition(() => {
       addToHistory();
+      });
       
       // Notify parent component
       if (onPdfChange) {
@@ -2166,7 +2924,9 @@ const Whiteboard = forwardRef(({
     }
     setSelectedShape(null);
     
+    React.startTransition(() => {
     addToHistory();
+    });
     
     // Send clear via WebRTC data channel
     sendWhiteboardMsg('state', { 
@@ -2386,6 +3146,7 @@ const Whiteboard = forwardRef(({
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onClick={handleClick}
+          ref={stageRef}
           // Touch event handlers for mobile devices
             onTouchStart={(e) => {
               // Access the native event object via the 'evt' property
@@ -2581,7 +3342,7 @@ const Whiteboard = forwardRef(({
             }
           }}
         >
-            <Layer>
+            <Layer ref={layerRef}>
               {/* Render lines - use regular lines for all backgrounds */}
               {lines.map((line, index) => (
                   <Line
@@ -2596,8 +3357,8 @@ const Whiteboard = forwardRef(({
                   />
               ))}
 
-              {/* Render shapes - use regular shapes for all backgrounds */}
-              {shapes.map((shape, index) => {
+              {/* REMOVED: Shapes are now rendered directly via Konva objects, not React state */}
+              {/* {shapes.map((shape, index) => {
                     const commonProps = {
                       key: `shape-${shape.id || index}`,
                       x: shape.x,
@@ -2658,7 +3419,7 @@ const Whiteboard = forwardRef(({
                   default:
                     return null;
                 }
-              })}
+              })} */}
 
               {/* Render remote cursors */}
               {Array.from(cursors.entries()).map(([userId, cursor]) => (
