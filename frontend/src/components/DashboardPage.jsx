@@ -587,6 +587,14 @@ const DashboardPage = () => {
             stableUserId.current = user.id;
             stableUsername.current = user.name || user.email;
 
+            // Enable whiteboard immediately after login for offline use
+            if (!isWhiteboardActive) {
+                log('INFO', 'DashboardPage', 'Auto-enabling whiteboard after login for offline use');
+                setIsWhiteboardActive(true);
+            } else {
+                log('INFO', 'DashboardPage', 'Whiteboard already active after login');
+            }
+
             // Initialize WebSocket provider only (WebRTC will be created when needed)
             const wsProvider = WebSocketProvider.getInstance(user.id);
 
@@ -598,7 +606,7 @@ const DashboardPage = () => {
 
             wsProvider.onDisconnect(() => {
                 setIsWebSocketConnected(false);
-                setError('Lost connection to server. Please check your internet connection.');
+                setError('Server connection lost');
             });
 
             // Check if WebSocket is already connected and set status accordingly
@@ -610,7 +618,7 @@ const DashboardPage = () => {
                 // Connect WebSocket if not already connected
                 wsProvider.connect().catch(error => {
                     log('ERROR', 'DashboardPage', 'Failed to connect to WebSocket', error);
-                    setError('Failed to connect to server. Please try again later.');
+                    setError('Server connection failed');
                 });
             }
         } else {
@@ -1188,6 +1196,20 @@ const DashboardPage = () => {
         setTimeout(() => setShowDebugPopup(false), 10000);
     };
 
+    // Helper function to calculate connection status for status light
+    const getConnectionStatus = () => {
+        if (error) {
+            return 'error';
+        }
+        if (isWebSocketConnected && isPeerConnected) {
+            return 'connected';
+        }
+        if (isWebSocketConnected && !isPeerConnected) {
+            return 'disconnected';
+        }
+        return 'initial';
+    };
+
     // Helper function to set up WebRTC event listeners
     const setupWebRTCEventListeners = (rtcProvider) => {
         // Connection event listener
@@ -1293,16 +1315,16 @@ const DashboardPage = () => {
                     log('DEBUG', 'DashboardPage', 'DISCONNECT FLAG DEBUG', { flag: isGracefulDisconnect, state });
                     
                     if (state === 'failed') {
-                        // Failed connections are always unexpected
-                        log('WARN', 'DashboardPage', 'Failed connection - showing error message');
-                        setError('Connection failed. This may be due to network issues or firewall restrictions. Please try reconnecting.');
+                        // Failed connections - set error for status light
+                        log('WARN', 'DashboardPage', 'Failed connection - updating status light');
+                        setError('Connection failed');
                     } else if (state === 'disconnected' && !isGracefulDisconnect) {
-                        // Only show "Connection lost" for unexpected disconnections
-                        log('WARN', 'DashboardPage', 'Unexpected disconnect - showing error message');
-                        setError('Connection lost. Please try reconnecting.');
+                        // Unexpected disconnections - set error for status light
+                        log('WARN', 'DashboardPage', 'Unexpected disconnect - updating status light');
+                        setError('Connection lost');
                     } else if (state === 'disconnected' && isGracefulDisconnect) {
-                        // Graceful disconnect - clear any existing error and don't show new error
-                        log('INFO', 'DashboardPage', 'Graceful disconnect detected - not showing error message');
+                        // Graceful disconnect - clear any existing error
+                        log('INFO', 'DashboardPage', 'Graceful disconnect detected - clearing error');
                         setError(null);
                     }
                 }
@@ -1316,12 +1338,12 @@ const DashboardPage = () => {
         const errorHandler = (event) => {
             log('ERROR', 'DashboardPage', 'WebRTC error', event.data);
             
-            // Provide more specific error messages for common issues
-            let errorMessage = event.data.message;
+            // Set concise error messages for status light
+            let errorMessage = 'Connection error';
             if (event.data.error && event.data.error.name === 'InvalidStateError') {
-                errorMessage = 'Connection state error - this usually resolves automatically. Please try reconnecting.';
+                errorMessage = 'Connection state error';
             } else if (event.data.message && event.data.message.includes('Failed to execute')) {
-                errorMessage = 'Connection setup error - please try reconnecting.';
+                errorMessage = 'Connection setup error';
             }
             
             setError(errorMessage);
@@ -2680,7 +2702,7 @@ const DashboardPage = () => {
             <div className="dashboard-header">
                 <h1>Video xyz Dashboard</h1>
                 <div className="user-actions">
-                    <ConnectionStatusLight isConnected={isWebSocketConnected} />
+                    <ConnectionStatusLight status={getConnectionStatus()} />
                     <span className="user-email">{userEmail}</span>
                     {/* Debug Icon */}
                     <button 
@@ -2715,11 +2737,6 @@ const DashboardPage = () => {
                 provider={provider}
             />
             
-            {error && (
-                <div className="error-message">
-                    {error}
-                </div>
-            )}
             
             {/* Whiteboard Toolbar - Outside dashboard-content, below connection panel */}
             {isWhiteboardActive && (
@@ -2777,6 +2794,12 @@ const DashboardPage = () => {
                  selectedPeer,
                  hasRemoteScreen: !!provider?.getRemoteScreen(selectedPeer),
                  isScreenShareActiveState: isScreenShareActive
+               })}
+               {log('DEBUG', 'DashboardPage', 'Whiteboard rendering check', { 
+                 isWhiteboardActive, 
+                 hasUser: !!userRef.current,
+                 hasStableUserId: !!stableUserId.current,
+                 hasStableUsername: !!stableUsername.current
                })}
                {isWhiteboardActive && (
                    <>

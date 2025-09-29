@@ -974,7 +974,9 @@ const Whiteboard = forwardRef(({
   const sendWhiteboardMsg = async (action, data = {}) => {
     // Use VERBOSE for cursor messages to reduce noise
     const logLevel = action === 'cursor' ? 'VERBOSE' : 'INFO';
-    log(logLevel, 'Whiteboard', '📤 SENDING WebRTC message', {
+    const isConnected = webRTCProviderRef.current && selectedPeerRef.current;
+    
+    log(logLevel, 'Whiteboard', isConnected ? '📤 SENDING WebRTC message' : '📝 LOCAL ONLY - No peer connected', {
       action,
       hasShape: !!data.shape,
       shapeType: data.shape?.type,
@@ -986,11 +988,13 @@ const Whiteboard = forwardRef(({
       backgroundType,
       pdfLoaded: backgroundType === 'pdf',
       currentImageUrl: !!currentImageUrl,
+      isConnected,
       timestamp: Date.now()
     });
     
-    if (!webRTCProviderRef.current || !selectedPeerRef.current) {
-      log('WARN', 'Whiteboard', '❌ No datachannel available, skipping message', {
+    if (!isConnected) {
+      // Local drawing works, but no sync to peers
+      log('INFO', 'Whiteboard', '🎨 LOCAL DRAWING - Working offline, will sync when peer connects', {
         action,
         hasProvider: !!webRTCProviderRef.current,
         hasSelectedPeer: !!selectedPeerRef.current,
@@ -3000,6 +3004,37 @@ const Whiteboard = forwardRef(({
 
   return (
     <>
+      {/* Connection Status Indicator */}
+      {webRTCProvider && selectedPeer ? (
+        <div style={{
+          position: 'absolute',
+          top: '10px',
+          right: '10px',
+          background: '#4CAF50',
+          color: 'white',
+          padding: '5px 10px',
+          borderRadius: '4px',
+          fontSize: '12px',
+          zIndex: 1000
+        }}>
+          🟢 Connected
+        </div>
+      ) : (
+        <div style={{
+          position: 'absolute',
+          top: '10px',
+          right: '10px',
+          background: '#FF9800',
+          color: 'white',
+          padding: '5px 10px',
+          borderRadius: '4px',
+          fontSize: '12px',
+          zIndex: 1000
+        }}>
+          🟡 Local Only
+        </div>
+      )}
+      
       {/* Whiteboard Container - Drawing Surface Only */}
       <div 
         ref={containerRef}
