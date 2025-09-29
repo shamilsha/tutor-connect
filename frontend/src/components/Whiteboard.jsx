@@ -39,6 +39,7 @@ const Whiteboard = forwardRef(({
   onBackgroundCleared = null,
   onRemoteStateTransition = null,
   onImageChange = null, 
+  selectedContent = null, 
   onPdfChange = null,
   onPDFDimensionsChange = null,
   webRTCProvider = null, 
@@ -160,6 +161,24 @@ const Whiteboard = forwardRef(({
   const [strokeColor, setStrokeColor] = useState(actualColor);
   const [fillColor, setFillColor] = useState(actualColor);
   const [triangleType, setTriangleType] = useState('equilateral');
+  
+  // Text Annotations State - Persistent text objects
+  const [textAnnotations, setTextAnnotations] = useState([]);
+  const [editingTextId, setEditingTextId] = useState(null);
+  const [editingTextPosition, setEditingTextPosition] = useState({ x: 0, y: 0 });
+  const textInputRef = useRef(null); // For editing text
+  const editingTextValueRef = useRef(''); // Use ref to avoid remounts during typing
+  
+  // Focus text input when editing starts
+  useEffect(() => {
+    if (editingTextId && textInputRef.current) {
+      textInputRef.current.focus();
+      textInputRef.current.select(); // Select all text for easy editing
+      // Set the input value from ref
+      textInputRef.current.value = editingTextValueRef.current;
+    }
+  }, [editingTextId]);
+  
   const [cursors, setCursors] = useState(new Map());
   const [backgroundFile, setBackgroundFile] = useState(null);
   const [backgroundType, setBackgroundType] = useState(null);
@@ -482,6 +501,22 @@ const Whiteboard = forwardRef(({
                     fill: data.shape.fill
                   });
                   break;
+                case 'text':
+                  // Handle text annotations from remote peer
+                  konvaShape = new Konva.Text({
+                    id: data.shape.id,
+                    x: data.shape.x,
+                    y: data.shape.y,
+                    text: data.shape.text,
+                    fontSize: data.shape.fontSize,
+                    fontFamily: data.shape.fontFamily,
+                    fill: data.shape.fill,
+                    draggable: true
+                  });
+                  
+                  // Also update textAnnotations state for remote peer
+                  setTextAnnotations(prev => [...prev, data.shape]);
+                  break;
               }
               if (konvaShape) {
                 layerRef.current.add(konvaShape);
@@ -540,6 +575,20 @@ const Whiteboard = forwardRef(({
                     existingShape.y(data.shape.y);
                     existingShape.radius(data.shape.radius);
                     break;
+                  case 'text':
+                    // Handle text annotation updates from remote peer
+                    existingShape.x(data.shape.x);
+                    existingShape.y(data.shape.y);
+                    existingShape.text(data.shape.text);
+                    existingShape.fontSize(data.shape.fontSize);
+                    existingShape.fontFamily(data.shape.fontFamily);
+                    existingShape.fill(data.shape.fill);
+                    
+                    // Also update textAnnotations state for remote peer
+                    setTextAnnotations(prev => prev.map(annotation => 
+                      annotation.id === data.shape.id ? data.shape : annotation
+                    ));
+                    break;
                 }
                 layerRef.current.batchDraw();
               }
@@ -552,6 +601,22 @@ const Whiteboard = forwardRef(({
           if (data.shape.tool === 'pen') {
             // Use regular lines storage for pen tool only
             setLines(prev => prev.filter(line => line.id !== data.shape.id));
+          } else if (data.shape.tool === 'text') {
+            // Handle text annotation deletion from remote peer
+            // Remove from Konva layer
+            if (layerRef.current) {
+              const existingText = layerRef.current.findOne(`#${data.shape.id}`);
+              if (existingText) {
+                existingText.destroy();
+                layerRef.current.batchDraw();
+              }
+            }
+            
+            // Remove from textAnnotations state
+            setTextAnnotations(prev => prev.filter(annotation => annotation.id !== data.shape.id));
+            
+            // Also remove from shapes for consistency
+            setShapes(prev => prev.filter(shape => shape.id !== data.shape.id));
           } else {
             // Use regular shapes storage for all backgrounds (including PDF)
             setShapes(prev => prev.filter(shape => shape.id !== data.shape.id));
@@ -563,12 +628,14 @@ const Whiteboard = forwardRef(({
           receivedState: data.state,
           receivedHistoryStep: data.state?.historyStep,
           receivedLinesCount: data.state?.lines?.length,
-          receivedShapesCount: data.state?.shapes?.length
+          receivedShapesCount: data.state?.shapes?.length,
+          receivedTextAnnotationsCount: data.state?.textAnnotations?.length
         });
         
         // Use the remote state instead of local history
         if (data.state) {
           setLines(data.state.lines || []);
+          setTextAnnotations(data.state.textAnnotations || []);
           setHistoryStep(data.state.historyStep || 0);
           
           if (data.state.history) {
@@ -666,6 +733,23 @@ const Whiteboard = forwardRef(({
               });
             }
             
+            // Recreate text annotations from history
+            if (prevState.textAnnotations) {
+              prevState.textAnnotations.forEach(textAnnotation => {
+                const konvaText = new Konva.Text({
+                  id: textAnnotation.id,
+                  x: textAnnotation.x,
+                  y: textAnnotation.y,
+                  text: textAnnotation.text,
+                  fontSize: textAnnotation.fontSize,
+                  fontFamily: textAnnotation.fontFamily,
+                  fill: textAnnotation.fill,
+                  draggable: true
+                });
+                layerRef.current.add(konvaText);
+              });
+            }
+            
             layerRef.current.batchDraw();
           }
           
@@ -689,6 +773,7 @@ const Whiteboard = forwardRef(({
         // Use the remote state instead of local history
         if (data.state) {
           setLines(data.state.lines || []);
+          setTextAnnotations(data.state.textAnnotations || []);
           setHistoryStep(data.state.historyStep || 0);
           
           if (data.state.history) {
@@ -783,6 +868,23 @@ const Whiteboard = forwardRef(({
                 if (konvaShape) {
                   layerRef.current.add(konvaShape);
                 }
+              });
+            }
+            
+            // Recreate text annotations from history
+            if (state.textAnnotations) {
+              state.textAnnotations.forEach(textAnnotation => {
+                const konvaText = new Konva.Text({
+                  id: textAnnotation.id,
+                  x: textAnnotation.x,
+                  y: textAnnotation.y,
+                  text: textAnnotation.text,
+                  fontSize: textAnnotation.fontSize,
+                  fontFamily: textAnnotation.fontFamily,
+                  fill: textAnnotation.fill,
+                  draggable: true
+                });
+                layerRef.current.add(konvaText);
               });
             }
             
@@ -976,15 +1078,18 @@ const Whiteboard = forwardRef(({
     const logLevel = action === 'cursor' ? 'VERBOSE' : 'INFO';
     const isConnected = webRTCProviderRef.current && selectedPeerRef.current;
     
+    // OPTIMIZATION: Only log shape details for drawing actions, not for undo/redo
+    const isDrawingAction = ['draw', 'update', 'erase'].includes(action);
+    
     log(logLevel, 'Whiteboard', isConnected ? '📤 SENDING WebRTC message' : '📝 LOCAL ONLY - No peer connected', {
       action,
-      hasShape: !!data.shape,
-      shapeType: data.shape?.type,
-      shapeTool: data.shape?.tool,
-      shapeId: data.shape?.id,
-      pointsCount: data.shape?.points?.length,
-      coordinates: data.shape?.points,
-      coordinatesString: JSON.stringify(data.shape?.points),
+      hasShape: isDrawingAction && !!data.shape,
+      shapeType: isDrawingAction ? data.shape?.type : undefined,
+      shapeTool: isDrawingAction ? data.shape?.tool : undefined,
+      shapeId: isDrawingAction ? data.shape?.id : undefined,
+      pointsCount: isDrawingAction ? data.shape?.points?.length : undefined,
+      coordinates: isDrawingAction ? data.shape?.points : undefined,
+      coordinatesString: isDrawingAction ? JSON.stringify(data.shape?.points) : undefined,
       backgroundType,
       pdfLoaded: backgroundType === 'pdf',
       currentImageUrl: !!currentImageUrl,
@@ -1257,6 +1362,11 @@ const Whiteboard = forwardRef(({
       log('VERBOSE', 'Whiteboard', 'Mouse down - Using simple coordinates', { correctedX, correctedY });
     }
 
+    if (currentTool === 'text') {
+      // Text tool - handle double-click to add text
+      return; // Text tool doesn't use mouse down, only double-click
+    }
+    
     if (currentTool === 'pen') { // CRITICAL FIX: Use fresh currentTool instead of stale actualTool
       // DIRECT KONVA API APPROACH: Create Konva Line object directly
       const lineId = `${userId}-${Date.now()}-${uuidv4()}`;
@@ -1523,6 +1633,126 @@ const Whiteboard = forwardRef(({
     }
   };
 
+  // Handle double-click for text tool
+  const handleDoubleClick = (e) => {
+    const currentTool = getActualTool();
+    
+    if (currentTool === 'text') {
+      const stage = e.target.getStage();
+      const point = stage.getPointerPosition();
+      
+      log('INFO', 'Whiteboard', '📝 TEXT TOOL: Double-click detected', {
+        position: point,
+        timestamp: Date.now()
+      });
+      
+      // Check if clicking on existing text to edit
+      const clickedText = stage.findOne(`#text-${editingTextId}`);
+      if (clickedText && clickedText.getClassName() === 'Text') {
+        // Edit existing text
+        setEditingTextId(clickedText.id());
+        editingTextValueRef.current = clickedText.text();
+        setEditingTextPosition({ x: clickedText.x(), y: clickedText.y() });
+        return;
+      }
+      
+      // Create new text annotation
+      const newTextId = `text-${userId}-${Date.now()}-${uuidv4()}`;
+      setEditingTextId(newTextId);
+      editingTextValueRef.current = '';
+      setEditingTextPosition({ x: point.x, y: point.y });
+    }
+  };
+
+  // Handle text input completion - Create or update persistent text
+  const handleTextInputComplete = (text) => {
+    if (text.trim() && layerRef.current) {
+      
+      if (editingTextId) {
+        // Check if this is editing existing text or creating new
+        const existingText = layerRef.current.findOne(`#${editingTextId}`);
+        
+        if (existingText) {
+          // Update existing text
+          existingText.text(text);
+          existingText.x(editingTextPosition.x);
+          existingText.y(editingTextPosition.y);
+          layerRef.current.batchDraw();
+          
+          // Update in textAnnotations state
+          setTextAnnotations(prev => prev.map(annotation => 
+            annotation.id === editingTextId 
+              ? { ...annotation, text, x: editingTextPosition.x, y: editingTextPosition.y }
+              : annotation
+          ));
+          
+          log('INFO', 'Whiteboard', '📝 TEXT UPDATED', {
+            text,
+            position: editingTextPosition,
+            id: editingTextId
+          });
+        } else {
+          // Create new text annotation
+          const konvaText = new Konva.Text({
+            id: editingTextId,
+            x: editingTextPosition.x,
+            y: editingTextPosition.y,
+            text: text,
+            fontSize: 16,
+            fontFamily: 'Arial',
+            fill: '#000000',
+            draggable: true
+          });
+          
+          // Add to Konva layer
+          layerRef.current.add(konvaText);
+          layerRef.current.batchDraw();
+          
+          // Create text data
+          const textData = {
+            id: editingTextId,
+            tool: 'text',
+            type: 'text',
+            x: editingTextPosition.x,
+            y: editingTextPosition.y,
+            text: text,
+            fontSize: 16,
+            fontFamily: 'Arial',
+            fill: '#000000'
+          };
+          
+          // Update states first
+          setTextAnnotations(prev => [...prev, textData]);
+          setShapes(prev => [...prev, textData]);
+          sendWhiteboardMsg('draw', { shape: textData });
+          
+          // Add to history with the updated text annotations
+          React.startTransition(() => {
+            addToHistory(lines, null, [...textAnnotations, textData]);
+          });
+          
+          log('INFO', 'Whiteboard', '📝 TEXT CREATED', {
+            text,
+            position: editingTextPosition,
+            id: editingTextId
+          });
+        }
+      }
+    }
+    
+    // Reset editing state
+    setEditingTextId(null);
+    editingTextValueRef.current = '';
+    setEditingTextPosition({ x: 0, y: 0 });
+  };
+
+  // Handle text input cancellation
+  const handleTextInputCancel = () => {
+    setEditingTextId(null);
+    editingTextValueRef.current = '';
+    setEditingTextPosition({ x: 0, y: 0 });
+  };
+
   const handleClick = (e) => {
     if (DEBUG_MOUSE_MOVEMENT) {
       log('VERBOSE', 'Whiteboard', 'Click - Current state', {
@@ -1543,6 +1773,42 @@ const Whiteboard = forwardRef(({
     }
 
     // Handle shape selection when no tool is active
+    handleShapeSelection(e);
+  };
+
+  // Handle right-click to delete text annotations
+  const handleRightClick = (e) => {
+    const currentTool = getActualTool();
+    if (currentTool === 'text') {
+      e.evt.preventDefault(); // Prevent context menu
+      
+      const stage = e.target.getStage();
+      const point = stage.getPointerPosition();
+      
+      // Find text at click position
+      const clickedText = stage.findOne(`#text-${editingTextId}`);
+      if (clickedText && clickedText.getClassName() === 'Text') {
+        // Delete the text
+        clickedText.destroy();
+        layerRef.current.batchDraw();
+        
+        // Remove from textAnnotations state
+        setTextAnnotations(prev => prev.filter(annotation => annotation.id !== clickedText.id()));
+        
+        // Also remove from shapes for WebRTC sync
+        setShapes(prev => prev.filter(shape => shape.id !== clickedText.id()));
+        sendWhiteboardMsg('erase', { shape: { id: clickedText.id(), tool: 'text', type: 'text' } });
+        
+        log('INFO', 'Whiteboard', '📝 TEXT DELETED', {
+          id: clickedText.id(),
+          position: point
+        });
+      }
+    }
+  };
+
+  // Handle shape selection when no tool is active
+  const handleShapeSelection = (e) => {
     const clickedShape = e.target;
     if (clickedShape.getStage() !== clickedShape) {
       setSelectedShape(clickedShape);
@@ -1625,15 +1891,18 @@ const Whiteboard = forwardRef(({
     return shapes;
   };
 
-  const addToHistory = (currentLines = lines, currentShapes = null) => {
+  const addToHistory = (currentLines = lines, currentShapes = null, currentTextAnnotations = null) => {
     // Get shapes from Konva if not provided
     const shapes = currentShapes || getShapesFromKonva();
+    // Use provided text annotations or current state
+    const textAnnotationsToUse = currentTextAnnotations !== null ? currentTextAnnotations : textAnnotations;
     
     log('DEBUG', 'Whiteboard', 'Adding to history', { 
       currentHistoryLength: history.length, 
       currentHistoryStep: historyStep,
       linesCount: currentLines.length,
-      shapesCount: shapes.length
+      shapesCount: shapes.length,
+      textAnnotationsCount: textAnnotationsToUse.length
     });
     
     const newHistory = history.slice(0, historyStep + 1);
@@ -1643,11 +1912,16 @@ const Whiteboard = forwardRef(({
       newHistory.push({ 
         lines: [...currentLines], 
         shapes: [...shapes],
+        textAnnotations: [...textAnnotationsToUse], // Include text annotations
         pageLines: { ...pageLines },
         pageShapes: { ...pageShapes }
       });
     } else {
-    newHistory.push({ lines: [...currentLines], shapes: [...shapes] });
+    newHistory.push({ 
+      lines: [...currentLines], 
+      shapes: [...shapes],
+      textAnnotations: [...textAnnotationsToUse] // Include text annotations
+    });
     }
     
     setHistory(newHistory);
@@ -1770,18 +2044,44 @@ const Whiteboard = forwardRef(({
   }, [isDrawing]); // Only depend on isDrawing, not lines/shapes
 
 
+  // Debounce undo/redo operations to prevent rapid clicking
+  const [isUndoRedoProcessing, setIsUndoRedoProcessing] = useState(false);
+  
   const handleUndo = () => {
+    if (isUndoRedoProcessing) {
+      log('DEBUG', 'Whiteboard', 'Undo already processing, ignoring');
+      return;
+    }
+    
     log('DEBUG', 'Whiteboard', 'Undo function called', { historyStep, historyLength: history.length });
     
     if (historyStep > 0) {
+      setIsUndoRedoProcessing(true);
       const newStep = historyStep - 1;
       const prevState = history[newStep];
       log('DEBUG', 'Whiteboard', 'Undoing to step', { newStep, state: prevState });
       
-      // Update React state for lines (still needed for persistence)
-      setLines(prevState.lines);
+      // OPTIMIZATION: Batch all state updates together to reduce re-renders
+      React.startTransition(() => {
+        // Update React state for lines (still needed for persistence)
+        setLines(prevState.lines);
+        
+        // Update text annotations state
+        if (prevState.textAnnotations) {
+          setTextAnnotations(prevState.textAnnotations);
+        } else {
+          setTextAnnotations([]);
+        }
+        
+        // Update shapes state for consistency
+        if (prevState.shapes) {
+          setShapes(prevState.shapes);
+        } else {
+          setShapes([]);
+        }
+      });
       
-      // KONVA-BASED UNDO: Clear and recreate Konva objects
+      // OPTIMIZATION: Batch all Konva operations for better performance
       if (layerRef.current) {
         // Clear all Konva objects
         layerRef.current.destroyChildren();
@@ -1799,6 +2099,23 @@ const Whiteboard = forwardRef(({
               tension: 0.5
             });
             layerRef.current.add(konvaLine);
+          });
+        }
+        
+        // Recreate text annotations from history
+        if (prevState.textAnnotations) {
+          prevState.textAnnotations.forEach(textAnnotation => {
+            const konvaText = new Konva.Text({
+              id: textAnnotation.id,
+              x: textAnnotation.x,
+              y: textAnnotation.y,
+              text: textAnnotation.text,
+              fontSize: textAnnotation.fontSize,
+              fontFamily: textAnnotation.fontFamily,
+              fill: textAnnotation.fill,
+              draggable: true
+            });
+            layerRef.current.add(konvaText);
           });
         }
         
@@ -1887,23 +2204,50 @@ const Whiteboard = forwardRef(({
       sendWhiteboardMsg('undo', { 
         state: {
           lines: prevState.lines, 
-          shapes: prevState.shapes, 
+          shapes: prevState.shapes,
+          textAnnotations: prevState.textAnnotations || [],
           historyStep: newStep,
           history: history
         }
       });
+      
+      // Reset debounce after operations complete
+      setTimeout(() => setIsUndoRedoProcessing(false), 100);
     } else {
       log('DEBUG', 'Whiteboard', 'Cannot undo - already at first step');
     }
   };
 
   const handleRedo = () => {
+    if (isUndoRedoProcessing) {
+      log('DEBUG', 'Whiteboard', 'Redo already processing, ignoring');
+      return;
+    }
+    
     if (historyStep < history.length - 1) {
+      setIsUndoRedoProcessing(true);
       const newStep = historyStep + 1;
       const state = history[newStep];
       
-      // Update React state for lines (still needed for persistence)
-      setLines(state.lines);
+      // OPTIMIZATION: Batch all state updates together to reduce re-renders
+      React.startTransition(() => {
+        // Update React state for lines (still needed for persistence)
+        setLines(state.lines);
+        
+        // Update text annotations state
+        if (state.textAnnotations) {
+          setTextAnnotations(state.textAnnotations);
+        } else {
+          setTextAnnotations([]);
+        }
+        
+        // Update shapes state for consistency
+        if (state.shapes) {
+          setShapes(state.shapes);
+        } else {
+          setShapes([]);
+        }
+      });
       
       // KONVA-BASED REDO: Clear and recreate Konva objects
       if (layerRef.current) {
@@ -1923,6 +2267,23 @@ const Whiteboard = forwardRef(({
               tension: 0.5
             });
             layerRef.current.add(konvaLine);
+          });
+        }
+        
+        // Recreate text annotations from history
+        if (state.textAnnotations) {
+          state.textAnnotations.forEach(textAnnotation => {
+            const konvaText = new Konva.Text({
+              id: textAnnotation.id,
+              x: textAnnotation.x,
+              y: textAnnotation.y,
+              text: textAnnotation.text,
+              fontSize: textAnnotation.fontSize,
+              fontFamily: textAnnotation.fontFamily,
+              fill: textAnnotation.fill,
+              draggable: true
+            });
+            layerRef.current.add(konvaText);
           });
         }
         
@@ -2012,10 +2373,14 @@ const Whiteboard = forwardRef(({
         state: {
           lines: state.lines, 
           shapes: state.shapes, 
+          textAnnotations: state.textAnnotations || [],
           historyStep: newStep,
           history: history
         }
       });
+      
+      // Reset debounce after operations complete
+      setTimeout(() => setIsUndoRedoProcessing(false), 100);
     }
   };
 
@@ -2117,7 +2482,7 @@ const Whiteboard = forwardRef(({
       // Only clear drawings if there are any (avoid unnecessary state changes)
       if (lines.length > 0 || shapes.length > 0) {
         log('INFO', 'Whiteboard', 'Clearing existing drawings before image load');
-        clearAllDrawings();
+      clearAllDrawings();
       }
       
       // Set background state (these are necessary for image display)
@@ -3119,6 +3484,41 @@ const Whiteboard = forwardRef(({
           </div>
         )}
 
+        {/* Selected Content Background Layer */}
+        {selectedContent && !backgroundFile && (
+                          <div 
+                      style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+                              width: '100%',
+              height: '100%',
+              zIndex: 1,
+              backgroundColor: '#ffffff',
+              padding: '20px',
+              pointerEvents: 'none', // Allow mouse events to pass through to Stage
+              overflow: 'auto'
+            }}
+          >
+            <div className="content-background">
+              <div className="content-header">
+                <h3 style={{ margin: '0 0 16px 0', color: '#333', fontSize: '18px' }}>
+                  📚 {selectedContent.name}
+                </h3>
+                  </div>
+              <div className="content-text" style={{ 
+                fontSize: '14px', 
+                lineHeight: '1.6', 
+                color: '#555',
+                maxHeight: 'calc(100% - 60px)',
+                overflow: 'auto'
+              }}>
+                {selectedContent.content}
+                    </div>
+                </div>
+          </div>
+        )}
+
         {/* Drawing Layer */}
         <Stage
           width={(() => {
@@ -3181,6 +3581,8 @@ const Whiteboard = forwardRef(({
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onClick={handleClick}
+          onDblClick={handleDoubleClick}
+          onContextMenu={handleRightClick}
           ref={stageRef}
           // Touch event handlers for mobile devices
             onTouchStart={(e) => {
@@ -3480,7 +3882,86 @@ const Whiteboard = forwardRef(({
               ))}
             </Layer>
         </Stage>
+        
       </div>
+      
+      {/* Text Editing Overlay - For editing persistent text annotations */}
+      {editingTextId && (
+        <div
+          style={{
+            position: 'absolute',
+            left: editingTextPosition.x,
+            top: editingTextPosition.y,
+            zIndex: 9999, // Higher z-index to appear above all drawings
+            background: 'transparent', // Completely transparent background
+            border: '2px solid #007bff',
+            borderRadius: '4px',
+            padding: '4px 8px',
+            minWidth: '200px',
+            boxShadow: 'none', // Remove shadow for cleaner look
+            backdropFilter: 'none' // No blur effect
+          }}
+        >
+          <input
+            type="text"
+            defaultValue={editingTextValueRef.current}
+            ref={textInputRef}
+            onChange={(e) => {
+              // OPTIMIZATION: Use ref instead of state to avoid remounts during typing
+              editingTextValueRef.current = e.target.value;
+              
+              // Auto-expand width based on content
+              const input = e.target;
+              const text = e.target.value || e.target.placeholder;
+              
+              // Create a temporary canvas to measure text width accurately
+              const canvas = document.createElement('canvas');
+              const context = canvas.getContext('2d');
+              context.font = '16px Arial';
+              const textWidth = context.measureText(text).width;
+              
+              // Expand by 20px when reaching end, with minimum width
+              const newWidth = Math.max(200, textWidth + 40); // 40px for padding and cursor
+              input.style.width = `${newWidth}px`;
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                handleTextInputComplete(editingTextValueRef.current);
+              } else if (e.key === 'Escape') {
+                handleTextInputCancel();
+              }
+            }}
+            onFocus={(e) => {
+              // Highlight the input box when focused - keep transparent
+              e.target.parentElement.style.background = 'transparent';
+              e.target.parentElement.style.borderColor = '#0056b3';
+            }}
+            onBlur={(e) => {
+              // Reset background when not focused - keep transparent
+              e.target.parentElement.style.background = 'transparent';
+              e.target.parentElement.style.borderColor = '#007bff';
+              
+              if (editingTextValueRef.current.trim()) {
+                handleTextInputComplete(editingTextValueRef.current);
+              } else {
+                handleTextInputCancel();
+              }
+            }}
+            autoFocus
+            placeholder="Type text here..."
+            style={{
+              border: 'none',
+              outline: 'none',
+              fontSize: '16px',
+              fontFamily: 'Arial',
+              width: '200px', // Start with minimum width
+              background: 'transparent',
+              color: '#333',
+              transition: 'width 0.1s ease' // Smooth width transition
+            }}
+          />
+        </div>
+      )}
     </>
   );
 });

@@ -9,6 +9,7 @@ import ChatPanel from './ChatPanel';
 import ConnectionStatusLight from './ConnectionStatusLight';
 import ScreenShareWindow from './ScreenShareWindow';
 import PDFNavigation from './PDFNavigation';
+import ContentSelector from './ContentSelector';
 import '../styles/DashboardPage.css';
 import { useCommunication } from '../context/CommunicationContext';
 import { WebSocketProvider } from '../services/WebSocketProvider';
@@ -86,6 +87,12 @@ const DashboardPage = () => {
     const [pdfScale, setPdfScale] = useState(1);
     const [showPdfNavigation, setShowPdfNavigation] = useState(false);
     const [isWhiteboardActive, setIsWhiteboardActive] = useState(false);
+    
+    // Left panel state
+    const [leftPanelWidth, setLeftPanelWidth] = useState(300); // Default width
+    const [isLeftPanelVisible, setIsLeftPanelVisible] = useState(true);
+    const [isResizing, setIsResizing] = useState(false);
+    const [selectedContent, setSelectedContent] = useState(null);
     
     // Whiteboard toolbar state - GLOBAL STATE APPROACH: Not needed anymore
     // const [currentTool, setCurrentTool] = useState('pen');
@@ -1208,6 +1215,33 @@ const DashboardPage = () => {
             return 'disconnected';
         }
         return 'initial';
+    };
+
+    // Left panel resize functionality
+    const handleResizeStart = (e) => {
+        e.preventDefault();
+        setIsResizing(true);
+        const startX = e.clientX;
+        const startWidth = leftPanelWidth;
+        
+        const handleMouseMove = (e) => {
+            const newWidth = startWidth + (e.clientX - startX);
+            const clampedWidth = Math.max(200, Math.min(600, newWidth));
+            setLeftPanelWidth(clampedWidth);
+        };
+        
+        const handleMouseUp = () => {
+            setIsResizing(false);
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+        };
+        
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+    };
+
+    const toggleLeftPanel = () => {
+        setIsLeftPanelVisible(!isLeftPanelVisible);
     };
 
     // Helper function to set up WebRTC event listeners
@@ -2704,6 +2738,14 @@ const DashboardPage = () => {
                 <div className="user-actions">
                     <ConnectionStatusLight status={getConnectionStatus()} />
                     <span className="user-email">{userEmail}</span>
+                    {/* Left Panel Toggle */}
+                    <button 
+                        className="panel-toggle-btn" 
+                        onClick={toggleLeftPanel}
+                        title={isLeftPanelVisible ? "Hide Content Panel" : "Show Content Panel"}
+                    >
+                        {isLeftPanelVisible ? '◀' : '▶'}
+                    </button>
                     {/* Debug Icon */}
                     <button 
                         className="debug-icon" 
@@ -2775,33 +2817,57 @@ const DashboardPage = () => {
                 isVisible={showPdfNavigation}
             />
             
-            <div className="dashboard-content">
-                {/* Log the expected image loading flow */}
-                {/* Log the expected image loading flow */}
-                {log('DEBUG', 'DashboardPage', 'EXPECTED IMAGE LOADING FLOW', {
-                  step1: 'Image loads with natural dimensions (e.g., 2000x1500px)',
-                  step2: 'whiteboard-container expands to match image dimensions (2000x1500px)',
-                  step3: 'dashboard-content (1200x800px) shows scrollbars because child (2000x1500px) exceeds container',
-                  step4: 'User can scroll within dashboard-content to see full image',
-                  note: 'whiteboard-container should NOT be constrained to 1200x800px'
-                })}
+            {/* Main Dashboard Layout with Resizable Left Panel */}
+            <div className="dashboard-layout">
+                {/* Left Panel - Content Selector */}
+                {isLeftPanelVisible && (
+                    <div 
+                        className="left-panel"
+                        style={{ width: `${leftPanelWidth}px` }}
+                    >
+                        <ContentSelector 
+                            onContentSelect={setSelectedContent}
+                            selectedContent={selectedContent}
+                        />
+                    </div>
+                )}
                 
-                {/* Whiteboard Component - Handles both drawing and backgrounds (PDF/Images) */}
-               {log('DEBUG', 'DashboardPage', 'Is whiteboard active?', { isWhiteboardActive })}
-               {log('DEBUG', 'DashboardPage', 'Screen share detection debug', {
-                 isScreenSharing,
-                 hasLocalScreenShare: !!provider?.getScreenShareStream(),
-                 selectedPeer,
-                 hasRemoteScreen: !!provider?.getRemoteScreen(selectedPeer),
-                 isScreenShareActiveState: isScreenShareActive
-               })}
-               {log('DEBUG', 'DashboardPage', 'Whiteboard rendering check', { 
-                 isWhiteboardActive, 
-                 hasUser: !!userRef.current,
-                 hasStableUserId: !!stableUserId.current,
-                 hasStableUsername: !!stableUsername.current
-               })}
-               {isWhiteboardActive && (
+                {/* Resize Handle */}
+                {isLeftPanelVisible && (
+                    <div 
+                        className="resize-handle"
+                        onMouseDown={handleResizeStart}
+                        style={{ cursor: isResizing ? 'col-resize' : 'col-resize' }}
+                    />
+                )}
+                
+                {/* Right Panel - Fixed Size Dashboard Content */}
+                <div className="dashboard-content">
+                    {/* Log the expected image loading flow */}
+                    {log('DEBUG', 'DashboardPage', 'EXPECTED IMAGE LOADING FLOW', {
+                      step1: 'Image loads with natural dimensions (e.g., 2000x1500px)',
+                      step2: 'whiteboard-container expands to match image dimensions (2000x1500px)',
+                      step3: 'dashboard-content (1200x800px) shows scrollbars because child (2000x1500px) exceeds container',
+                      step4: 'User can scroll within dashboard-content to see full image',
+                      note: 'whiteboard-container should NOT be constrained to 1200x800px'
+                    })}
+                    
+                    {/* Whiteboard Component - Handles both drawing and backgrounds (PDF/Images) */}
+                   {log('DEBUG', 'DashboardPage', 'Is whiteboard active?', { isWhiteboardActive })}
+                   {log('DEBUG', 'DashboardPage', 'Screen share detection debug', {
+                     isScreenSharing,
+                     hasLocalScreenShare: !!provider?.getScreenShareStream(),
+                     selectedPeer,
+                     hasRemoteScreen: !!provider?.getRemoteScreen(selectedPeer),
+                     isScreenShareActiveState: isScreenShareActive
+                   })}
+                   {log('DEBUG', 'DashboardPage', 'Whiteboard rendering check', { 
+                     isWhiteboardActive, 
+                     hasUser: !!userRef.current,
+                     hasStableUserId: !!stableUserId.current,
+                     hasStableUsername: !!stableUsername.current
+                   })}
+                   {isWhiteboardActive && (
                    <>
                        {/* COMPREHENSIVE LOGGING: Track all Whiteboard props before rendering */}
                        {log('INFO', 'DashboardPage', '🔄 WHITEBOARD PROPS BEFORE RENDER', {
@@ -2847,40 +2913,41 @@ const DashboardPage = () => {
                        })}
                    <Whiteboard
                        key="whiteboard-stable"
-                           userId={stableUserId.current}
-                           username={stableUsername.current}
-                       screenShareStream={null}
-                       isScreenShareActive={isScreenShareActive}
-                       currentImageUrl={currentImageUrl}
-                           containerSize={stableContainerSize.current}
-                       onClose={handleWhiteboardClose}
-                           onBackgroundCleared={handleWhiteboardBackgroundCleared}
-                           onRemoteStateTransition={handleRemoteStateTransition}
-                           onImageChange={handleImageUpload}
-                       onPdfChange={handlePdfChange}
-                           onPDFDimensionsChange={handlePDFDimensionsChange}
-                       webRTCProvider={provider}
-                       selectedPeer={selectedPeer}
-                           // GLOBAL STATE APPROACH: Not needed anymore
-                           // currentTool={currentTool}
-                           // currentColor={currentColor}
-                           // onToolChange={handleToolChange}
-                           // onColorChange={handleColorChange}
-                       onUndo={whiteboardUndoRef}
-                       onRedo={whiteboardRedoRef}
-                       onHistoryChange={handleWhiteboardHistoryChange}
-                           isMobileDrawingMode={isMobileDrawingMode}
-                       onImageUpload={handleWhiteboardImageUpload}
-                       onFileUpload={handleWhiteboardFileUpload}
-                       onClear={handleWhiteboardClear}
-                       canUndo={canUndo}
-                       canRedo={canRedo}
-                       // PDF Navigation props
-                       pdfCurrentPage={pdfCurrentPage}
-                       pdfScale={pdfScale}
-                       onPdfPageChange={handlePdfPageChange}
-                       onPdfPagesChange={handlePdfPagesChange}
-                           ref={whiteboardRef}
+                            userId={stableUserId.current}
+                            username={stableUsername.current}
+                            screenShareStream={null}
+                            isScreenShareActive={isScreenShareActive}
+                            currentImageUrl={currentImageUrl}
+                            containerSize={stableContainerSize.current}
+                            onClose={handleWhiteboardClose}
+                            onBackgroundCleared={handleWhiteboardBackgroundCleared}
+                            onRemoteStateTransition={handleRemoteStateTransition}
+                            onImageChange={handleImageUpload}
+                            onPdfChange={handlePdfChange}
+                            onPDFDimensionsChange={handlePDFDimensionsChange}
+                            selectedContent={selectedContent}
+                            webRTCProvider={provider}
+                            selectedPeer={selectedPeer}
+                            // GLOBAL STATE APPROACH: Not needed anymore
+                            // currentTool={currentTool}
+                            // currentColor={currentColor}
+                            // onToolChange={handleToolChange}
+                            // onColorChange={handleColorChange}
+                            onUndo={whiteboardUndoRef}
+                            onRedo={whiteboardRedoRef}
+                            onHistoryChange={handleWhiteboardHistoryChange}
+                            isMobileDrawingMode={isMobileDrawingMode}
+                            onImageUpload={handleWhiteboardImageUpload}
+                            onFileUpload={handleWhiteboardFileUpload}
+                            onClear={handleWhiteboardClear}
+                            canUndo={canUndo}
+                            canRedo={canRedo}
+                            // PDF Navigation props
+                            pdfCurrentPage={pdfCurrentPage}
+                            pdfScale={pdfScale}
+                            onPdfPageChange={handlePdfPageChange}
+                            onPdfPagesChange={handlePdfPagesChange}
+                            ref={whiteboardRef}
                    />
                    </>
                )}
@@ -2897,8 +2964,8 @@ const DashboardPage = () => {
                     debugMode={true}
                     useRelativePositioning={true}
                 />
+                </div>
             </div>
-            
             
             {/* Debug Popup */}
             {showDebugPopup && (

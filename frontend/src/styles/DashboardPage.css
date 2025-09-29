@@ -376,4 +376,81 @@ body.dashboard-active {
     .debug-section li {
         font-size: 0.8rem;
     }
+}
+
+/* Resizable Left Panel Layout */
+.dashboard-layout {
+    display: flex;
+    height: calc(100vh - 60px); /* Subtract header height */
+    overflow: hidden;
+}
+
+.left-panel {
+    background: #f8f9fa;
+    border-right: 1px solid #e9ecef;
+    overflow-y: auto;
+    flex-shrink: 0;
+    transition: width 0.2s ease;
+}
+
+.resize-handle {
+    width: 4px;
+    background: #dee2e6;
+    cursor: col-resize;
+    flex-shrink: 0;
+    transition: background-color 0.2s;
+    position: relative;
+}
+
+.resize-handle:hover {
+    background: #007bff;
+}
+
+.resize-handle:active {
+    background: #0056b3;
+}
+
+.dashboard-content {
+    width: 1200px; /* FIXED WIDTH */
+    height: 800px;  /* FIXED HEIGHT */
+    flex-shrink: 0;
+    overflow: auto;
+    background: #ffffff;
+    border: 1px solid #e9ecef;
+}
+
+/* Panel Toggle Button */
+.panel-toggle-btn {
+    background: #6c757d;
+    color: white;
+    border: none;
+    padding: 6px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    margin-right: 8px;
+    transition: background-color 0.2s;
+}
+
+.panel-toggle-btn:hover {
+    background: #5a6268;
+}
+
+.panel-toggle-btn:active {
+    background: #495057;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1400px) {
+    .dashboard-content {
+        width: 1000px;
+        height: 700px;
+    }
+}
+
+@media (max-width: 1200px) {
+    .dashboard-content {
+        width: 800px;
+        height: 600px;
+    }
 } 

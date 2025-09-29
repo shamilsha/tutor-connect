@@ -11,7 +11,8 @@ import {
   FaFileUpload,
   FaFilePdf,
   FaImage,
-  FaTrash
+  FaTrash,
+  FaFont
 } from 'react-icons/fa';
 import { BsTriangleFill } from 'react-icons/bs';
 import { TbTriangleInverted } from 'react-icons/tb';
@@ -259,6 +260,14 @@ const WhiteboardToolbar = ({
           title="Isosceles Triangle"
         >
           <FaDrawPolygon />
+        </button>
+        
+        <button
+          className={`tool-button ${internalSelectedTool === 'text' ? 'active' : ''}`}
+          onClick={() => handleToolClick('text')}
+          title="Text Tool - Double click to add text"
+        >
+          <FaFont />
         </button>
 
         {/* Divider */}
