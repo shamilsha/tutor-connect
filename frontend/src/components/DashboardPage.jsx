@@ -2354,6 +2354,34 @@ const DashboardPage = () => {
         }
     };
 
+    // UNIFIED IMAGE URL PROCESSING - Handles both upload and content selection
+    const processImageUrl = async (imageUrl, sendToPeers = true) => {
+        log('INFO', 'DashboardPage', '🖼️ UNIFIED: Processing image URL', { imageUrl, sendToPeers });
+        
+        try {
+            // Step 1: Send to remote peer (if requested)
+            if (sendToPeers && provider && selectedPeer) {
+                log('INFO', 'DashboardPage', '📡 Sending image URL to remote peer', { imageUrl });
+                provider.sendWhiteboardMessage(selectedPeer, {
+                    action: 'background',
+                    background: {
+                        file: imageUrl,
+                        type: 'image'
+                    }
+                });
+            }
+            
+            // Step 2: Process image locally
+            await processImage(imageUrl);
+            
+            log('INFO', 'DashboardPage', '✅ UNIFIED: Image URL processing completed', { imageUrl });
+            
+        } catch (error) {
+            log('ERROR', 'DashboardPage', '❌ UNIFIED: Image URL processing failed', error);
+            throw error;
+        }
+    };
+
     // PURE PROCESSING FUNCTION - REMOUNTS HAPPEN HERE (Steps 7+)
     const processImage = async (cdnUrl) => {
         log('INFO', 'DashboardPage', '🖼️ PURE PROCESSING: Starting image processing', { cdnUrl });
@@ -2440,39 +2468,30 @@ const DashboardPage = () => {
         log('INFO', 'DashboardPage', '📤 IDEAL FLOW: Starting image upload', { fileName: file.name });
         
         try {
-            // Use unified state transition to IMAGE
-            await transitionToBackgroundState(BACKGROUND_STATES.IMAGE);
             
             // Steps 1-5: Pure upload flow (NO REMOUNTS)
             const imageUrl = await uploadImage(file);
+            log('INFO', 'DashboardPage', '✅ IDEAL FLOW: Image upload completed', { imageUrl });
             
-            // Step 6: Send to remote peer (NO REMOUNTS)
-            if (provider && selectedPeer) {
-                log('INFO', 'DashboardPage', '📡 Sending image URL to remote peer', { imageUrl });
-                provider.sendWhiteboardMessage(selectedPeer, {
-                    action: 'background',
-                    background: {
-                        file: imageUrl,
-                        type: 'image'
-                    }
-                });
-            }
+            // Use unified state transition to IMAGE
+            await transitionToBackgroundState(BACKGROUND_STATES.IMAGE);
             
-            // Step 7+: Process image (REMOUNTS HAPPEN HERE)
-            await processImage(imageUrl);
+
+            // Step 6-7: Process image URL (includes peer sync and processing)
+            await processImageUrl(imageUrl, true);
             
-            log('INFO', 'DashboardPage', '✅ IDEAL FLOW: Image upload and processing completed', { imageUrl });
+            
             
         } catch (error) {
             log('ERROR', 'DashboardPage', '❌ IDEAL FLOW: Image upload failed', error);
         }
     };
 
-    // LEGACY WRAPPER - calls pure processing function
-    const handleImageChange = async (imageUrl) => {
-        log('INFO', 'DashboardPage', '🖼️ LEGACY: handleImageChange calling processImage', { imageUrl });
-        await processImage(imageUrl);
-    };
+    // LEGACY WRAPPER - calls unified processing function
+    // const handleImageChange = async (imageUrl) => {
+    //     log('INFO', 'DashboardPage', '🖼️ LEGACY: handleImageChange calling processImageUrl', { imageUrl });
+    //     await processImageUrl(imageUrl, false); // Don't send to peers for legacy calls
+    // };
 
     const handlePdfChange = async (pdfFile) => {
         log('INFO', 'DashboardPage', 'PDF changed', { pdfFile });
@@ -2530,6 +2549,17 @@ const DashboardPage = () => {
         }
     };
 
+    // Handle Image topic selection from ContentSelector
+    const handleImageTopicSelect = async (imageUrl) => {
+        log('INFO', 'DashboardPage', 'Image topic selected', { imageUrl });
+        
+        // Use unified state transition to IMAGE
+        await transitionToBackgroundState(BACKGROUND_STATES.IMAGE);
+        
+        // Use the new unified processImageUrl function
+        await processImageUrl(imageUrl, true); // sendToPeers = true
+    };
+
     const handleImageSizeChange = (newSize) => {
         log('INFO', 'DashboardPage', 'Image size changed', { newSize });
         // Note: Not updating dynamicContainerSize to maintain coordinate consistency between peers
@@ -2578,7 +2608,7 @@ const DashboardPage = () => {
             handlePdfPagesChange: !!handlePdfPagesChange,
             handleWhiteboardClose: !!handleWhiteboardClose,
             handleWhiteboardBackgroundCleared: !!handleWhiteboardBackgroundCleared,
-            handleImageChange: !!handleImageChange,
+            handleImageChange: false, // Commented out function
             handlePdfChange: !!handlePdfChange,
             // GLOBAL STATE APPROACH: Not needed anymore
             // handleToolChange: !!handleToolChange,
@@ -2598,7 +2628,7 @@ const DashboardPage = () => {
         handlePdfPagesChange,
         handleWhiteboardClose,
         handleWhiteboardBackgroundCleared,
-        handleImageChange,
+        // handleImageChange, // Commented out function
         handlePdfChange,
         // GLOBAL STATE APPROACH: Not needed anymore
         // handleToolChange,
@@ -2845,6 +2875,7 @@ const DashboardPage = () => {
                             onContentSelect={setSelectedContent}
                             selectedContent={selectedContent}
                             onPdfTopicSelect={handlePdfTopicSelect}
+                            onImageTopicSelect={handleImageTopicSelect}
                         />
                     </div>
                 )}
@@ -2912,7 +2943,7 @@ const DashboardPage = () => {
                            // Function props
                            hasOnClose: !!handleWhiteboardClose,
                            hasOnBackgroundCleared: !!handleWhiteboardBackgroundCleared,
-                           hasOnImageChange: !!handleImageChange,
+                           hasOnImageChange: false, // Commented out function
                            hasOnPdfChange: !!handlePdfChange,
                            hasOnPDFDimensionsChange: !!handlePDFDimensionsChange,
                            // GLOBAL STATE APPROACH: Not needed anymore

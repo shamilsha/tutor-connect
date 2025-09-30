@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import '../styles/ContentSelector.css';
 
-const ContentSelector = ({ onContentSelect, selectedContent, onPdfTopicSelect }) => {
+const ContentSelector = ({ onContentSelect, selectedContent, onPdfTopicSelect, onImageTopicSelect }) => {
   const [expandedSubjects, setExpandedSubjects] = useState({});
   const [expandedChapters, setExpandedChapters] = useState({});
 
@@ -119,6 +119,26 @@ const ContentSelector = ({ onContentSelect, selectedContent, onPdfTopicSelect })
           ]
         }
       ]
+    },
+    {
+      id: 'sample-images',
+      name: 'Sample Images',
+      icon: '🖼️',
+      chapters: [
+        {
+          id: 'demo-images',
+          name: 'Demo Images',
+          topics: [
+            { 
+              id: 'sample-image-1', 
+              name: 'Sample Image', 
+              content: 'Load a sample image for annotation and collaboration.',
+              type: 'image',
+              filename: '045ad443-4689-4d66-97ad-602036e300a2.jpg'
+            }
+          ]
+        }
+      ]
     }
   ];
 
@@ -151,6 +171,21 @@ const ContentSelector = ({ onContentSelect, selectedContent, onPdfTopicSelect })
       // Call the PDF topic handler
       if (onPdfTopicSelect) {
         onPdfTopicSelect(pdfUrl);
+      }
+    } else if (topic.type === 'image') {
+      // Handle Image topic selection - Use backend proxy to avoid CORS issues
+      const backendBaseUrl = "https://tutor-cancen-backend-bxepcjdqeca7f6bk.canadacentral-01.azurewebsites.net";
+      const imageUrl = `${backendBaseUrl}/api/files/proxy/${topic.filename}`;
+      
+      console.log('Image Topic Selected:', {
+        topic: topic.name,
+        filename: topic.filename,
+        imageUrl: imageUrl
+      });
+      
+      // Call the image topic handler
+      if (onImageTopicSelect) {
+        onImageTopicSelect(imageUrl);
       }
     } else {
       // Handle regular content selection
