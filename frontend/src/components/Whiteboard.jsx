@@ -1996,7 +1996,7 @@ const Whiteboard = forwardRef(({
   // Simple coordinate calculation is sufficient: stage.getPointerPosition()
 
   // Unified PDF rendering function for both peers
-
+ 
   const renderPDF = useCallback((pdfUrl, numPages = null) => {
     log('INFO', 'Whiteboard', 'Loading PDF file', { pdfUrl, numPages });
     
@@ -2019,6 +2019,52 @@ const Whiteboard = forwardRef(({
     
     log('INFO', 'Whiteboard', 'PDF file set for rendering', { pdfUrl });
   }, []);
+
+  // Unified PDF rendering function for both peers
+ const renderPDFUrl = useCallback((pdfUrl, numPages = null, sendToPeers = false) => {
+    // Clear image-specific state when switching to PDF
+    console.log('webRTCProvider:', webRTCProvider);
+    console.log('selectedPeer:', selectedPeer);
+    console.log('sendToPeers:', sendToPeers);
+    //clearAllDrawings();
+    if (sendToPeers && webRTCProvider && selectedPeer) {
+      const peerSendStart = performance.now();
+      log('INFO', 'Whiteboard', 'Sending PDF to remote peer', { selectedPeer, pdfUrl });
+      log('INFO', 'Whiteboard', 'Sending PDF to remote peer', { peer: selectedPeer, pdfUrl });
+      webRTCProvider.sendWhiteboardMessage(selectedPeer, {
+        action: 'background',
+        background: {
+          file: pdfUrl,
+          type: 'pdf'
+        }
+      });
+      const peerSendEnd = performance.now();
+      log('INFO', 'Whiteboard', 'PDF sent to remote peer successfully');
+      log('DEBUG', 'Whiteboard', 'Peer send timing', {
+        peerSendTime: `${(peerSendEnd - peerSendStart).toFixed(2)}ms`
+      });
+    } else {
+      log('WARN', 'Whiteboard', 'Cannot send PDF to remote peer', { 
+        hasWebRTCProvider: !!webRTCProvider, 
+        selectedPeer, 
+        pdfUrl 
+      });
+    }
+
+    const startRenderTime = performance.now();
+    setBackgroundDimensions({ width: 0, height: 0 });
+            
+    // Use unified PDF rendering function with peer sync for initiator
+    log('INFO', 'Whiteboard', 'Using unified PDF rendering for local upload');
+
+    renderPDF(pdfUrl, numPages); // Use sendToPeers parameter
+
+    const totalEndTime = performance.now();
+    log('DEBUG', 'Whiteboard', 'Total rendering time', {
+      totalTime: `${(totalEndTime - startRenderTime).toFixed(2)}ms`
+    });
+  }, [renderPDF, webRTCProvider, selectedPeer]);
+
 
 
 
@@ -2932,6 +2978,7 @@ const Whiteboard = forwardRef(({
     handleImageUpload: handleImageUpload,
     handleFileUpload: handleFileUpload,
     setBackgroundDirectly: setBackgroundDirectly,
+    renderPDFUrl: renderPDFUrl,
     clearBackground: () => {
       log('INFO', 'Whiteboard', 'Clearing background due to screen share activation');
       setBackgroundFile(null);
@@ -3015,41 +3062,6 @@ const Whiteboard = forwardRef(({
         const pdfUrl = `${backendUrl}/api/files/proxy/${result.filename}`;
         log('INFO', 'Whiteboard', 'PDF proxy URL generated', pdfUrl);
         
-        // Clear image-specific state when switching to PDF
-        setBackgroundDimensions({ width: 0, height: 0 });
-        
-        // Clear all drawings when switching to PDF
-        clearAllDrawings();
-        
-        // Use unified PDF rendering function
-        log('INFO', 'Whiteboard', 'Using unified PDF rendering for local upload');
-        renderPDF(pdfUrl);
-        
-        // Send to remote peers (same as images)
-        if (webRTCProvider && selectedPeer) {
-          const peerSendStart = performance.now();
-          log('INFO', 'Whiteboard', 'Sending PDF to remote peer', { selectedPeer, pdfUrl });
-          log('INFO', 'Whiteboard', 'Sending PDF to remote peer', { peer: selectedPeer, pdfUrl });
-          webRTCProvider.sendWhiteboardMessage(selectedPeer, {
-            action: 'background',
-            background: {
-              file: pdfUrl,
-              type: 'pdf'
-            }
-          });
-          const peerSendEnd = performance.now();
-          log('INFO', 'Whiteboard', 'PDF sent to remote peer successfully');
-          log('DEBUG', 'Whiteboard', 'Peer send timing', {
-            peerSendTime: `${(peerSendEnd - peerSendStart).toFixed(2)}ms`
-          });
-        } else {
-          log('WARN', 'Whiteboard', 'Cannot send PDF to remote peer', { 
-            hasWebRTCProvider: !!webRTCProvider, 
-            selectedPeer, 
-            pdfUrl 
-          });
-        }
-        
         const totalEndTime = performance.now();
         log('INFO', 'Whiteboard', 'PDF upload and sharing completed successfully');
         log('DEBUG', 'Whiteboard', 'Total processing time', {
@@ -3059,6 +3071,19 @@ const Whiteboard = forwardRef(({
             peerSend: webRTCProvider && selectedPeer ? `${(totalEndTime - uploadEndTime).toFixed(2)}ms` : 'N/A (no peer)'
           }
         });
+
+        renderPDFUrl(pdfUrl, null, true);
+        // // Clear image-specific state when switching to PDF
+        // setBackgroundDimensions({ width: 0, height: 0 });
+        
+        // // Clear all drawings when switching to PDF
+        // clearAllDrawings();
+        
+        // // Use unified PDF rendering function
+        // log('INFO', 'Whiteboard', 'Using unified PDF rendering for local upload');
+        // renderPDF(pdfUrl);
+        
+        // Send to remote peers (same as images)
         
       } catch (error) {
         log('ERROR', 'Whiteboard', 'PDF upload failed', error);

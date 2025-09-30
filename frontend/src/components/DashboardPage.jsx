@@ -2514,6 +2514,22 @@ const DashboardPage = () => {
         }
     };
 
+    // Handle PDF topic selection from ContentSelector
+    const handlePdfTopicSelect = async (pdfUrl) => {
+        log('INFO', 'DashboardPage', 'PDF topic selected', { pdfUrl });
+        
+        // Use unified state transition to PDF
+        await transitionToBackgroundState(BACKGROUND_STATES.PDF);
+        
+        // Call renderPDFUrl directly with peer sync
+        if (whiteboardRef.current && whiteboardRef.current.renderPDFUrl) {
+            log('INFO', 'DashboardPage', 'Calling renderPDFUrl with PDF topic URL');
+            whiteboardRef.current.renderPDFUrl(pdfUrl, null, true); // sendToPeers = true
+        } else {
+            log('WARN', 'DashboardPage', 'Whiteboard ref or renderPDFUrl not available');
+        }
+    };
+
     const handleImageSizeChange = (newSize) => {
         log('INFO', 'DashboardPage', 'Image size changed', { newSize });
         // Note: Not updating dynamicContainerSize to maintain coordinate consistency between peers
@@ -2828,6 +2844,7 @@ const DashboardPage = () => {
                         <ContentSelector 
                             onContentSelect={setSelectedContent}
                             selectedContent={selectedContent}
+                            onPdfTopicSelect={handlePdfTopicSelect}
                         />
                     </div>
                 )}

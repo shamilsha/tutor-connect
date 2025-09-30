@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import '../styles/ContentSelector.css';
 
-const ContentSelector = ({ onContentSelect, selectedContent }) => {
+const ContentSelector = ({ onContentSelect, selectedContent, onPdfTopicSelect }) => {
   const [expandedSubjects, setExpandedSubjects] = useState({});
   const [expandedChapters, setExpandedChapters] = useState({});
 
@@ -99,6 +99,26 @@ const ContentSelector = ({ onContentSelect, selectedContent }) => {
           ]
         }
       ]
+    },
+    {
+      id: 'pdf-documents',
+      name: 'PDF Documents',
+      icon: '📄',
+      chapters: [
+        {
+          id: 'sample-pdfs',
+          name: 'Sample PDFs',
+          topics: [
+            { 
+              id: 'sample-pdf-1', 
+              name: 'Sample PDF Document', 
+              content: 'Load a sample PDF document for annotation and collaboration.',
+              type: 'pdf',
+              filename: '01cd702c-2a19-4734-9fe9-cb61276dce16.pdf'
+            }
+          ]
+        }
+      ]
     }
   ];
 
@@ -117,7 +137,25 @@ const ContentSelector = ({ onContentSelect, selectedContent }) => {
   };
 
   const handleTopicSelect = (topic) => {
-    onContentSelect(topic);
+    if (topic.type === 'pdf') {
+      // Handle PDF topic selection - Use backend proxy to avoid CORS issues
+      const backendBaseUrl = "https://tutor-cancen-backend-bxepcjdqeca7f6bk.canadacentral-01.azurewebsites.net";
+      const pdfUrl = `${backendBaseUrl}/api/files/proxy/${topic.filename}`;
+      
+      console.log('PDF Topic Selected:', {
+        topic: topic.name,
+        filename: topic.filename,
+        pdfUrl: pdfUrl
+      });
+      
+      // Call the PDF topic handler
+      if (onPdfTopicSelect) {
+        onPdfTopicSelect(pdfUrl);
+      }
+    } else {
+      // Handle regular content selection
+      onContentSelect(topic);
+    }
   };
 
   const isSubjectExpanded = (subjectId) => expandedSubjects[subjectId];
