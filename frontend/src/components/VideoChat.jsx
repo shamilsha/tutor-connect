@@ -773,7 +773,7 @@ const VideoChat = ({
                             el.srcObject = streams.remoteAudioStream;
                             el.volume = 1.0; // ✅ Maximum volume for remote audio
                             el.play().catch(error => {
-                                console.error('[VideoChat] 🔊 Error playing remote audio:', error);
+                                console.warn('[VideoChat] 🔊 Warning: Remote audio play interrupted:', error);
                             });
                         }
                     }}
@@ -782,7 +782,7 @@ const VideoChat = ({
                     style={{ display: 'none' }}
                     onLoadedMetadata={() => console.log('[VideoChat] 🔊 Remote audio loaded metadata:', streams.remoteAudioStream.id)}
                     onCanPlay={() => console.log('[VideoChat] 🔊 Remote audio can play:', streams.remoteAudioStream.id)}
-                    onError={(e) => console.error('[VideoChat] 🔊 Remote audio error:', e)}
+                    onError={(e) => console.warn('[VideoChat] 🔊 Remote audio warning:', e)}
                 />
             )}
             
