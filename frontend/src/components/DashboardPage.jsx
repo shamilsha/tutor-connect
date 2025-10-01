@@ -131,39 +131,47 @@ const DashboardPage = () => {
             to: newState 
         });
         
-        // Always clear drawings on state transition
-        log('INFO', 'DashboardPage', '🎨 CLEANUP: Clearing all drawings for state transition');
-        if (typeof window.clearDrawings === 'function') {
-            window.clearDrawings();
-        }
-        
-        // Cleanup based on current active state
-        switch (activeBackgroundState) {
-            case BACKGROUND_STATES.IMAGE:
-                log('INFO', 'DashboardPage', '🖼️ CLEANUP: Removing image state');
-                setCurrentImageUrl(null);
-                currentImageUrlRef.current = null;
-                break;
-                
-            case BACKGROUND_STATES.PDF:
-                log('INFO', 'DashboardPage', '📄 CLEANUP: Removing PDF state');
-                setPdfTotalPages(0);
-                setShowPdfNavigation(false);
-                setPdfCurrentPage(1);
-                break;
-                
-            case BACKGROUND_STATES.SCREEN_SHARE:
-                log('INFO', 'DashboardPage', '🖥️ CLEANUP: Stopping screen share');
-                if (provider) {
-                    await provider.stopScreenShare();
-                    setIsScreenSharing(false);
-                    setIsScreenShareActive(false);
-                }
-                break;
-                
-            case BACKGROUND_STATES.NONE:
-                log('INFO', 'DashboardPage', '✅ CLEANUP: Already in none state');
-                break;
+        // Only run cleanup if state is actually changing
+        if (activeBackgroundState !== newState) {
+            // Always clear drawings on state transition
+            log('INFO', 'DashboardPage', '🎨 CLEANUP: Clearing all drawings for state transition');
+            if (typeof window.clearDrawings === 'function') {
+                window.clearDrawings();
+            }
+            
+            // Cleanup based on current active state
+            switch (activeBackgroundState) {
+                case BACKGROUND_STATES.IMAGE:
+                    log('INFO', 'DashboardPage', '🖼️ CLEANUP: Removing image state');
+                    setCurrentImageUrl(null);
+                    currentImageUrlRef.current = null;
+                    break;
+                    
+                case BACKGROUND_STATES.PDF:
+                    log('INFO', 'DashboardPage', '📄 CLEANUP: Removing PDF state');
+                    setPdfTotalPages(0);
+                    setShowPdfNavigation(false);
+                    setPdfCurrentPage(1);
+                    break;
+                    
+                case BACKGROUND_STATES.SCREEN_SHARE:
+                    log('INFO', 'DashboardPage', '🖥️ CLEANUP: Stopping screen share');
+                    if (provider) {
+                        await provider.stopScreenShare();
+                        setIsScreenSharing(false);
+                        setIsScreenShareActive(false);
+                    }
+                    break;
+                    
+                case BACKGROUND_STATES.NONE:
+                    log('INFO', 'DashboardPage', '✅ CLEANUP: Already in none state');
+                    break;
+            }
+        } else {
+            log('INFO', 'DashboardPage', '✅ SKIPPING CLEANUP: State unchanged', { 
+                currentState: activeBackgroundState, 
+                newState: newState 
+            });
         }
         
         // Set new active state
@@ -207,7 +215,7 @@ const DashboardPage = () => {
     }, []);
     
     // Handle remote state transition - optimized to prevent remounts
-    const handleRemoteStateTransition = useCallback((newState) => {
+    const handleRemoteStateTransition = useCallback(async (newState) => {
         log('INFO', 'DashboardPage', '🔄 REMOTE STATE TRANSITION RECEIVED', { 
             newState, 
             currentState: activeBackgroundState 
@@ -220,10 +228,8 @@ const DashboardPage = () => {
                 to: newState 
             });
             
-            // Use React.startTransition to batch state updates and prevent remounts
-            React.startTransition(() => {
-                setActiveBackgroundState(newState);
-            });
+            // Use the full transition function to ensure proper cleanup
+            await transitionToBackgroundState(newState);
         } else {
             log('INFO', 'DashboardPage', '✅ STATE ALREADY SYNCED: No update needed', { newState });
         }

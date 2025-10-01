@@ -3493,72 +3493,19 @@ private detectTrackRemoval(peerId: string, changeType: 'sender' | 'receiver') {
         log('INFO', 'WebRTC', 'Stopping screen share');
         
         try {
-            // Get the screen share stream (StreamManager will stop tracks when clearing)
-            const screenShareStream = this.streamManager.getLocalScreen();
+            // SIMPLE APPROACH: Just clear the screen share stream
+            // This will automatically stop all tracks and restore both peers to previous state
+            this.streamManager.setLocalScreen(null);
             
-            // Store the screen share track ID BEFORE clearing the stream
-            const screenShareTrackId = screenShareStream?.getVideoTracks()[0]?.id;
-            
-            log('DEBUG', 'WebRTC', 'Screen share track ID extracted', {
-                screenShareStreamExists: !!screenShareStream,
-                screenShareStreamId: screenShareStream?.id,
-                videoTracksCount: screenShareStream?.getVideoTracks().length || 0,
-                screenShareTrackId: screenShareTrackId
-            });
-            
-            // Safety check: if we don't have a valid track ID, we can't proceed
-            if (!screenShareTrackId) {
-                console.warn(`[WebRTC] ⚠️ No screen share track ID found, skipping track removal`);
-                // Still clear the stream
-                this.streamManager.setLocalScreen(null);
-                log('INFO', 'WebRTC', 'Screen share stopped successfully (no tracks to remove)');
-                return;
-            }
-            
-            // Remove screen share tracks from all peer connections
+            // Send screen share stop signal to all peers via data channel
             for (const [peerId, peerState] of this.connections.entries()) {
                 if (peerState.phase === 'connected') {
-                    log('DEBUG', 'WebRTC', 'Removing screen share tracks from peer', { peerId });
-                    
-                    // Remove all senders that have screen share tracks
-                    const senders = peerState.connection.getSenders();
-                    let removedAnyTrack = false;
-                    
-                    log('DEBUG', 'WebRTC', 'Checking senders for screen share track removal', { senderCount: senders.length });
-                    
-                    senders.forEach((sender, index) => {
-                        log('DEBUG', 'WebRTC', 'Sender details', { index, sender: {
-                            hasTrack: !!sender.track,
-                            trackKind: sender.track?.kind,
-                            trackId: sender.track?.id,
-                            isVideo: sender.track?.kind === 'video',
-                            matchesScreenShare: screenShareTrackId && sender.track?.id === screenShareTrackId
-                        }});
-                        
-                        if (sender.track && sender.track.kind === 'video' && 
-                            screenShareTrackId && sender.track.id === screenShareTrackId) {
-                            const trackId = sender.track.id; // Capture ID BEFORE removal
-                            peerState.connection.removeTrack(sender);
-                            removedAnyTrack = true;
-                            log('DEBUG', 'WebRTC', 'Removed screen share track from peer', { peerId, trackId });
-                        }
-                    });
-                    
-                    // Send screen share stop signal via data channel
-                    log('DEBUG', 'WebRTC', 'Sending screen share stop signal to peer via data channel', { peerId });
+                    log('DEBUG', 'WebRTC', 'Sending screen share stop signal to peer', { peerId });
                     this.sendScreenShareSignal(peerId, null);
-                    
-                    // Trigger renegotiation if we removed any tracks
-                    if (removedAnyTrack) {
-                        log('DEBUG', 'WebRTC', 'Triggering renegotiation after removing screen share from peer', { peerId });
-                        await this.forceRenegotiation(peerId);
-                    }
                 }
             }
             
-            // Clear local screen share stream AFTER processing all peers
-            this.streamManager.setLocalScreen(null);
-            log('INFO', 'WebRTC', 'Screen share stopped successfully');
+            log('INFO', 'WebRTC', 'Screen share stopped successfully - both peers restored to previous state');
             
         } catch (error) {
             log('ERROR', 'WebRTC', 'Failed to stop screen share', { error });
