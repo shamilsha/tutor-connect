@@ -36,8 +36,67 @@ const DashboardPage = () => {
     const [isWebSocketConnected, setIsWebSocketConnected] = useState(false);
     const [isPeerConnected, setIsPeerConnected] = useState(false);
     const [userEmail, setUserEmail] = useState('');
+    const [isFullScreen, setIsFullScreen] = useState(false);
     const navigate = useNavigate();
     const { signalingService } = useCommunication();
+
+    // Full-screen toggle function
+    const toggleFullScreen = async () => {
+        try {
+            if (!isFullScreen) {
+                // Enter full-screen mode
+                const dashboardContent = document.querySelector('.dashboard-content');
+                if (dashboardContent) {
+                    if (dashboardContent.requestFullscreen) {
+                        await dashboardContent.requestFullscreen();
+                    } else if (dashboardContent.webkitRequestFullscreen) {
+                        await dashboardContent.webkitRequestFullscreen();
+                    } else if (dashboardContent.msRequestFullscreen) {
+                        await dashboardContent.msRequestFullscreen();
+                    }
+                    setIsFullScreen(true);
+                    log('INFO', 'DashboardPage', 'Entered full-screen mode');
+                }
+            } else {
+                // Exit full-screen mode
+                if (document.exitFullscreen) {
+                    await document.exitFullscreen();
+                } else if (document.webkitExitFullscreen) {
+                    await document.webkitExitFullscreen();
+                } else if (document.msExitFullscreen) {
+                    await document.msExitFullscreen();
+                }
+                setIsFullScreen(false);
+                log('INFO', 'DashboardPage', 'Exited full-screen mode');
+            }
+        } catch (error) {
+            console.error('Full-screen toggle error:', error);
+            log('ERROR', 'DashboardPage', 'Full-screen toggle failed', error);
+        }
+    };
+
+    // Listen for full-screen change events
+    useEffect(() => {
+        const handleFullScreenChange = () => {
+            const isCurrentlyFullScreen = !!(
+                document.fullscreenElement ||
+                document.webkitFullscreenElement ||
+                document.msFullscreenElement
+            );
+            setIsFullScreen(isCurrentlyFullScreen);
+        };
+
+        document.addEventListener('fullscreenchange', handleFullScreenChange);
+        document.addEventListener('webkitfullscreenchange', handleFullScreenChange);
+        document.addEventListener('msfullscreenchange', handleFullScreenChange);
+
+        return () => {
+            document.removeEventListener('fullscreenchange', handleFullScreenChange);
+            document.removeEventListener('webkitfullscreenchange', handleFullScreenChange);
+            document.removeEventListener('msfullscreenchange', handleFullScreenChange);
+        };
+    }, []);
+
 
     // Check WebRTC compatibility on component mount
     useEffect(() => {
@@ -2067,6 +2126,7 @@ const DashboardPage = () => {
         log('INFO', 'DashboardPage', `SCREEN SHARE TOGGLE STARTED (initiator side): ${newScreenShareState ? 'ENABLE' : 'DISABLE'}`);
         log('INFO', 'DashboardPage', 'Toggle screen share requested', { newScreenShareState });
         
+        
         try {
             // Create provider if it doesn't exist
             let currentProvider = provider;
@@ -2895,6 +2955,17 @@ const DashboardPage = () => {
                     />
                 )}
                 
+                {/* Full-screen Toggle Button */}
+                <div className="fullscreen-toggle-container">
+                    <button 
+                        className={`fullscreen-toggle-btn ${isFullScreen ? 'exit-fullscreen' : 'enter-fullscreen'}`}
+                        onClick={toggleFullScreen}
+                        title={isFullScreen ? 'Exit Full Screen' : 'Enter Full Screen'}
+                    >
+                        {isFullScreen ? '⤓' : '⤢'}
+                    </button>
+                </div>
+                
                 {/* Right Panel - Fixed Size Dashboard Content */}
                 <div className="dashboard-content">
                     {/* Log the expected image loading flow */}
@@ -3187,6 +3258,7 @@ const DashboardPage = () => {
                     receivedMessages={receivedMessages}
                 />
             )}
+            
         </div>
     );
 };
