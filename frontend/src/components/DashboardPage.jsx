@@ -3077,18 +3077,21 @@ const DashboardPage = () => {
                    </>
                )}
                 
-                <ScreenShareWindow
-                    key="screen-share-stable"
-                    screenShareStream={provider?.getScreenShareStream() || provider?.getRemoteScreen(selectedPeer)}
-                    isVisible={isScreenShareActive}
-                    position={{ top: '0', left: '0' }}
-                    size={{ width: '1200px', height: '800px' }}
-                    onStreamChange={(stream) => {
-                        log('DEBUG', 'DashboardPage', 'Screen share stream change notified', { streamId: stream?.id });
-                    }}
-                    debugMode={true}
-                    useRelativePositioning={true}
-                />
+                {/* ScreenShareWindow - Only show for remote peer, not initiator */}
+                {!isScreenSharing && (
+                    <ScreenShareWindow
+                        key="screen-share-stable"
+                        screenShareStream={provider?.getRemoteScreen(selectedPeer)}
+                        isVisible={isScreenShareActive}
+                        position={{ top: '0', left: '0' }}
+                        size={{ width: '1200px', height: '800px' }}
+                        onStreamChange={(stream) => {
+                            log('DEBUG', 'DashboardPage', 'Screen share stream change notified', { streamId: stream?.id });
+                        }}
+                        debugMode={true}
+                        useRelativePositioning={true}
+                    />
+                )}
                 </div>
             </div>
             
