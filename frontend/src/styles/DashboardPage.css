@@ -528,4 +528,90 @@ body.dashboard-active {
     display: flex;
     align-items: center;
     justify-content: center;
-} 
+}
+
+/* Fullscreen aspect ratio support for receiver */
+.dashboard-content:fullscreen {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: #000 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    max-height: none !important;
+}
+
+.dashboard-content:-webkit-full-screen {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: #000 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    max-height: none !important;
+}
+
+.dashboard-content:-moz-full-screen {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: #000 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    max-height: none !important;
+}
+
+/* Ensure video scales properly in fullscreen */
+.dashboard-content:fullscreen video,
+.dashboard-content:-webkit-full-screen video,
+.dashboard-content:-moz-full-screen video,
+.dashboard-content:-ms-fullscreen video {
+    max-width: 100% !important;
+    max-height: 100% !important;
+    width: auto !important;
+    height: auto !important;
+    object-fit: contain !important;
+}
+
+/* Force fullscreen dimensions to override fixed dimensions */
+.dashboard-content:fullscreen,
+.dashboard-content:-webkit-full-screen,
+.dashboard-content:-moz-full-screen,
+.dashboard-content:-ms-fullscreen {
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    max-height: none !important;
+    min-width: 100vw !important;
+    min-height: 100vh !important;
+    /* Override the fixed dimensions from the base rule */
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    max-height: none !important;
+    /* Force override of flex properties */
+    flex: none !important;
+    flex-shrink: 1 !important;
+    flex-grow: 1 !important;
+    /* Override ALL conflicting properties */
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    max-height: none !important;
+    min-width: 100vw !important;
+    min-height: 100vh !important;
+    /* Force override of any inline styles */
+    width: 100vw !important;
+    height: 100vh !important;
+}
+
+/* Force ScreenShareWindow to use fullscreen dimensions */
+.screen-share-window {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+}

@@ -164,16 +164,16 @@ const ScreenShareWindow = ({
                 position: useRelativePositioning ? 'relative' : 'fixed',
                 top: position.top,
                 left: position.left,
-                width: 'auto', // Allow container to expand to match video dimensions
-                height: 'auto', // Allow container to expand to match video dimensions
+                width: size.width, // Use the size prop passed from parent
+                height: size.height, // Use the size prop passed from parent
                 background: '#000',
                 zIndex: useRelativePositioning ? 1 : 100,
                 display: 'flex',
-                alignItems: 'flex-start',
-                justifyContent: 'flex-start',
+                alignItems: 'center', // Center the video within the container
+                justifyContent: 'center', // Center the video within the container
                 border: '3px solid #ff6b6b',
                 boxSizing: 'border-box',
-                overflow: 'visible' // Let dashboard-content handle scrolling
+                overflow: 'hidden' // Hide overflow to prevent video from exceeding container
             }}
         >
             <video
@@ -182,13 +182,11 @@ const ScreenShareWindow = ({
                 playsInline
                 muted
                 style={{
-                    width: 'auto', // Allow video to maintain aspect ratio
-                    height: 'auto', // Allow video to maintain aspect ratio
-                    minWidth: '100%', // Ensure video is at least container width
-                    minHeight: '100%', // Ensure video is at least container height
-                    maxWidth: 'none', // Allow video to exceed container width
-                    maxHeight: 'none', // Allow video to exceed container height
-                    objectFit: 'contain', // Show full video content without distortion
+                    width: '100%', // Fill the container width
+                    height: '100%', // Fill the container height
+                    maxWidth: '100%', // Don't exceed container width
+                    maxHeight: '100%', // Don't exceed container height
+                    objectFit: 'contain', // Scale video to fit within container while maintaining aspect ratio
                     background: '#000'
                 }}
             />

@@ -37,16 +37,226 @@ const DashboardPage = () => {
     const [isPeerConnected, setIsPeerConnected] = useState(false);
     const [userEmail, setUserEmail] = useState('');
     const [isFullScreen, setIsFullScreen] = useState(false);
+    const [screenShareAspectRatio, setScreenShareAspectRatio] = useState(null);
+    const [originalScreenShareDimensions, setOriginalScreenShareDimensions] = useState(null);
     const navigate = useNavigate();
     const { signalingService } = useCommunication();
 
+    // Helper function to apply aspect ratio to fullscreen
+    const applyAspectRatioToFullscreen = (aspectRatio) => {
+        log('INFO', 'DashboardPage', 'Applying aspect ratio to existing fullscreen', {
+            isFullScreen,
+            isScreenShareActive,
+            isScreenSharing,
+            aspectRatio
+        });
+        
+        const dashboardContent = document.querySelector('.dashboard-content');
+        if (dashboardContent) {
+            const screenWidth = screen.width;
+            const screenHeight = screen.height;
+            const screenAspectRatio = screenWidth / screenHeight;
+            
+            let contentWidth, contentHeight;
+            
+            if (screenAspectRatio > aspectRatio) {
+                contentHeight = screenHeight;
+                contentWidth = screenHeight * aspectRatio;
+            } else {
+                contentWidth = screenWidth;
+                contentHeight = screenWidth / aspectRatio;
+            }
+            
+            dashboardContent.style.width = `${contentWidth}px`;
+            dashboardContent.style.height = `${contentHeight}px`;
+            dashboardContent.style.maxWidth = 'none';
+            dashboardContent.style.maxHeight = 'none';
+            
+            const screenShareWindow = document.querySelector('.screen-share-window');
+            if (screenShareWindow) {
+                screenShareWindow.style.width = `${contentWidth}px`;
+                screenShareWindow.style.height = `${contentHeight}px`;
+                screenShareWindow.style.maxWidth = 'none';
+                screenShareWindow.style.maxHeight = 'none';
+            }
+            
+            log('INFO', 'DashboardPage', 'Applied aspect ratio to existing fullscreen', {
+                contentWidth,
+                contentHeight,
+                screenWidth,
+                screenHeight,
+                aspectRatio
+            });
+        }
+    };
+
     // Full-screen toggle function
     const toggleFullScreen = async () => {
+        log('INFO', 'DashboardPage', 'Fullscreen button clicked', {
+            isFullScreen,
+            screenShareAspectRatio,
+            isScreenShareActive,
+            isScreenSharing,
+            screenWidth: screen.width,
+            screenHeight: screen.height
+        });
+        
         try {
             if (!isFullScreen) {
                 // Enter full-screen mode
                 const dashboardContent = document.querySelector('.dashboard-content');
                 if (dashboardContent) {
+                        // Calculate optimal dimensions based on screen share aspect ratio
+                        // Use stored aspect ratio or calculate from original dimensions
+                        let aspectRatio = screenShareAspectRatio;
+                        if (!aspectRatio && originalScreenShareDimensions) {
+                            aspectRatio = originalScreenShareDimensions.aspectRatio;
+                        }
+                        
+                        if (aspectRatio && isScreenShareActive && !isScreenSharing) {
+                        // Get physical screen dimensions
+                        const screenWidth = screen.width;
+                        const screenHeight = screen.height;
+                        const screenAspectRatio = screenWidth / screenHeight;
+                        
+                                log('INFO', 'DashboardPage', 'Fullscreen calculation inputs', {
+                                    screenShareAspectRatio: screenShareAspectRatio,
+                                    isScreenShareActive: isScreenShareActive,
+                                    isScreenSharing: isScreenSharing,
+                                    screenWidth: screenWidth,
+                                    screenHeight: screenHeight,
+                                    screenAspectRatio: screenAspectRatio,
+                                    comparison: screenAspectRatio > screenShareAspectRatio ? 'screen wider than screen share' : 'screen taller than screen share',
+                                    // Show exact values
+                                    exactValues: {
+                                        screenShareAspectRatio: screenShareAspectRatio,
+                                        screenWidth: screenWidth,
+                                        screenHeight: screenHeight,
+                                        screenAspectRatio: screenAspectRatio
+                                    }
+                                });
+                        
+                        let contentWidth, contentHeight;
+                        
+                        if (screenAspectRatio > screenShareAspectRatio) {
+                            // Fit by height (letterbox on sides)
+                            contentHeight = screenHeight;
+                            contentWidth = screenHeight * screenShareAspectRatio;
+                            log('INFO', 'DashboardPage', 'Fitting by height (letterbox on sides)', {
+                                contentWidth: contentWidth,
+                                contentHeight: contentHeight,
+                                letterboxWidth: screenWidth - contentWidth
+                            });
+                        } else {
+                            // Fit by width (letterbox on top/bottom)
+                            contentWidth = screenWidth;
+                            contentHeight = screenWidth / screenShareAspectRatio;
+                            log('INFO', 'DashboardPage', 'Fitting by width (letterbox on top/bottom)', {
+                                contentWidth: contentWidth,
+                                contentHeight: contentHeight,
+                                letterboxHeight: screenHeight - contentHeight
+                            });
+                        }
+                        
+                        // Apply calculated dimensions to dashboard-content
+                        dashboardContent.style.width = `${contentWidth}px`;
+                        dashboardContent.style.height = `${contentHeight}px`;
+                        dashboardContent.style.maxWidth = 'none';
+                        dashboardContent.style.maxHeight = 'none';
+                        
+                        // Force override any CSS that might be interfering
+                        dashboardContent.style.setProperty('width', `${contentWidth}px`, 'important');
+                        dashboardContent.style.setProperty('height', `${contentHeight}px`, 'important');
+                        dashboardContent.style.setProperty('max-width', 'none', 'important');
+                        dashboardContent.style.setProperty('max-height', 'none', 'important');
+                        
+                        // Also update ScreenShareWindow size to match the aspect ratio
+                        const screenShareWindow = document.querySelector('.screen-share-window');
+                        if (screenShareWindow) {
+                            screenShareWindow.style.width = `${contentWidth}px`;
+                            screenShareWindow.style.height = `${contentHeight}px`;
+                            screenShareWindow.style.maxWidth = 'none';
+                            screenShareWindow.style.maxHeight = 'none';
+                            
+                            // Force override any CSS that might be interfering
+                            screenShareWindow.style.setProperty('width', `${contentWidth}px`, 'important');
+                            screenShareWindow.style.setProperty('height', `${contentHeight}px`, 'important');
+                            screenShareWindow.style.setProperty('max-width', 'none', 'important');
+                            screenShareWindow.style.setProperty('max-height', 'none', 'important');
+                            
+                                log('INFO', 'DashboardPage', 'Updated ScreenShareWindow dimensions', {
+                                    screenShareWindowWidth: screenShareWindow.style.width,
+                                    screenShareWindowHeight: screenShareWindow.style.height,
+                                    // Show actual computed dimensions
+                                    computedDimensions: {
+                                        width: screenShareWindow.offsetWidth,
+                                        height: screenShareWindow.offsetHeight,
+                                        clientWidth: screenShareWindow.clientWidth,
+                                        clientHeight: screenShareWindow.clientHeight
+                                    }
+                                });
+                        }
+                        
+                                log('INFO', 'DashboardPage', 'Applied aspect ratio dimensions for fullscreen', {
+                                    finalContentWidth: contentWidth,
+                                    finalContentHeight: contentHeight,
+                                    appliedStyles: {
+                                        width: dashboardContent.style.width,
+                                        height: dashboardContent.style.height,
+                                        maxWidth: dashboardContent.style.maxWidth,
+                                        maxHeight: dashboardContent.style.maxHeight
+                                    },
+                                    // Show exact calculated values
+                                    exactCalculatedValues: {
+                                        contentWidth: contentWidth,
+                                        contentHeight: contentHeight,
+                                        screenWidth: screenWidth,
+                                        screenHeight: screenHeight,
+                                        screenShareAspectRatio: screenShareAspectRatio,
+                                        screenAspectRatio: screenAspectRatio
+                                    },
+                                    // Show actual computed dimensions of dashboard-content
+                                    dashboardContentComputed: {
+                                        offsetWidth: dashboardContent.offsetWidth,
+                                        offsetHeight: dashboardContent.offsetHeight,
+                                        clientWidth: dashboardContent.clientWidth,
+                                        clientHeight: dashboardContent.clientHeight
+                                    }
+                                });
+                                
+                                // Force dimensions after fullscreen API completes
+                                const finalContentWidth = contentWidth;
+                                const finalContentHeight = contentHeight;
+                                setTimeout(() => {
+                                    dashboardContent.style.setProperty('width', `${finalContentWidth}px`, 'important');
+                                    dashboardContent.style.setProperty('height', `${finalContentHeight}px`, 'important');
+                                    dashboardContent.style.setProperty('max-width', 'none', 'important');
+                                    dashboardContent.style.setProperty('max-height', 'none', 'important');
+                                    
+                                    log('INFO', 'DashboardPage', 'Forced dimensions after fullscreen', {
+                                        forcedWidth: dashboardContent.style.width,
+                                        forcedHeight: dashboardContent.style.height,
+                                        computedWidth: dashboardContent.offsetWidth,
+                                        computedHeight: dashboardContent.offsetHeight
+                                    });
+                                }, 100);
+                    } else {
+                        log('WARN', 'DashboardPage', 'Skipping aspect ratio calculation', {
+                            screenShareAspectRatio: screenShareAspectRatio,
+                            isScreenShareActive: isScreenShareActive,
+                            isScreenSharing: isScreenSharing,
+                            conditionCheck: {
+                                hasAspectRatio: !!screenShareAspectRatio,
+                                isScreenShareActive: isScreenShareActive,
+                                isNotInitiator: !isScreenSharing,
+                                allConditionsMet: !!(screenShareAspectRatio && isScreenShareActive && !isScreenSharing)
+                            },
+                            reason: !screenShareAspectRatio ? 'No aspect ratio' : 
+                                   !isScreenShareActive ? 'No screen share active' : 
+                                   isScreenSharing ? 'Is initiator' : 'Unknown'
+                        });
+                    }
+                    
                     if (dashboardContent.requestFullscreen) {
                         await dashboardContent.requestFullscreen();
                     } else if (dashboardContent.webkitRequestFullscreen) {
@@ -57,7 +267,8 @@ const DashboardPage = () => {
                     setIsFullScreen(true);
                     log('INFO', 'DashboardPage', 'Entered full-screen mode');
                 }
-            } else {
+                }
+             else {
                 // Exit full-screen mode
                 if (document.exitFullscreen) {
                     await document.exitFullscreen();
@@ -83,6 +294,51 @@ const DashboardPage = () => {
                 document.webkitFullscreenElement ||
                 document.msFullscreenElement
             );
+            
+            // Restore original dimensions when exiting fullscreen
+            if (!isCurrentlyFullScreen && isFullScreen) {
+                const dashboardContent = document.querySelector('.dashboard-content');
+                if (dashboardContent) {
+                    log('INFO', 'DashboardPage', 'Exiting fullscreen - restoring dimensions', {
+                        beforeRestore: {
+                            width: dashboardContent.style.width,
+                            height: dashboardContent.style.height,
+                            maxWidth: dashboardContent.style.maxWidth,
+                            maxHeight: dashboardContent.style.maxHeight
+                        }
+                    });
+                    
+                    // Restore original dimensions
+                    dashboardContent.style.width = '';
+                    dashboardContent.style.height = '';
+                    dashboardContent.style.maxWidth = '';
+                    dashboardContent.style.maxHeight = '';
+                    
+                    // Also restore ScreenShareWindow dimensions
+                    const screenShareWindow = document.querySelector('.screen-share-window');
+                    if (screenShareWindow) {
+                        screenShareWindow.style.width = '';
+                        screenShareWindow.style.height = '';
+                        screenShareWindow.style.maxWidth = '';
+                        screenShareWindow.style.maxHeight = '';
+                        
+                        log('INFO', 'DashboardPage', 'Restored ScreenShareWindow dimensions', {
+                            screenShareWindowWidth: screenShareWindow.style.width,
+                            screenShareWindowHeight: screenShareWindow.style.height
+                        });
+                    }
+                    
+                    log('INFO', 'DashboardPage', 'Restored original dashboard-content dimensions', {
+                        afterRestore: {
+                            width: dashboardContent.style.width,
+                            height: dashboardContent.style.height,
+                            maxWidth: dashboardContent.style.maxWidth,
+                            maxHeight: dashboardContent.style.maxHeight
+                        }
+                    });
+                }
+            }
+            
             setIsFullScreen(isCurrentlyFullScreen);
         };
 
@@ -3084,9 +3340,94 @@ const DashboardPage = () => {
                         screenShareStream={provider?.getRemoteScreen(selectedPeer)}
                         isVisible={isScreenShareActive}
                         position={{ top: '0', left: '0' }}
-                        size={{ width: '1200px', height: '800px' }}
+                        size={(screenShareAspectRatio || originalScreenShareDimensions) ? 
+                            { 
+                                width: `${screen.width}px`, 
+                                height: `${screen.height}px` 
+                            } : 
+                            { width: '1200px', height: '800px' }
+                        }
                         onStreamChange={(stream) => {
-                            log('DEBUG', 'DashboardPage', 'Screen share stream change notified', { streamId: stream?.id });
+                            // Reduced logging - only log when we actually process dimensions
+                            
+                            // Calculate aspect ratio for fullscreen mode
+                            if (stream && stream.getVideoTracks().length > 0) {
+                                const videoTrack = stream.getVideoTracks()[0];
+                                const settings = videoTrack.getSettings();
+                                
+                                // Store original dimensions from the video track (actual stream dimensions)
+                                if (settings.width && settings.height) {
+                                    const aspectRatio = settings.width / settings.height;
+                                    
+                                    // Only update if dimensions have changed
+                                    if (!originalScreenShareDimensions || 
+                                        originalScreenShareDimensions.width !== settings.width ||
+                                        originalScreenShareDimensions.height !== settings.height) {
+                                        
+                                        const dimensions = {
+                                            width: settings.width,
+                                            height: settings.height,
+                                            aspectRatio: aspectRatio
+                                        };
+                                        
+                                        setScreenShareAspectRatio(aspectRatio);
+                                        setOriginalScreenShareDimensions(dimensions);
+                                        
+                                        log('INFO', 'DashboardPage', 'Screen share aspect ratio calculated from original stream', {
+                                        originalWidth: settings.width,
+                                        originalHeight: settings.height,
+                                        screenShareAspectRatio: aspectRatio,
+                                        videoTrackId: videoTrack.id,
+                                        storedDimensions: dimensions
+                                    });
+                                    
+                                    // If we're already in fullscreen, apply the aspect ratio now
+                                    if (isFullScreen && isScreenShareActive && !isScreenSharing) {
+                                        applyAspectRatioToFullscreen(aspectRatio);
+                                    }
+                                    } else {
+                                        // Dimensions unchanged - no logging needed
+                                    }
+                                } else {
+                                    // No dimensions available yet - will retry
+                                    
+                                    // Retry getting dimensions after a delay
+                                    setTimeout(() => {
+                                        const retrySettings = videoTrack.getSettings();
+                                        if (retrySettings.width && retrySettings.height) {
+                                            const aspectRatio = retrySettings.width / retrySettings.height;
+                                            const dimensions = {
+                                                width: retrySettings.width,
+                                                height: retrySettings.height,
+                                                aspectRatio: aspectRatio
+                                            };
+                                            
+                                            setScreenShareAspectRatio(aspectRatio);
+                                            setOriginalScreenShareDimensions(dimensions);
+                                            
+                            log('INFO', 'DashboardPage', 'Screen share aspect ratio calculated (retry from track)', {
+                                originalWidth: retrySettings.width,
+                                originalHeight: retrySettings.height,
+                                screenShareAspectRatio: aspectRatio,
+                                storedDimensions: dimensions,
+                                // Show exact values
+                                exactValues: {
+                                    originalWidth: retrySettings.width,
+                                    originalHeight: retrySettings.height,
+                                    aspectRatio: aspectRatio
+                                }
+                            });
+                                            
+                                            // If we're already in fullscreen, apply the aspect ratio now
+                                            if (isFullScreen && isScreenShareActive && !isScreenSharing) {
+                                                applyAspectRatioToFullscreen(aspectRatio);
+                                            }
+                                        }
+                                    }, 1000);
+                                }
+                            } else {
+                                // No video tracks available
+                            }
                         }}
                         debugMode={true}
                         useRelativePositioning={true}
