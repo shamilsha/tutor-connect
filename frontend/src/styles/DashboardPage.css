@@ -85,6 +85,10 @@ body.dashboard-active {
     flex: 0 0 auto; /* Don't grow or shrink */
     z-index: 10; /* Ensure header is above other content */
     position: relative; /* Ensure proper stacking */
+    min-width: 800px; /* Minimum width constraint */
+    max-width: 100vw; /* Maximum width should not exceed visible area (viewport) */
+    width: 100%; /* Take full available width */
+    box-sizing: border-box; /* Include padding and border in width calculation */
 }
 
 .dashboard-header h1 {
@@ -168,6 +172,13 @@ body.dashboard-active {
 @media (max-width: 768px) {
     .dashboard-container {
         padding-top: 0; /* No padding needed with sticky connection panel */
+    }
+    
+    .dashboard-header {
+        min-width: 100vw; /* Override min-width on mobile to use full screen width */
+        max-width: 100vw; /* Ensure it doesn't exceed screen width on mobile */
+        width: 100vw; /* Use full viewport width on mobile */
+        padding: 0.5rem 1rem; /* Reduce padding on mobile */
     }
 }
 
