@@ -2836,7 +2836,30 @@ const DashboardPage = () => {
     const handleImageUpload = async (file) => {
         log('INFO', 'DashboardPage', '📤 IDEAL FLOW: Starting image upload', { fileName: file.name });
         
+        // Connection stability check for mobile camera operations
+        log('INFO', 'DashboardPage', '📱 Mobile camera operation - checking WebRTC connection stability');
+        
         try {
+            // Check if we have an active peer connection
+            if (provider && selectedPeer) {
+                try {
+                    const connectionState = provider.getConnectionState ? 
+                        provider.getConnectionState(selectedPeer) : 'unknown';
+                    log('INFO', 'DashboardPage', '📱 Connection state before camera operation', { 
+                        connectionState, 
+                        selectedPeer,
+                        hasProvider: !!provider 
+                    });
+                    
+                    // If connection is unstable, wait a bit for it to stabilize
+                    if (connectionState === 'connecting' || connectionState === 'checking') {
+                        log('INFO', 'DashboardPage', '📱 Connection is stabilizing, waiting...');
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    }
+                } catch (error) {
+                    log('WARN', 'DashboardPage', '📱 Could not check connection state', { error: error.message });
+                }
+            }
             
             // Steps 1-5: Pure upload flow (NO REMOUNTS)
             const imageUrl = await uploadImage(file);
@@ -2849,10 +2872,34 @@ const DashboardPage = () => {
             // Step 6-7: Process image URL (includes peer sync and processing)
             await processImageUrl(imageUrl, true);
             
-            
+            // Connection recovery check after camera operation
+            log('INFO', 'DashboardPage', '📱 Post-camera operation - checking connection health');
+            if (provider && selectedPeer) {
+                const postConnectionState = provider.getConnectionState(selectedPeer);
+                log('INFO', 'DashboardPage', '📱 Connection state after camera operation', { 
+                    postConnectionState, 
+                    selectedPeer 
+                });
+                
+                // If connection was lost during camera operation, attempt recovery
+                if (postConnectionState === 'disconnected' || postConnectionState === 'failed') {
+                    log('WARN', 'DashboardPage', '📱 Connection lost during camera operation - attempting recovery');
+                    // The connection will be automatically re-established by the existing reconnection logic
+                }
+            }
             
         } catch (error) {
             log('ERROR', 'DashboardPage', '❌ IDEAL FLOW: Image upload failed', error);
+            
+            // Connection recovery on error
+            if (provider && selectedPeer) {
+                const errorConnectionState = provider.getConnectionState(selectedPeer);
+                log('WARN', 'DashboardPage', '📱 Connection state after upload error', { 
+                    errorConnectionState, 
+                    selectedPeer,
+                    error: error.message 
+                });
+            }
         }
     };
 

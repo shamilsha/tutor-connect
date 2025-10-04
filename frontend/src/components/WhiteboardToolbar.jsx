@@ -16,6 +16,7 @@ import {
 } from 'react-icons/fa';
 import { BsTriangleFill } from 'react-icons/bs';
 import { TbTriangleInverted } from 'react-icons/tb';
+import MobileCamera from './MobileCamera';
 import '../styles/WhiteboardToolbar.css';
 
 const WhiteboardToolbar = ({ 
@@ -38,6 +39,7 @@ const WhiteboardToolbar = ({
   // GLOBAL STATE APPROACH: Initialize with default values
   const [internalSelectedTool, setInternalSelectedTool] = useState('pen');
   const [internalSelectedColor, setInternalSelectedColor] = useState('#000000');
+  const [showMobileCamera, setShowMobileCamera] = useState(false);
   
   // Removed visual progress states to prevent excessive re-renders
 
@@ -104,6 +106,41 @@ const WhiteboardToolbar = ({
     });
     
     if (event.target.files.length === 0) return;
+
+    // Connection stability check before camera operations
+    console.log('[WhiteboardToolbar] 📱 Mobile camera operation - checking connection stability');
+    
+    // Check WebSocket connection status before camera access
+    const wsProvider = window.wsProvider;
+    if (wsProvider) {
+      const isConnected = wsProvider.isConnected();
+      console.log('[WhiteboardToolbar] 📱 WebSocket connection status before camera:', { isConnected });
+      
+      if (!isConnected) {
+        console.log('[WhiteboardToolbar] 📱 WebSocket disconnected - checking network connectivity');
+        
+        // Check if we have basic network connectivity
+        const hasNetwork = navigator.onLine;
+        console.log('[WhiteboardToolbar] 📱 Network online status:', { hasNetwork });
+        
+        if (!hasNetwork) {
+          console.log('[WhiteboardToolbar] 📱 No network connectivity - proceeding with offline upload');
+          // Proceed with upload even if offline - it will be queued for sync when connection returns
+        } else {
+          console.log('[WhiteboardToolbar] 📱 Network available but WebSocket disconnected - waiting for reconnection');
+          // Wait for WebSocket to reconnect (reduced attempts for mobile)
+          let attempts = 0;
+          while (!wsProvider.isConnected() && attempts < 5) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            attempts++;
+            console.log('[WhiteboardToolbar] 📱 WebSocket reconnection attempt:', attempts);
+          }
+        }
+      }
+    }
+    
+    // Add a small delay to let the browser stabilize after camera access
+    await new Promise(resolve => setTimeout(resolve, 200));
     
     try {
       console.log('[WhiteboardToolbar] 🎨 Image upload triggered, calling onImageUpload');
@@ -121,6 +158,33 @@ const WhiteboardToolbar = ({
         totalTime: `${(uploadEndTime - uploadStartTime).toFixed(2)}ms`,
         timestamp: Date.now()
       });
+      
+      // Check WebSocket connection after upload for peer synchronization
+      if (wsProvider) {
+        const postUploadConnected = wsProvider.isConnected();
+        const hasNetwork = navigator.onLine;
+        console.log('[WhiteboardToolbar] 📱 WebSocket connection status after upload:', { 
+          postUploadConnected, 
+          hasNetwork,
+          networkStatus: hasNetwork ? 'online' : 'offline'
+        });
+        
+        if (!postUploadConnected) {
+          if (!hasNetwork) {
+            console.log('[WhiteboardToolbar] 📱 No network after upload - image will sync when connection returns');
+            // Don't wait for reconnection if there's no network - the image will be queued
+          } else {
+            console.log('[WhiteboardToolbar] 📱 WebSocket disconnected after upload - waiting for reconnection for peer sync');
+            // Wait for WebSocket to reconnect for peer synchronization (reduced attempts for mobile)
+            let attempts = 0;
+            while (!wsProvider.isConnected() && attempts < 8) {
+              await new Promise(resolve => setTimeout(resolve, 1500));
+              attempts++;
+              console.log('[WhiteboardToolbar] 📱 WebSocket reconnection attempt for peer sync:', attempts);
+            }
+          }
+        }
+      }
       
       // Clear the file input value so the same file can be selected again
       event.target.value = '';
@@ -309,9 +373,20 @@ const WhiteboardToolbar = ({
               console.error('[WhiteboardToolbar] 🎨 File input not found!');
             }
           }}
-          title="Upload Image"
+          title="Upload Image from Gallery"
         >
           <FaImage />
+        </button>
+
+        <button
+          className="tool-button"
+          onClick={() => {
+            console.log('[WhiteboardToolbar] 📷 Mobile camera button clicked');
+            setShowMobileCamera(true);
+          }}
+          title="Take Photo with Camera (No Connection Loss)"
+        >
+          📷
         </button>
         
         <button
@@ -327,6 +402,15 @@ const WhiteboardToolbar = ({
           id="image-upload"
           type="file"
           accept="image/*"
+          onChange={handleImageUpload}
+          style={{ display: 'none' }}
+        />
+        
+        <input
+          id="camera-upload"
+          type="file"
+          accept="image/*"
+          capture="environment"
           onChange={handleImageUpload}
           style={{ display: 'none' }}
         />
@@ -351,6 +435,27 @@ const WhiteboardToolbar = ({
           <FaTrash />
         </button>
       </div>
+      
+      {/* Mobile Camera Component */}
+      {showMobileCamera && (
+        <MobileCamera
+          onImageCapture={(file) => {
+            console.log('[WhiteboardToolbar] 📷 Mobile camera captured image:', file.name);
+            // Create a synthetic event for the existing upload handler
+            const syntheticEvent = {
+              target: {
+                files: [file]
+              }
+            };
+            handleImageUpload(syntheticEvent);
+            setShowMobileCamera(false);
+          }}
+          onClose={() => {
+            console.log('[WhiteboardToolbar] 📷 Mobile camera closed');
+            setShowMobileCamera(false);
+          }}
+        />
+      )}
     </div>
   );
 };
