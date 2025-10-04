@@ -39,6 +39,7 @@ const DashboardPage = () => {
     const [isFullScreen, setIsFullScreen] = useState(false);
     const [screenShareAspectRatio, setScreenShareAspectRatio] = useState(null);
     const [originalScreenShareDimensions, setOriginalScreenShareDimensions] = useState(null);
+    const [showFullscreenRecommendation, setShowFullscreenRecommendation] = useState(false);
     const navigate = useNavigate();
     const { signalingService } = useCommunication();
 
@@ -91,18 +92,23 @@ const DashboardPage = () => {
     };
 
     // Full-screen toggle function
-    const toggleFullScreen = async () => {
-        log('INFO', 'DashboardPage', 'Fullscreen button clicked', {
+    // Common function for fullscreen operations (manual or automatic)
+    const handleFullScreenOperation = async (forceEnter = null) => {
+        const shouldEnter = forceEnter !== null ? forceEnter : !isFullScreen;
+        
+        log('INFO', 'DashboardPage', 'Fullscreen operation', {
             isFullScreen,
             screenShareAspectRatio,
             isScreenShareActive,
             isScreenSharing,
             screenWidth: screen.width,
-            screenHeight: screen.height
+            screenHeight: screen.height,
+            forceEnter,
+            shouldEnter
         });
         
         try {
-            if (!isFullScreen) {
+            if (shouldEnter) {
                 // Enter full-screen mode
                 const dashboardContent = document.querySelector('.dashboard-content');
                 if (dashboardContent) {
@@ -281,9 +287,16 @@ const DashboardPage = () => {
                 log('INFO', 'DashboardPage', 'Exited full-screen mode');
             }
         } catch (error) {
-            console.error('Full-screen toggle error:', error);
-            log('ERROR', 'DashboardPage', 'Full-screen toggle failed', error);
+            console.error('Full-screen operation error:', error);
+            log('ERROR', 'DashboardPage', 'Full-screen operation failed', error);
         }
+    };
+
+    // Manual fullscreen toggle function (for button click)
+    const toggleFullScreen = async () => {
+        // Hide recommendation notification when user manually toggles fullscreen
+        setShowFullscreenRecommendation(false);
+        await handleFullScreenOperation();
     };
 
     // Listen for full-screen change events
@@ -294,6 +307,11 @@ const DashboardPage = () => {
                 document.webkitFullscreenElement ||
                 document.msFullscreenElement
             );
+            
+            // Hide recommendation notification when entering fullscreen
+            if (isCurrentlyFullScreen && !isFullScreen) {
+                setShowFullscreenRecommendation(false);
+            }
             
             // Restore original dimensions when exiting fullscreen
             if (!isCurrentlyFullScreen && isFullScreen) {
@@ -1318,9 +1336,38 @@ const DashboardPage = () => {
                 log('DEBUG', 'DashboardPage', 'Current image URL', { currentImageUrl: currentImageUrlRef.current });
                 log('INFO', 'DashboardPage', 'TRIGGERING SCREEN SHARE EXCLUSIVITY CHECK');
                 checkExclusivity('screenShare', true);
+                
+                // Show fullscreen prompt for remote peer when screen share starts
+                // Only trigger if we're receiving a remote screen share (not initiating one)
+                if (!isScreenSharing && !provider?.getScreenShareStream()) {
+                    log('INFO', 'DashboardPage', 'Screen share detected - showing fullscreen prompt for remote peer');
+                    // Show visible notification to user
+                    setShowFullscreenRecommendation(true);
+                    // Auto-hide after 10 seconds
+                    setTimeout(() => {
+                        setShowFullscreenRecommendation(false);
+                    }, 10000);
+                } else {
+                    log('INFO', 'DashboardPage', 'Skipping fullscreen prompt - this is initiator side or local screen share');
+                }
             } else {
                 log('INFO', 'DashboardPage', 'Screen share stopped, clearing any existing content');
                 // When screen share stops, we don't need to clear anything since it's just stopping
+                
+                // Hide fullscreen recommendation when screen share stops
+                setShowFullscreenRecommendation(false);
+                
+                // Auto-exit fullscreen for remote peer when screen share stops
+                // Only trigger if we're receiving a remote screen share (not initiating one) and currently in fullscreen
+                if (!isScreenSharing && !provider?.getScreenShareStream() && isFullScreen) {
+                    log('INFO', 'DashboardPage', 'Screen share stopped - auto-exiting fullscreen for remote peer');
+                    // Automatically exit fullscreen when screen share stops
+                    setTimeout(() => {
+                        handleFullScreenOperation(false); // Force exit fullscreen
+                    }, 500); // Small delay to ensure screen share cleanup is complete
+                } else {
+                    log('INFO', 'DashboardPage', 'Skipping auto-exit fullscreen - this is initiator side or not in fullscreen');
+                }
             }
         } else {
             // CRITICAL FIX: Even if state appears unchanged, force update if stream was removed
@@ -3101,6 +3148,25 @@ const DashboardPage = () => {
                 onToggleWhiteboard={handleToggleWhiteboard}
             />
             
+            {/* Fullscreen Recommendation Notification */}
+            {showFullscreenRecommendation && (
+                <div className="fullscreen-recommendation">
+                    <div className="recommendation-content">
+                        <div className="recommendation-icon">⤢</div>
+                        <div className="recommendation-text">
+                            <strong>Recommended:</strong> Click the fullscreen button for the best screen share viewing experience!
+                        </div>
+                        <button 
+                            className="recommendation-close"
+                            onClick={() => setShowFullscreenRecommendation(false)}
+                            title="Close notification"
+                        >
+                            ×
+                        </button>
+                    </div>
+                </div>
+            )}
+            
             <div className="dashboard-header">
                 <h1>Video xyz Dashboard</h1>
                 <div className="user-actions">
@@ -3211,19 +3277,18 @@ const DashboardPage = () => {
                     />
                 )}
                 
-                {/* Full-screen Toggle Button */}
-                <div className="fullscreen-toggle-container">
-                    <button 
-                        className={`fullscreen-toggle-btn ${isFullScreen ? 'exit-fullscreen' : 'enter-fullscreen'}`}
-                        onClick={toggleFullScreen}
-                        title={isFullScreen ? 'Exit Full Screen' : 'Enter Full Screen'}
-                    >
-                        {isFullScreen ? '⤓' : '⤢'}
-                    </button>
-                </div>
-                
                 {/* Right Panel - Fixed Size Dashboard Content */}
                 <div className="dashboard-content">
+                    {/* Full-screen Toggle Button - Positioned in corner */}
+                    <div className="fullscreen-toggle-container">
+                        <button 
+                            className={`fullscreen-toggle-btn ${isFullScreen ? 'exit-fullscreen' : 'enter-fullscreen'}`}
+                            onClick={toggleFullScreen}
+                            title={isFullScreen ? 'Exit Full Screen' : 'Enter Full Screen'}
+                        >
+                            {isFullScreen ? '⤓' : '⤢'}
+                        </button>
+                    </div>
                     {/* Log the expected image loading flow */}
                     {log('DEBUG', 'DashboardPage', 'EXPECTED IMAGE LOADING FLOW', {
                       step1: 'Image loads with natural dimensions (e.g., 2000x1500px)',

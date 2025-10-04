@@ -260,6 +260,84 @@ body.dashboard-active {
     background-color: rgba(0, 123, 255, 0.1);
 }
 
+/* Fullscreen Recommendation Notification */
+.fullscreen-recommendation {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10000;
+    background: linear-gradient(135deg, #007bff, #0056b3);
+    color: white;
+    padding: 0;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 123, 255, 0.3);
+    animation: slideDown 0.3s ease-out;
+    max-width: 90vw;
+    min-width: 300px;
+}
+
+.recommendation-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+}
+
+.recommendation-icon {
+    font-size: 1.5rem;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.recommendation-text {
+    flex: 1;
+    font-size: 0.9rem;
+    line-height: 1.4;
+}
+
+.recommendation-text strong {
+    color: #fff;
+}
+
+.recommendation-close {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    font-size: 1.2rem;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s;
+    flex-shrink: 0;
+}
+
+.recommendation-close:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
 /* Debug Popup */
 .debug-popup-overlay {
     position: fixed;
@@ -468,9 +546,9 @@ body.dashboard-active {
 
 /* Full-screen Toggle Button Styles */
 .fullscreen-toggle-container {
-    position: fixed;
-    top: 20px;
-    right: 20px;
+    position: absolute;
+    top: 10px;
+    right: 10px;
     z-index: 1000;
 }
 

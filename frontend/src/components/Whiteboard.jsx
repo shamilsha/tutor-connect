@@ -3394,36 +3394,6 @@ const Whiteboard = forwardRef(({
 
   return (
     <>
-      {/* Connection Status Indicator */}
-      {webRTCProvider && selectedPeer ? (
-        <div style={{
-          position: 'absolute',
-          top: '10px',
-          right: '10px',
-          background: '#4CAF50',
-          color: 'white',
-          padding: '5px 10px',
-          borderRadius: '4px',
-          fontSize: '12px',
-          zIndex: 1000
-        }}>
-          🟢 Connected
-        </div>
-      ) : (
-        <div style={{
-          position: 'absolute',
-          top: '10px',
-          right: '10px',
-          background: '#FF9800',
-          color: 'white',
-          padding: '5px 10px',
-          borderRadius: '4px',
-          fontSize: '12px',
-          zIndex: 1000
-        }}>
-          🟡 Local Only
-        </div>
-      )}
       
       {/* Whiteboard Container - Drawing Surface Only */}
       <div 
