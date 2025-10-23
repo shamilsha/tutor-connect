@@ -1,31 +1,28 @@
 import React, { useState, useEffect, useRef } from 'react';
 import '../styles/ChatPanel.css';
 
-const ChatPanel = ({ user, provider, peers, onSendMessage, receivedMessages = [] }) => {
+const ChatPanel = ({ user, provider, peers, onSendMessage, chatMessages = [] }) => {
     const [messages, setMessages] = useState([]);
     const [inputMessage, setInputMessage] = useState('');
     const messagesEndRef = useRef(null);
 
-    // Update messages when receivedMessages prop changes
+    // Update messages when chatMessages prop changes (from DashboardPage)
     useEffect(() => {
-        if (receivedMessages.length > 0) {
-            const lastMessage = receivedMessages[receivedMessages.length - 1];
-            setMessages(prev => [...prev, {
-                id: Date.now(),
-                sender: lastMessage.sender || 'Peer',
-                content: lastMessage.content,
-                timestamp: new Date(lastMessage.timestamp || Date.now()),
-                type: 'received'
-            }]);
+        console.log('ChatPanel: Received chatMessages prop', {
+            chatMessagesLength: chatMessages.length,
+            chatMessages: chatMessages
+        });
+        
+        if (chatMessages.length > 0) {
+            setMessages(chatMessages);
+            console.log('ChatPanel: Set messages from chatMessages prop', chatMessages);
+        } else {
+            setMessages([]);
+            console.log('ChatPanel: Cleared messages - no chatMessages');
         }
-    }, [receivedMessages]);
+    }, [chatMessages]);
 
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    };
-
-    useEffect(scrollToBottom, [messages]);
-
+    // Send message function
     const sendMessage = async () => {
         if (!inputMessage.trim() || !onSendMessage) return;
 
@@ -36,19 +33,21 @@ const ChatPanel = ({ user, provider, peers, onSendMessage, receivedMessages = []
             type: 'sent'
         };
 
-        // Add to local messages immediately
-        setMessages(prev => [...prev, { ...newMessage, id: Date.now() }]);
         setInputMessage('');
 
-        // Send to peer via WebRTC
+        // Send to peer via WebRTC (DashboardPage will handle adding to chatMessages)
         try {
             await onSendMessage(newMessage);
         } catch (error) {
             console.error('Failed to send message:', error);
-            // Remove the message if sending failed
-            setMessages(prev => prev.slice(0, -1));
         }
     };
+
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
+
+    useEffect(scrollToBottom, [messages]);
 
     return (
         <div className="chat-panel">

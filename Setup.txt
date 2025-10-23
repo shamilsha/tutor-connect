@@ -114,6 +114,15 @@ A: open command prompt
       cdnendpoint-axaja4h5fuesg7gj.z03.azurefd.net
       ex: https://<your-endpoint-hostname>/<your-image-file-name>.jpg
 
+Q: How to check Azure subscription
+A: az account show [ --output table]
+   az account list
+   az group list
+Q: azure auth token expire
+A: az logout
+   az login --tenant af43ca61-17e3-47f1-bf03-51f9f7bf62a4
+   
+
    
     
     

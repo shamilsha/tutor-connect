@@ -180,6 +180,47 @@ body.dashboard-active {
         width: 100vw; /* Use full viewport width on mobile */
         padding: 0.5rem 1rem; /* Reduce padding on mobile */
     }
+    
+    /* Ensure left panel is always visible on mobile but keep horizontal layout */
+    .left-panel {
+        width: 250px !important; /* Smaller width on mobile */
+        max-width: 250px !important;
+        min-width: 250px !important;
+    }
+    
+    /* Keep original horizontal layout on mobile - don't stack vertically */
+    .dashboard-layout {
+        flex-direction: row !important; /* Keep horizontal layout */
+        height: calc(100vh - 60px) !important; /* Original height */
+    }
+    
+    /* Make left panel smaller on mobile but keep horizontal layout */
+    .left-panel {
+        width: 250px !important; /* Smaller width on mobile */
+        max-width: 250px !important;
+        min-width: 250px !important;
+        max-height: 100vh !important;
+        overflow-y: auto !important;
+    }
+    
+    /* Ensure dashboard content takes remaining space */
+    .dashboard-content {
+        flex: 1 !important;
+        width: auto !important;
+        height: 100% !important;
+        overflow: auto !important;
+    }
+    
+    /* Ensure panel toggle button is visible and accessible */
+    .panel-toggle-btn {
+        display: block !important;
+        background: #007bff !important;
+        color: white !important;
+        padding: 8px 12px !important;
+        border-radius: 4px !important;
+        font-size: 14px !important;
+        z-index: 1000 !important;
+    }
 }
 
 .media-controls {

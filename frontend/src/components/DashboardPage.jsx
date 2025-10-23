@@ -10,6 +10,7 @@ import ConnectionStatusLight from './ConnectionStatusLight';
 import ScreenShareWindow from './ScreenShareWindow';
 import PDFNavigation from './PDFNavigation';
 import ContentSelector from './ContentSelector';
+import LeftPanelTabs from './LeftPanelTabs';
 import '../styles/DashboardPage.css';
 import { useCommunication } from '../context/CommunicationContext';
 import { WebSocketProvider } from '../services/WebSocketProvider';
@@ -427,6 +428,43 @@ const DashboardPage = () => {
     const [isResizing, setIsResizing] = useState(false);
     const [selectedContent, setSelectedContent] = useState(null);
     
+    // Mobile detection and panel visibility
+    const [isMobile, setIsMobile] = useState(false);
+    
+    // Check if device is mobile on mount
+    useEffect(() => {
+        const checkMobile = () => {
+            const mobile = window.innerWidth <= 768;
+            setIsMobile(mobile);
+            // On mobile, always keep panel visible
+            if (mobile) {
+                setIsLeftPanelVisible(true);
+            }
+        };
+        
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
+
+    // Ensure left panel stays visible on mobile
+    useEffect(() => {
+        if (isMobile) {
+            setIsLeftPanelVisible(true);
+        }
+    }, [isMobile]);
+    
+    // Tab system state - NEW: Tab management for left panel
+    const [activeLeftPanelTab, setActiveLeftPanelTab] = useState('content'); // 'content' or 'chat'
+    const [hasUnreadMessages, setHasUnreadMessages] = useState(false); // Simple boolean for unread indicator
+    const [lastChatTabTime, setLastChatTabTime] = useState(null); // Track when user was last on chat tab
+    const [chatMessages, setChatMessages] = useState([]); // In-memory chat messages array
+    
+    // Ensure unread indicator starts as false
+    useEffect(() => {
+        setHasUnreadMessages(false);
+    }, []);
+    
     // Whiteboard toolbar state - GLOBAL STATE APPROACH: Not needed anymore
     // const [currentTool, setCurrentTool] = useState('pen');
     // const [currentColor, setCurrentColor] = useState('#000000');
@@ -607,8 +645,7 @@ const DashboardPage = () => {
         setShowPdfNavigation(totalPages > 0);
     }, []);
     
-    // Chat state
-    const [receivedMessages, setReceivedMessages] = useState([]);
+    // Chat state - using chatMessages as single source of truth
 
     // REMOVED: State change tracking useEffect that was causing Whiteboard remounts
     // This useEffect was running on every state change and causing unnecessary remounts
@@ -1041,7 +1078,7 @@ const DashboardPage = () => {
         setIsVideoEnabled(false);
         setIsScreenSharing(false);
         setIsWhiteboardActive(false);
-        setReceivedMessages([]);
+        // No need to clear receivedMessages - using chatMessages as single source
         
         // Clear peer selection and disconnected peer tracking
         clearSelectedPeer('peer_logout_cleanup');
@@ -1786,11 +1823,26 @@ const DashboardPage = () => {
             
             try {
                 const messageData = event.data;
-                setReceivedMessages(prev => [...prev, {
+                
+                // Add received message directly to chatMessages array
+                const receivedMessage = {
+                    id: Date.now() + Math.random(),
                     sender: messageData.sender || 'Peer',
                     content: messageData.content,
-                    timestamp: messageData.timestamp || new Date().toISOString()
-                }]);
+                    timestamp: new Date(messageData.timestamp || Date.now()),
+                    type: 'received'
+                };
+                
+                setChatMessages(prev => [...prev, receivedMessage]);
+                
+                // Show red dot if chat panel is not active
+                if (activeLeftPanelTab !== 'chat') {
+                    log('INFO', 'DashboardPage', 'New message received while chat panel not active', {
+                        activeLeftPanelTab,
+                        currentHasUnread: hasUnreadMessages
+                    });
+                    setHasUnreadMessages(true);
+                }
             } catch (error) {
                 log('ERROR', 'DashboardPage', 'Error processing received message', error);
             }
@@ -2252,6 +2304,11 @@ const DashboardPage = () => {
             log('ERROR', 'DashboardPage', 'Error during logout', error);
             // Still navigate to login even if reset fails
             localStorage.removeItem('user');
+            localStorage.removeItem('chatMessages'); // Clear chat messages on logout
+            localStorage.removeItem('chatHistory');
+            localStorage.removeItem('messages');
+            localStorage.removeItem('chatData');
+            localStorage.removeItem('chatSessionActive'); // Clear session marker
             navigate('/');
         }
     };
@@ -2259,15 +2316,16 @@ const DashboardPage = () => {
     const handleSendMessage = useCallback(async (message) => {
         if (!provider || !selectedPeer) return;
         
-        // Debug: Log what message is being sent
-        log('DEBUG', 'DashboardPage', 'Sending Message Debug');
-        log('DEBUG', 'DashboardPage', 'Message object', message);
-        log('DEBUG', 'DashboardPage', 'Message type', { type: typeof message });
-        log('DEBUG', 'DashboardPage', 'Message keys', { keys: message ? Object.keys(message) : 'no message' });
-        log('DEBUG', 'DashboardPage', 'Message content', message);
-        log('DEBUG', 'DashboardPage', 'Selected peer', { selectedPeer });
-        log('DEBUG', 'DashboardPage', 'Provider exists', { providerExists: !!provider });
-        // End debug group
+        // Add sent message to chat messages array with current timestamp
+        const sentMessage = {
+            id: Date.now() + Math.random(),
+            sender: userRef.current?.name || userEmail,
+            content: message.content,
+            timestamp: new Date(), // Use current timestamp for proper ordering
+            type: 'sent'
+        };
+        
+        setChatMessages(prev => [...prev, sentMessage]);
         
         try {
             await provider.sendMessage(selectedPeer, message);
@@ -2275,7 +2333,62 @@ const DashboardPage = () => {
             log('ERROR', 'DashboardPage', 'Failed to send message', err);
             setError('Failed to send message');
         }
-    }, [provider, selectedPeer]);
+    }, [provider, selectedPeer, userEmail]);
+
+    // Track unread messages - show icon when NEW messages arrive and chat panel is not active
+    useEffect(() => {
+        if (activeLeftPanelTab === 'chat') {
+            // If we're on chat tab, clear the unread indicator and update last chat tab time
+            log('DEBUG', 'DashboardPage', 'Clearing unread indicator on chat tab', {
+                activeLeftPanelTab,
+                hasUnreadMessages
+            });
+            setHasUnreadMessages(false);
+            setLastChatTabTime(Date.now());
+        } else {
+            // If we moved away from chat tab, always clear the red dot
+            log('INFO', 'DashboardPage', 'Moved away from chat tab - clearing red dot', {
+                activeLeftPanelTab,
+                hasUnreadMessages
+            });
+            setHasUnreadMessages(false);
+        }
+    }, [activeLeftPanelTab]);
+
+    // No need for receivedMessages useEffect - messages are added directly to chatMessages in WebRTC handler
+
+    // Debug: Log unread indicator changes
+    useEffect(() => {
+        log('DEBUG', 'DashboardPage', 'Unread indicator changed', {
+            hasUnreadMessages,
+            activeLeftPanelTab
+        });
+    }, [hasUnreadMessages, activeLeftPanelTab]);
+
+    // Debug: Log chat messages array changes
+    useEffect(() => {
+        log('INFO', 'DashboardPage', 'Chat messages array updated', {
+            chatMessagesLength: chatMessages.length,
+            activeLeftPanelTab
+        });
+    }, [chatMessages, activeLeftPanelTab]);
+
+    // Handle tab change - unread indicator will be managed by useEffect
+    const handleTabChange = (tab) => {
+        log('DEBUG', 'DashboardPage', 'Tab change triggered', {
+            fromTab: activeLeftPanelTab,
+            toTab: tab,
+            hasUnreadMessages
+        });
+        
+        setActiveLeftPanelTab(tab);
+        // The useEffect will handle the unread indicator based on the new tab
+        
+        log('DEBUG', 'DashboardPage', 'Tab change completed', {
+            newTab: tab,
+            hasUnreadMessages
+        });
+    };
 
     // Media toggle handlers for ConnectionPanel
     const handleToggleAudio = async () => {
@@ -3084,7 +3197,7 @@ const DashboardPage = () => {
         // setPeerList([]); // REMOVED - peers should remain available
         
         // Clear received messages
-        setReceivedMessages([]);
+        // No need to clear receivedMessages - using chatMessages as single source
         
         // Clear message handler
         if (messageHandlerRef.current) {
@@ -3101,7 +3214,7 @@ const DashboardPage = () => {
         // Reset all UI-related states to initial values
         setShowChat(false);
         setError(null);
-        setReceivedMessages([]);
+        // No need to clear receivedMessages - using chatMessages as single source
         
         // Reset media states to initial values
         setIsAudioEnabled(false);
@@ -3157,7 +3270,7 @@ const DashboardPage = () => {
       // currentColor,
       canUndo,
       canRedo,
-      receivedMessages: receivedMessages.length
+      chatMessages: chatMessages.length
     });
 
     // Calculate VideoChat key
@@ -3219,14 +3332,16 @@ const DashboardPage = () => {
                 <div className="user-actions">
                     <ConnectionStatusLight status={getConnectionStatus()} />
                     <span className="user-email">{userEmail}</span>
-                    {/* Left Panel Toggle */}
-                    <button 
-                        className="panel-toggle-btn" 
-                        onClick={toggleLeftPanel}
-                        title={isLeftPanelVisible ? "Hide Content Panel" : "Show Content Panel"}
-                    >
-                        {isLeftPanelVisible ? '◀' : '▶'}
-                    </button>
+                    {/* Left Panel Toggle - Hidden on mobile since panel is always visible */}
+                    {!isMobile && (
+                        <button 
+                            className="panel-toggle-btn" 
+                            onClick={toggleLeftPanel}
+                            title={isLeftPanelVisible ? "Hide Content Panel" : "Show Content Panel"}
+                        >
+                            {isLeftPanelVisible ? '◀' : '▶'}
+                        </button>
+                    )}
                     {/* Debug Icon */}
                     <button 
                         className="debug-icon" 
@@ -3254,7 +3369,6 @@ const DashboardPage = () => {
                 loginStatus={isWebSocketConnected ? 'connected' : 'failed'}
                 showChat={showChat}
                 onSendMessage={handleSendMessage}
-                receivedMessages={receivedMessages}
                 error={error}
                 user={userRef.current}
                 provider={provider}
@@ -3300,18 +3414,45 @@ const DashboardPage = () => {
             
             {/* Main Dashboard Layout with Resizable Left Panel */}
             <div className="dashboard-layout">
-                {/* Left Panel - Content Selector */}
-                {isLeftPanelVisible && (
+                {/* Left Panel - Content Selector with Tabs */}
+                {(isLeftPanelVisible || isMobile) && (
                     <div 
                         className="left-panel"
                         style={{ width: `${leftPanelWidth}px` }}
                     >
-                        <ContentSelector 
-                            onContentSelect={setSelectedContent}
-                            selectedContent={selectedContent}
-                            onPdfTopicSelect={handlePdfTopicSelect}
-                            onImageTopicSelect={handleImageTopicSelect}
+                        {/* Debug: Log panel visibility */}
+                        {log('DEBUG', 'DashboardPage', 'Left panel rendering', {
+                            isLeftPanelVisible,
+                            isMobile,
+                            activeLeftPanelTab,
+                            hasUnreadMessages
+                        })}
+                        
+                        {/* Tab Navigation */}
+                        <LeftPanelTabs 
+                            activeTab={activeLeftPanelTab}
+                            onTabChange={handleTabChange}
+                            hasUnreadMessages={hasUnreadMessages}
                         />
+                        
+                        {/* Tab Content */}
+                        <div style={{ display: activeLeftPanelTab === 'content' ? 'block' : 'none' }}>
+                            <ContentSelector 
+                                onContentSelect={setSelectedContent}
+                                selectedContent={selectedContent}
+                                onPdfTopicSelect={handlePdfTopicSelect}
+                                onImageTopicSelect={handleImageTopicSelect}
+                            />
+                        </div>
+                        
+                        <div style={{ display: activeLeftPanelTab === 'chat' ? 'block' : 'none' }}>
+                            <ChatPanel
+                                user={{ id: userRef.current?.id, name: userRef.current?.name || userEmail }}
+                                provider={provider}
+                                onSendMessage={handleSendMessage}
+                                chatMessages={chatMessages}
+                            />
+                        </div>
                     </div>
                 )}
                 
@@ -3705,15 +3846,7 @@ const DashboardPage = () => {
                 </div>
             )}
             
-            {/* Chat Panel - Last element under dashboard-container */}
-            {showChat && (
-                <ChatPanel
-                    user={{ id: userRef.current?.id, name: userRef.current?.name || userEmail }}
-                    provider={provider}
-                    onSendMessage={handleSendMessage}
-                    receivedMessages={receivedMessages}
-                />
-            )}
+            {/* Chat Panel - Now integrated into left panel tabs */}
             
         </div>
     );

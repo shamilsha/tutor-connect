@@ -1,12 +1,12 @@
 .chat-panel {
     display: flex;
     flex-direction: column;
-    height: 200px; /* Fixed height for chat panel */
-    background: #fffacd; /* Light yellow background for chat panel */
-    border: 2px solid #FF6347; /* Red border for visibility */
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    margin: 10px 0 0 0; /* Small top margin for separation from whiteboard */
+    height: calc(100vh - 120px); /* Full height minus header space */
+    background: #fff; /* Clean white background */
+    border: none; /* Remove border for cleaner look in left panel */
+    border-radius: 0; /* Remove border radius for seamless integration */
+    box-shadow: none; /* Remove shadow for cleaner look */
+    margin: 0; /* No margin when in left panel */
     z-index: 1; /* Below whiteboard */
     position: relative; /* Normal document flow */
 }
@@ -14,8 +14,8 @@
 /* Mobile responsive adjustments */
 @media (max-width: 768px) {
     .chat-panel {
-        height: 200px; /* Keep consistent height on mobile */
-        margin: 10px 0 0 0; /* Consistent margin on mobile */
+        height: calc(100vh - 100px); /* Responsive height on mobile */
+        margin: 0; /* No margin when in left panel */
     }
 }
 
