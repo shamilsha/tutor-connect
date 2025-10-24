@@ -418,7 +418,7 @@ const WhiteboardToolbar = ({
         <input
           id="file-upload"
           type="file"
-          accept=".pdf"
+          accept=".pdf,application/pdf,application/x-pdf"
           onChange={handleFileUpload}
           style={{ display: 'none' }}
         />

@@ -2914,7 +2914,6 @@ const DashboardPage = () => {
         
         // STEP 2: Set new PDF state
         log('INFO', 'DashboardPage', '📝 STEP 2: Setting new PDF state');
-        setBackgroundType('pdf');
         setPdfTotalPages(0); // Will be set by PDFRenderer
         
         // STEP 3: Set background in Whiteboard

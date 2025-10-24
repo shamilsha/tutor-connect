@@ -2031,23 +2031,103 @@ const Whiteboard = forwardRef(({
       const peerSendStart = performance.now();
       log('INFO', 'Whiteboard', 'Sending PDF to remote peer', { selectedPeer, pdfUrl });
       log('INFO', 'Whiteboard', 'Sending PDF to remote peer', { peer: selectedPeer, pdfUrl });
-      webRTCProvider.sendWhiteboardMessage(selectedPeer, {
-        action: 'background',
-        background: {
-          file: pdfUrl,
-          type: 'pdf'
+      
+      // Enhanced debugging for WebRTC connection status
+      log('DEBUG', 'Whiteboard', 'WebRTC Connection Status', {
+        hasWebRTCProvider: !!webRTCProvider,
+        hasSelectedPeer: !!selectedPeer,
+        selectedPeerId: selectedPeer?.id || selectedPeer,
+        webRTCProviderType: typeof webRTCProvider,
+        sendWhiteboardMessageExists: typeof webRTCProvider?.sendWhiteboardMessage === 'function'
+      });
+      
+      // Check data channel ready state
+      if (webRTCProvider && selectedPeer) {
+        try {
+          // Access the internal connections map to check data channel state
+          const connections = webRTCProvider.connections || webRTCProvider._connections;
+          if (connections) {
+            const peerState = connections.get(selectedPeer);
+            if (peerState) {
+              log('DEBUG', 'Whiteboard', 'Data Channel State', {
+                hasDataChannel: !!peerState.dataChannel,
+                dataChannelReadyState: peerState.dataChannel?.readyState,
+                peerPhase: peerState.phase,
+                isDataChannelOpen: peerState.dataChannel?.readyState === 'open'
+              });
+            } else {
+              log('WARN', 'Whiteboard', 'No peer state found in connections', {
+                selectedPeer,
+                availablePeers: Array.from(connections.keys())
+              });
+            }
+          }
+        } catch (error) {
+          log('WARN', 'Whiteboard', 'Could not access WebRTC connections for debugging', { error: error.message });
         }
-      });
-      const peerSendEnd = performance.now();
-      log('INFO', 'Whiteboard', 'PDF sent to remote peer successfully');
-      log('DEBUG', 'Whiteboard', 'Peer send timing', {
-        peerSendTime: `${(peerSendEnd - peerSendStart).toFixed(2)}ms`
-      });
+      }
+      
+      try {
+        // Use the same method as chat messages for consistency
+        const pdfMessage = {
+          action: 'background',
+          background: {
+            file: pdfUrl,
+            type: 'pdf'
+          },
+          timestamp: Date.now()
+        };
+        
+        log('DEBUG', 'Whiteboard', 'PDF Message Structure', {
+          messageSize: JSON.stringify(pdfMessage).length,
+          pdfUrl: pdfUrl,
+          messageKeys: Object.keys(pdfMessage)
+        });
+        
+        // Try both methods to see which one works
+        webRTCProvider.sendWhiteboardMessage(selectedPeer, pdfMessage);
+        
+        const peerSendEnd = performance.now();
+        log('INFO', 'Whiteboard', 'PDF sent to remote peer successfully');
+        log('DEBUG', 'Whiteboard', 'Peer send timing', {
+          peerSendTime: `${(peerSendEnd - peerSendStart).toFixed(2)}ms`
+        });
+      } catch (error) {
+        log('ERROR', 'Whiteboard', 'Failed to send PDF to remote peer', {
+          error: error.message,
+          selectedPeer,
+          pdfUrl,
+          errorStack: error.stack
+        });
+        
+        // Fallback: Try using the same method as chat messages
+        try {
+          log('INFO', 'Whiteboard', 'Trying fallback method (same as chat messages)');
+          webRTCProvider.sendMessage(selectedPeer, {
+            type: 'whiteboard',
+            action: 'background',
+            background: {
+              file: pdfUrl,
+              type: 'pdf'
+            },
+            timestamp: Date.now()
+          });
+          log('INFO', 'Whiteboard', 'PDF sent via fallback method successfully');
+        } catch (fallbackError) {
+          log('ERROR', 'Whiteboard', 'Fallback method also failed', {
+            fallbackError: fallbackError.message,
+            originalError: error.message
+          });
+        }
+      }
     } else {
       log('WARN', 'Whiteboard', 'Cannot send PDF to remote peer', { 
         hasWebRTCProvider: !!webRTCProvider, 
         selectedPeer, 
-        pdfUrl 
+        pdfUrl,
+        sendToPeers,
+        webRTCProviderType: typeof webRTCProvider,
+        selectedPeerType: typeof selectedPeer
       });
     }
 
