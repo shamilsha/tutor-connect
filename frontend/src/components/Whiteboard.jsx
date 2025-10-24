@@ -3450,6 +3450,7 @@ const Whiteboard = forwardRef(({
               onLoadComplete={handlePDFLoadComplete}
               containerWidth={1200}
               isMobile={isMobile}
+              scale={1}
             />
             ) : (
               <div style={{ position: 'relative', width: '100%', height: '100%' }}>

@@ -121,8 +121,9 @@ A: az account show [ --output table]
 Q: azure auth token expire
 A: az logout
    az login --tenant af43ca61-17e3-47f1-bf03-51f9f7bf62a4
-   
 
+Q: Only show   tracked file
+A: git status --porcelain | Where-Object { $_ -notmatch "^\?\?" }
    
     
     

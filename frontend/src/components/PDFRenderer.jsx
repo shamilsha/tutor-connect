@@ -25,26 +25,27 @@ const PDFRenderer = ({
   onDimensionsChange,
   onLoadComplete,
   containerWidth = 1200,
-  isMobile = false
+  isMobile = false,
+  scale = 1
 }) => {
   const [pdfPages, setPdfPages] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
   const [containerDimensions, setContainerDimensions] = useState({ width: 0, height: 0 });
   const [dimensionsReady, setDimensionsReady] = useState(false);
+  const [pageDimensions, setPageDimensions] = useState({ pageWidth: 0, pageHeight: 0 });
   const pdfPageDimensionsRef = useRef({ pageWidth: 0, pageHeight: 0 });
   const pageRefs = useRef([]);
 
-  const calculatePageDimensions = useCallback((originalWidth, originalHeight) => {
-    // Use FIXED scale of 1 for consistency across all peers
-    const FIXED_SCALE = 1;
-    const pageWidth = originalWidth * FIXED_SCALE;
-    const pageHeight = originalHeight * FIXED_SCALE;
+  const calculatePageDimensions = useCallback((originalWidth, originalHeight, scale = 1) => {
+    // Use configurable scale (default 1) for consistency across all peers
+    const pageWidth = originalWidth * scale;
+    const pageHeight = originalHeight * scale;
     
-    log('INFO', 'PDFRenderer', '📐 FIXED PDF dimensions calculated', {
+    log('INFO', 'PDFRenderer', '📐 PDF dimensions calculated', {
       originalWidth,
       originalHeight,
-      fixedScale: FIXED_SCALE,
+      scale,
       pageWidth,
       pageHeight
     });
@@ -66,7 +67,7 @@ const PDFRenderer = ({
     setIsLoading(false);
   }, [pdfUrl]);
 
-  const handlePageLoadSuccess = useCallback(({ pageNumber, originalWidth, originalHeight, scale, width, height }) => {
+  const handlePageLoadSuccess = useCallback(({ pageNumber, originalWidth, originalHeight, scale = 1, width, height }) => {
     log('INFO', 'PDFRenderer', `📄 Page ${pageNumber} loaded`, { 
       originalWidth, 
       originalHeight, 
@@ -75,28 +76,30 @@ const PDFRenderer = ({
       height 
     });
     
-    // CRITICAL: Don't set any dimensions during loading to prevent Whiteboard remounts
-    // Dimensions will be set only after ALL pages are loaded
-    if (pageNumber === 1 && pdfPageDimensionsRef.current.pageWidth === 0) {
-      const { pageWidth, pageHeight } = calculatePageDimensions(originalWidth, originalHeight);
+    // Set page dimensions immediately on first page load to prevent double rendering
+    if (pageNumber === 1 && pageDimensions.pageWidth === 0) {
+      const { pageWidth, pageHeight } = calculatePageDimensions(originalWidth, originalHeight, scale);
+      
+      // Set page dimensions immediately to prevent fallback values
+      setPageDimensions({ pageWidth, pageHeight });
       pdfPageDimensionsRef.current = { pageWidth, pageHeight };
       
       // Mark dimensions as ready for the useEffect to trigger
       setDimensionsReady(true);
       
-      // DON'T set dimensions yet - wait for all pages to load
-      log('INFO', 'PDFRenderer', '📐 PDF dimensions calculated but NOT set to prevent remounts', { 
+      log('INFO', 'PDFRenderer', '📐 PDF dimensions set immediately to prevent double rendering', { 
         pageWidth, 
         pageHeight, 
+        scale,
         pdfPages,
-        note: 'Dimensions will be set after all pages load'
+        note: 'Using actual dimensions with scale instead of fallback values'
       });
     } else if (pageNumber === 1) {
       log('DEBUG', 'PDFRenderer', '📄 Page 1 already processed - skipping dimension update');
     } else {
       log('DEBUG', 'PDFRenderer', `📄 Page ${pageNumber} rendered (no dimension update)`);
     }
-  }, [calculatePageDimensions, onDimensionsChange, onLoadComplete, pdfPages]);
+  }, [calculatePageDimensions, onDimensionsChange, onLoadComplete, pdfPages, pageDimensions.pageWidth]);
 
   // Set dimensions only after all pages are loaded to prevent Whiteboard remounts
   useEffect(() => {
@@ -137,6 +140,7 @@ useEffect(() => {
     setLoadError(null);
     setPdfPages(0);
     setContainerDimensions({ width: 0, height: 0 });
+    setPageDimensions({ pageWidth: 0, pageHeight: 0 });
     
     // Clear all refs
     pdfPageDimensionsRef.current = { pageWidth: 0, pageHeight: 0 };
@@ -217,6 +221,7 @@ useEffect(() => {
       setPdfPages(0);
       setContainerDimensions({ width: 0, height: 0 });
       setDimensionsReady(false);
+      setPageDimensions({ pageWidth: 0, pageHeight: 0 });
       pdfPageDimensionsRef.current = { pageWidth: 0, pageHeight: 0 };
       pageRefs.current = [];
       log('INFO', 'PDFRenderer', '🔄 Resetting PDFRenderer state for new URL', { pdfUrl: pdfUrl.substring(0, 50) + '...' });
@@ -277,8 +282,8 @@ useEffect(() => {
               className="pdf-page-container"
               style={{
                 marginBottom: index < pdfPages - 1 ? '6px' : '0px',
-                width: pdfPageDimensionsRef.current.pageWidth > 0 ? `${pdfPageDimensionsRef.current.pageWidth}px` : 'auto',
-                height: pdfPageDimensionsRef.current.pageHeight > 0 ? `${pdfPageDimensionsRef.current.pageHeight}px` : 'auto',
+                width: pageDimensions.pageWidth > 0 ? `${pageDimensions.pageWidth}px` : (pdfPageDimensionsRef.current.pageWidth > 0 ? `${pdfPageDimensionsRef.current.pageWidth}px` : 'auto'),
+                height: pageDimensions.pageHeight > 0 ? `${pageDimensions.pageHeight}px` : (pdfPageDimensionsRef.current.pageHeight > 0 ? `${pdfPageDimensionsRef.current.pageHeight}px` : 'auto'),
                 boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)', // Add subtle shadow for better visual separation
                 borderRadius: '4px', // Add slight rounding for modern look
                 overflow: 'hidden', // Ensure content doesn't overflow rounded corners
@@ -286,7 +291,9 @@ useEffect(() => {
             >
               <Page
                 pageNumber={index + 1}
-                width={pdfPageDimensionsRef.current?.pageWidth || 960}
+                scale={scale}
+                width={pageDimensions.pageWidth || pdfPageDimensionsRef.current?.pageWidth || 612}
+                height={pageDimensions.pageHeight || pdfPageDimensionsRef.current?.pageHeight || 792}
                 renderTextLayer={false}
                 renderAnnotationLayer={false}
                 onLoadSuccess={handlePageLoadSuccess}
