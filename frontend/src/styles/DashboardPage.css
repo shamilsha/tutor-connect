@@ -285,6 +285,28 @@ body.dashboard-active {
     font-family: 'Courier New', monospace;
 }
 
+/* Sign Out Button */
+.signout-button {
+    background-color: #dc3545;
+    color: white;
+    border: none;
+    font-size: 0.9rem;
+    cursor: pointer;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    transition: background-color 0.3s;
+    margin-left: 0.5rem;
+    font-weight: 500;
+}
+
+.signout-button:hover {
+    background-color: #c82333;
+}
+
+.signout-button:active {
+    background-color: #bd2130;
+}
+
 /* Debug Icon */
 .debug-icon {
     background: none;

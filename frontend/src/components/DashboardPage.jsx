@@ -436,23 +436,12 @@ const DashboardPage = () => {
         const checkMobile = () => {
             const mobile = window.innerWidth <= 768;
             setIsMobile(mobile);
-            // On mobile, always keep panel visible
-            if (mobile) {
-                setIsLeftPanelVisible(true);
-            }
         };
         
         checkMobile();
         window.addEventListener('resize', checkMobile);
         return () => window.removeEventListener('resize', checkMobile);
     }, []);
-
-    // Ensure left panel stays visible on mobile
-    useEffect(() => {
-        if (isMobile) {
-            setIsLeftPanelVisible(true);
-        }
-    }, [isMobile]);
     
     // Tab system state - NEW: Tab management for left panel
     const [activeLeftPanelTab, setActiveLeftPanelTab] = useState('content'); // 'content' or 'chat'
@@ -3331,16 +3320,14 @@ const DashboardPage = () => {
                 <div className="user-actions">
                     <ConnectionStatusLight status={getConnectionStatus()} />
                     <span className="user-email">{userEmail}</span>
-                    {/* Left Panel Toggle - Hidden on mobile since panel is always visible */}
-                    {!isMobile && (
-                        <button 
-                            className="panel-toggle-btn" 
-                            onClick={toggleLeftPanel}
-                            title={isLeftPanelVisible ? "Hide Content Panel" : "Show Content Panel"}
-                        >
-                            {isLeftPanelVisible ? '◀' : '▶'}
-                        </button>
-                    )}
+                    {/* Sign Out Button */}
+                    <button 
+                        className="signout-button" 
+                        onClick={handleLogout}
+                        title="Sign Out"
+                    >
+                        Sign Out
+                    </button>
                     {/* Debug Icon */}
                     <button 
                         className="debug-icon" 
@@ -3349,9 +3336,6 @@ const DashboardPage = () => {
                     >
                         🔍
                     </button>
-                </div>
-                <div className="build-info">
-                    <span className="build-version">{getBuildDisplay()}</span>
                 </div>
             </div>
             {/* Video Chat - Movable, outside dashboard-content */}
@@ -3396,6 +3380,9 @@ const DashboardPage = () => {
                             timestamp: Date.now()
                         });
                     }}
+                    isLeftPanelVisible={isLeftPanelVisible}
+                    toggleLeftPanel={toggleLeftPanel}
+                    isMobile={isMobile}
                 />
             )}
             
@@ -3414,7 +3401,7 @@ const DashboardPage = () => {
             {/* Main Dashboard Layout with Resizable Left Panel */}
             <div className="dashboard-layout">
                 {/* Left Panel - Content Selector with Tabs */}
-                {(isLeftPanelVisible || isMobile) && (
+                {isLeftPanelVisible && (
                     <div 
                         className="left-panel"
                         style={{ width: `${leftPanelWidth}px` }}

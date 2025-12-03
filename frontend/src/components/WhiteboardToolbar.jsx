@@ -32,7 +32,11 @@ const WhiteboardToolbar = ({
   canRedo,
   // Mobile toggle props
   isMobileDrawingMode,
-  onMobileModeToggle
+  onMobileModeToggle,
+  // Panel toggle props
+  isLeftPanelVisible,
+  toggleLeftPanel,
+  isMobile
 }) => {
   const [triangleType, setTriangleType] = useState('equilateral');
   
@@ -238,6 +242,17 @@ const WhiteboardToolbar = ({
         >
           {isMobileDrawingMode ? '✏️ Drawing' : '📜 Scroll'}
         </button>
+        {/* Left Panel Toggle - Show on both desktop and mobile */}
+        {toggleLeftPanel && (
+          <button
+            className="panel-toggle-btn"
+            onClick={toggleLeftPanel}
+            title={isLeftPanelVisible ? "Hide Content Panel" : "Show Content Panel"}
+            style={{ marginLeft: '0.5rem' }}
+          >
+            {isLeftPanelVisible ? '◀' : '▶'}
+          </button>
+        )}
       </div>
       
       {/* Main Toolbar */}
