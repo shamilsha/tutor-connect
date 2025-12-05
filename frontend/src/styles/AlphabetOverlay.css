@@ -1,0 +1,162 @@
+/* Generic Alphabet Overlay Styles */
+/* This CSS can be used for any alphabet (Arabic, English, etc.) */
+
+.alphabet-overlay {
+  position: relative;
+  width: 1200px; /* Default, can be overridden via props */
+  height: 800px; /* Default, can be overridden via props */
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: Arial, Tahoma, "Segoe UI", sans-serif;
+  background: transparent;
+  overflow: hidden;
+}
+
+.alphabet-grid {
+  display: grid;
+  gap: 15px;
+  padding: 20px;
+  width: 100%;
+  box-sizing: border-box;
+  /* grid-template-columns will be set inline based on gridColumns prop */
+}
+
+.alphabet-letter-card {
+  background: white;
+  border: 2px solid #007bff;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  box-sizing: border-box;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  font-family: Arial, Tahoma, "Segoe UI", sans-serif;
+  font-feature-settings: "kern" 1;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.alphabet-letter-card.clickable {
+  pointer-events: auto !important;
+  position: relative;
+  z-index: 3 !important;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(0, 123, 255, 0.3);
+  -webkit-touch-callout: none;
+}
+
+.alphabet-letter-card.clickable:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  border-color: #0056b3;
+}
+
+.alphabet-letter-card.clickable:active {
+  transform: scale(0.98);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.alphabet-letter-card.drawing-mode {
+  pointer-events: none !important;
+  z-index: 0;
+}
+
+.alphabet-letter-main {
+  font-size: 64px;
+  font-weight: bold;
+  margin-bottom: 8px;
+  font-family: Arial, Tahoma, "Segoe UI", sans-serif;
+  font-feature-settings: "kern" 1;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.alphabet-letter-name {
+  font-size: 14px;
+  margin-bottom: 4px;
+  color: #333;
+  font-weight: 500;
+}
+
+.alphabet-letter-pronunciation {
+  font-size: 12px;
+  color: #666;
+  font-style: italic;
+}
+
+.alphabet-letter-forms {
+  font-size: 11px;
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  color: #555;
+}
+
+.alphabet-instructions {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px;
+  background: rgba(0, 123, 255, 0.1);
+  border-radius: 4px;
+  font-size: 14px;
+  color: #333;
+  text-align: center;
+  pointer-events: none;
+}
+
+.alphabet-control-buttons {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 10;
+  display: flex;
+  gap: 4px;
+  pointer-events: auto;
+}
+
+.alphabet-shuffle-btn,
+.alphabet-toggle-mode-btn {
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 0;
+  cursor: pointer;
+  font-size: 18px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: background-color 0.2s ease, transform 0.1s ease;
+  pointer-events: auto;
+}
+
+.alphabet-shuffle-btn:hover,
+.alphabet-toggle-mode-btn:hover {
+  background: #0056b3;
+  transform: scale(1.1);
+}
+
+.alphabet-shuffle-btn:active,
+.alphabet-toggle-mode-btn:active {
+  transform: scale(0.95);
+}
+
+/* Responsive adjustments if needed */
+@media (max-width: 768px) {
+  .alphabet-overlay {
+    /* Mobile-specific adjustments can be added here if needed */
+  }
+}
+

@@ -40,7 +40,7 @@ const Whiteboard = forwardRef(({
   onBackgroundCleared = null,
   onRemoteStateTransition = null,
   onImageChange = null, 
-  selectedContent = null,
+  selectedContent = null, 
   onContentSelect = null,
   onPdfChange = null,
   onPDFDimensionsChange = null,
@@ -1049,8 +1049,8 @@ const Whiteboard = forwardRef(({
             
             // Only set background file/type if not already handled above
             if (data.background.type !== 'arabic-alphabet') {
-              setBackgroundFile(data.background.file);
-              setBackgroundType(data.background.type);
+            setBackgroundFile(data.background.file);
+            setBackgroundType(data.background.type);
             }
             
             log('INFO', 'Whiteboard', '✅ UPDATED background type from remote', {
@@ -2916,7 +2916,7 @@ const Whiteboard = forwardRef(({
         },
         note: 'Fixed dimensions (1200x800) for coordinate synchronization between peers'
       });
-    } else {
+        } else {
       // For PDFs and screen share, use fixed dimensions
       containerStyle.width = `${finalWidth}px`;
       containerStyle.height = `${finalHeight}px`;
@@ -3764,12 +3764,12 @@ const Whiteboard = forwardRef(({
               width: backgroundType === 'image' 
                 ? `${backgroundDimensions.width > 0 ? backgroundDimensions.width : 1200}px` 
                 : backgroundType === 'arabic-alphabet'
-                ? `${backgroundDimensions.width > 0 ? backgroundDimensions.width : 1200}px`
+                ? `${backgroundDimensions.width > 0 ? backgroundDimensions.width : 1200}px` 
                 : '100%',
               height: backgroundType === 'image' 
                 ? `${backgroundDimensions.height > 0 ? backgroundDimensions.height : 800}px` 
                 : backgroundType === 'arabic-alphabet'
-                ? `${backgroundDimensions.height > 0 ? backgroundDimensions.height : 800}px`
+                ? `${backgroundDimensions.height > 0 ? backgroundDimensions.height : 800}px` 
                 : '100%',
               zIndex: 1,
               backgroundColor: backgroundType === 'arabic-alphabet' ? 'rgba(255, 255, 255, 0.85)' : '#f5f5f5',
@@ -4019,6 +4019,9 @@ const Whiteboard = forwardRef(({
               // Access the native event object via the 'evt' property
               const nativeEvent = e.evt;
               
+              // Check if we're in drawing mode for Arabic alphabet (not click mode)
+              const isDrawingMode = backgroundType === 'arabic-alphabet' && !isArabicAlphabetClickMode;
+              
               // Debug the actual touch event structure only when drawing is active
               if (isMobileDrawingMode && (isDrawing || drawingTool !== 'select')) {
                 log('INFO', 'Whiteboard', '👆 TOUCH START DEBUG (Drawing Active)', {
@@ -4030,22 +4033,22 @@ const Whiteboard = forwardRef(({
                   isMobileDrawingMode,
                   isDrawing,
                   drawingTool,
+                  isDrawingMode,
                   timestamp: Date.now()
                 });
               }
 
-              if (isMobileDrawingMode) {
-                // Prevent scrolling only in drawing mode - use more aggressive prevention
-                if (e.preventDefault) e.preventDefault();
-                if (e.stopPropagation) e.stopPropagation();
+              if (isMobileDrawingMode || isDrawingMode) {
                 log('INFO', 'Whiteboard', '👆 STAGE TOUCH START (Drawing Mode)', {
                   actualTool,
                   isDrawing,
                   touchCount: nativeEvent.touches?.length || 0,
                   isMobileDrawingMode,
+                  isDrawingMode,
                   timestamp: Date.now()
                 });
-                // Convert touch to mouse event and use same handler
+                
+                // Convert touch to mouse event FIRST before preventing default
                 const touch = nativeEvent.touches?.[0];
                 if (touch) {
                   log('INFO', 'Whiteboard', '👆 TOUCH START - CONVERTING TO MOUSE', {
@@ -4053,6 +4056,7 @@ const Whiteboard = forwardRef(({
                     clientY: touch.clientY,
                     timestamp: Date.now()
                   });
+                  
                   // Create mouse event with same coordinate system
                   const mouseEvent = {
                     ...e,
@@ -4061,9 +4065,25 @@ const Whiteboard = forwardRef(({
                       clientX: touch.clientX,
                       clientY: touch.clientY
                     },
-                    preventDefault: () => { if (e.preventDefault) e.preventDefault(); },
-                    stopPropagation: () => { if (e.stopPropagation) e.stopPropagation(); }
+                    preventDefault: () => { 
+                      if (nativeEvent && nativeEvent.preventDefault) nativeEvent.preventDefault();
+                      if (e.preventDefault) e.preventDefault(); 
+                    },
+                    stopPropagation: () => { 
+                      if (nativeEvent && nativeEvent.stopPropagation) nativeEvent.stopPropagation();
+                      if (e.stopPropagation) e.stopPropagation(); 
+                    }
                   };
+                  
+                  // CRITICAL: Prevent default AFTER creating the event to stop scrolling but allow drawing
+                  // This prevents page scrolling while still allowing the drawing handler to process the event
+                  if (nativeEvent && nativeEvent.preventDefault) {
+                    nativeEvent.preventDefault();
+                  }
+                  // Also prevent on Konva event wrapper
+                  if (e.preventDefault) e.preventDefault();
+                  if (e.stopPropagation) e.stopPropagation();
+                  
                   // Use the same mouse handler - it will check if drawing should be disabled over alphabet area
                   handleMouseDown(mouseEvent);
                 } else {
@@ -4089,8 +4109,11 @@ const Whiteboard = forwardRef(({
             // Access the native event object via the 'evt' property
             const nativeEvent = e.evt;
             
+            // Check if we're in drawing mode for Arabic alphabet (not click mode)
+            const isDrawingMode = backgroundType === 'arabic-alphabet' && !isArabicAlphabetClickMode;
+            
             // Debug the actual touch event structure only when drawing is active
-            if (isMobileDrawingMode && (isDrawing || drawingTool !== 'select')) {
+            if ((isMobileDrawingMode || isDrawingMode) && (isDrawing || drawingTool !== 'select')) {
               log('INFO', 'Whiteboard', '👆 TOUCH MOVE DEBUG (Drawing Active)', {
                 hasNativeTouches: !!nativeEvent.touches,
                 nativeTouchesLength: nativeEvent.touches?.length,
@@ -4098,6 +4121,7 @@ const Whiteboard = forwardRef(({
                 nativeChangedTouchesLength: nativeEvent.changedTouches?.length,
                 eventType: e.type,
                 isMobileDrawingMode,
+                isDrawingMode,
                 isDrawing,
                 drawingTool,
                 timestamp: Date.now()
@@ -4105,9 +4129,10 @@ const Whiteboard = forwardRef(({
             }
 
             // Only log general touch move when drawing is active
-            if (isMobileDrawingMode && (isDrawing || drawingTool !== 'select')) {
+            if ((isMobileDrawingMode || isDrawingMode) && (isDrawing || drawingTool !== 'select')) {
               log('INFO', 'Whiteboard', '👆 STAGE TOUCH MOVE (Drawing Active)', {
                 isMobileDrawingMode,
+                isDrawingMode,
                 touchCount: nativeEvent.touches?.length || 0,
                 hasTouch: !!nativeEvent.touches?.[0],
                 isDrawing,
@@ -4116,25 +4141,16 @@ const Whiteboard = forwardRef(({
               });
             }
 
-            if (isMobileDrawingMode) {
-              // Prevent scrolling only in drawing mode - use more aggressive prevention
-              if (e.preventDefault) e.preventDefault();
-              if (e.stopPropagation) e.stopPropagation();
-              log('INFO', 'Whiteboard', '👆 STAGE TOUCH MOVE (Drawing Mode)', {
-                actualTool,
-                isDrawing,
-                touchCount: nativeEvent.touches?.length || 0,
-                isMobileDrawingMode,
-                timestamp: Date.now()
-              });
-              // Convert touch to mouse event and use same handler
+            if (isMobileDrawingMode || isDrawingMode) {
+              // Convert touch to mouse event FIRST
               const touch = nativeEvent.touches?.[0];
               if (touch) {
-                log('INFO', 'Whiteboard', '👆 CONVERTING TOUCH TO MOUSE', {
+                log('INFO', 'Whiteboard', '👆 TOUCH MOVE - CONVERTING TO MOUSE', {
                   clientX: touch.clientX,
                   clientY: touch.clientY,
                   timestamp: Date.now()
                 });
+                
                 // Create mouse event with same coordinate system
                 const mouseEvent = {
                   ...e,
@@ -4143,9 +4159,33 @@ const Whiteboard = forwardRef(({
                     clientX: touch.clientX,
                     clientY: touch.clientY
                   },
-                  preventDefault: () => { if (e.preventDefault) e.preventDefault(); },
-                  stopPropagation: () => { if (e.stopPropagation) e.stopPropagation(); }
+                  preventDefault: () => { 
+                    if (nativeEvent && nativeEvent.preventDefault) nativeEvent.preventDefault();
+                    if (e.preventDefault) e.preventDefault(); 
+                  },
+                  stopPropagation: () => { 
+                    if (nativeEvent && nativeEvent.stopPropagation) nativeEvent.stopPropagation();
+                    if (e.stopPropagation) e.stopPropagation(); 
+                  }
                 };
+                
+                // CRITICAL: Prevent default AFTER creating the event to stop scrolling but allow drawing
+                if (nativeEvent && nativeEvent.preventDefault) {
+                  nativeEvent.preventDefault();
+                }
+                // Also prevent on Konva event wrapper
+                if (e.preventDefault) e.preventDefault();
+                if (e.stopPropagation) e.stopPropagation();
+                
+                log('INFO', 'Whiteboard', '👆 STAGE TOUCH MOVE (Drawing Mode)', {
+                  actualTool,
+                  isDrawing,
+                  touchCount: nativeEvent.touches?.length || 0,
+                  isMobileDrawingMode,
+                  isDrawingMode,
+                  timestamp: Date.now()
+                });
+                
                 // Use the same mouse handler - coordinates are already in same system
                 handleMouseMove(mouseEvent);
               }
@@ -4164,18 +4204,11 @@ const Whiteboard = forwardRef(({
             // Access the native event object via the 'evt' property
             const nativeEvent = e.evt;
             
-            if (isMobileDrawingMode) {
-              // Prevent scrolling only in drawing mode - use more aggressive prevention
-              if (e.preventDefault) e.preventDefault();
-              if (e.stopPropagation) e.stopPropagation();
-              log('INFO', 'Whiteboard', '👆 STAGE TOUCH END (Drawing Mode)', {
-                actualTool,
-                isDrawing,
-                touchCount: nativeEvent.touches?.length || 0,
-                isMobileDrawingMode,
-                timestamp: Date.now()
-              });
-              // Convert touch to mouse event and use same handler
+            // Check if we're in drawing mode for Arabic alphabet (not click mode)
+            const isDrawingMode = backgroundType === 'arabic-alphabet' && !isArabicAlphabetClickMode;
+            
+            if (isMobileDrawingMode || isDrawingMode) {
+              // Convert touch to mouse event FIRST
               const touch = nativeEvent.changedTouches?.[0];
               if (touch) {
                 log('INFO', 'Whiteboard', '👆 TOUCH END - CONVERTING TO MOUSE', {
@@ -4183,6 +4216,7 @@ const Whiteboard = forwardRef(({
                   clientY: touch.clientY,
                   timestamp: Date.now()
                 });
+                
                 // Create mouse event with same coordinate system
                 const mouseEvent = {
                   ...e,
@@ -4191,9 +4225,33 @@ const Whiteboard = forwardRef(({
                     clientX: touch.clientX,
                     clientY: touch.clientY
                   },
-                  preventDefault: () => { if (e.preventDefault) e.preventDefault(); },
-                  stopPropagation: () => { if (e.stopPropagation) e.stopPropagation(); }
+                  preventDefault: () => { 
+                    if (nativeEvent && nativeEvent.preventDefault) nativeEvent.preventDefault();
+                    if (e.preventDefault) e.preventDefault(); 
+                  },
+                  stopPropagation: () => { 
+                    if (nativeEvent && nativeEvent.stopPropagation) nativeEvent.stopPropagation();
+                    if (e.stopPropagation) e.stopPropagation(); 
+                  }
                 };
+                
+                // CRITICAL: Prevent default AFTER creating the event to stop scrolling but allow drawing
+                if (nativeEvent && nativeEvent.preventDefault) {
+                  nativeEvent.preventDefault();
+                }
+                // Also prevent on Konva event wrapper
+                if (e.preventDefault) e.preventDefault();
+                if (e.stopPropagation) e.stopPropagation();
+                
+                log('INFO', 'Whiteboard', '👆 STAGE TOUCH END (Drawing Mode)', {
+                  actualTool,
+                  isDrawing,
+                  touchCount: nativeEvent.touches?.length || 0,
+                  isMobileDrawingMode,
+                  isDrawingMode,
+                  timestamp: Date.now()
+                });
+                
                 // Use the same mouse handler - coordinates are already in same system
                 handleMouseUp(mouseEvent);
               }
