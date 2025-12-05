@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
 import '../styles/AlphabetOverlay.css';
 
@@ -17,6 +17,7 @@ import '../styles/AlphabetOverlay.css';
  * @param {Function} props.onShuffleOrderChange - Callback when shuffle order changes (for peer sync)
  * @param {Array|null} props.shuffleOrder - Current shuffle order from peer (array of indices)
  * @param {Function} props.onModeChange - Callback when mode changes (click/drawing)
+ * @param {Function} props.onCharacterClick - Callback when a character is clicked (for peer synchronization)
  * @param {Array} props.alphabetData - Array of character objects with structure:
  *   - originalIndex: number (required, for shuffle sync)
  *   - displayChar: string (required, main character to display)
@@ -32,13 +33,15 @@ import '../styles/AlphabetOverlay.css';
  * @param {boolean} props.showForms - Whether to show character forms (default: false)
  * @param {boolean} props.showPronunciation - Whether to show pronunciation (default: true)
  * @param {string} props.instructionsText - Custom instructions text (optional)
+ * @param {string} props.direction - Text direction: 'ltr' (left-to-right) or 'rtl' (right-to-left) (default: 'ltr')
  */
-const AlphabetOverlay = ({
+const AlphabetOverlay = forwardRef(({
   isVisible,
   onClose,
   onShuffleOrderChange,
   shuffleOrder = null,
   onModeChange = null,
+  onCharacterClick = null,
   alphabetData = [],
   language = 'en-US',
   gridColumns = 6,
@@ -48,13 +51,25 @@ const AlphabetOverlay = ({
   overlayHeight = 800,
   showForms = false,
   showPronunciation = true,
-  instructionsText = null
-}) => {
+  instructionsText = null,
+  direction = 'ltr'
+}, ref) => {
   // Initialize with original alphabet data, adding originalIndex if missing
   const originalAlphabet = alphabetData.map((char, index) => ({
     ...char,
     originalIndex: char.originalIndex !== undefined ? char.originalIndex : index
   }));
+  
+  // Store originalAlphabet in ref so it can be accessed by speakCharacterByIndex
+  const originalAlphabetRef = useRef(originalAlphabet);
+  useEffect(() => {
+    originalAlphabetRef.current = originalAlphabet;
+    console.log('[AlphabetOverlay] originalAlphabetRef updated', { 
+      length: originalAlphabet.length,
+      firstChar: originalAlphabet[0]?.displayChar || originalAlphabet[0]?.letter,
+      indices: originalAlphabet.map(c => c.originalIndex).slice(0, 5)
+    });
+  }, [originalAlphabet]);
 
   const [displayedAlphabet, setDisplayedAlphabet] = useState([...originalAlphabet]);
   const [isShuffled, setIsShuffled] = useState(false);
@@ -143,10 +158,21 @@ const AlphabetOverlay = ({
   const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
 
   // Speak the character
-  const speakCharacter = useCallback((char) => {
+  const speakCharacter = useCallback((char, fromPeer = false) => {
+    if (!char) {
+      console.warn('[AlphabetOverlay] speakCharacter called with null/undefined char');
+      return;
+    }
+    
     if (!('speechSynthesis' in window)) {
       alert('Speech synthesis is not supported in this browser.');
       return;
+    }
+    
+    // Notify parent about character click (for peer synchronization)
+    // Only send to peer if this is a local click (not from peer)
+    if (!fromPeer && onCharacterClick) {
+      onCharacterClick(char.originalIndex);
     }
     
     window.speechSynthesis.cancel();
@@ -243,7 +269,30 @@ const AlphabetOverlay = ({
         console.error('[AlphabetOverlay] Fallback speech also failed:', fallbackError);
       }
     });
-  }, [language, isMobile, isIOS]);
+  }, [language, isMobile, isIOS, onCharacterClick]);
+  
+  // Expose methods to parent via ref (for peer synchronization)
+  useImperativeHandle(ref, () => ({
+    speakCharacterByIndex: (characterIndex) => {
+      console.log('[AlphabetOverlay] speakCharacterByIndex called', { 
+        characterIndex, 
+        originalAlphabetLength: originalAlphabetRef.current?.length,
+        availableIndices: originalAlphabetRef.current?.map(c => c.originalIndex)
+      });
+      const char = originalAlphabetRef.current?.find(c => c.originalIndex === characterIndex);
+      if (char) {
+        console.log('[AlphabetOverlay] Character found, calling speakCharacter', { 
+          characterIndex, 
+          displayChar: char.displayChar || char.letter || char.isolated 
+        });
+        speakCharacter(char, true); // true = fromPeer (don't send back to peer)
+      } else {
+        console.warn('[AlphabetOverlay] Character not found for index:', characterIndex, {
+          availableIndices: originalAlphabetRef.current?.map(c => c.originalIndex)
+        });
+      }
+    }
+  }), [speakCharacter]);
 
   // Load voices when component mounts
   useEffect(() => {
@@ -284,7 +333,8 @@ const AlphabetOverlay = ({
           height: `${overlayHeight}px`,
           margin: 0,
           padding: 0,
-          boxSizing: 'border-box'
+          boxSizing: 'border-box',
+          direction: direction // RTL for Arabic (right to left), LTR for others
         }}
       >
         <div 
@@ -295,7 +345,8 @@ const AlphabetOverlay = ({
             gap: `${gap}px`,
             padding: '20px',
             width: `${overlayWidth}px`,
-            boxSizing: 'border-box'
+            boxSizing: 'border-box',
+            direction: direction // RTL for Arabic (right to left), LTR for others
           }}
         >
           {displayedAlphabet.map((char, index) => (
@@ -345,7 +396,8 @@ const AlphabetOverlay = ({
                   fontFeatureSettings: '"kern" 1',
                   textRendering: 'optimizeLegibility',
                   WebkitFontSmoothing: 'antialiased',
-                  MozOsxFontSmoothing: 'grayscale'
+                  MozOsxFontSmoothing: 'grayscale',
+                  direction: direction // RTL for Arabic characters
                 }}
               >
                 {char.displayChar || char.letter || char.isolated || ''}
@@ -391,7 +443,18 @@ const AlphabetOverlay = ({
       
       {/* Render control buttons via portal above Stage if container found */}
       {buttonContainer && createPortal(
-        <div className="alphabet-control-buttons" style={{ position: 'absolute', top: 0, left: 0, zIndex: 10, display: 'flex', gap: '4px' }}>
+        <div 
+          className="alphabet-control-buttons" 
+          style={{ 
+            position: 'absolute', 
+            top: 0, 
+            [direction === 'rtl' ? 'right' : 'left']: 0, // Right side for RTL, left side for LTR
+            zIndex: 10, 
+            display: 'flex', 
+            gap: '4px',
+            direction: 'ltr' // Buttons always LTR regardless of text direction
+          }}
+        >
           {/* Shuffle/Reset Button */}
           <button
             className="alphabet-shuffle-btn"
@@ -525,7 +588,9 @@ const AlphabetOverlay = ({
       )}
     </>
   );
-};
+});
+
+AlphabetOverlay.displayName = 'AlphabetOverlay';
 
 export default AlphabetOverlay;
 

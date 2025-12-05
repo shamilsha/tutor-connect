@@ -11,6 +11,7 @@
   font-family: Arial, Tahoma, "Segoe UI", sans-serif;
   background: transparent;
   overflow: hidden;
+  /* direction will be set inline (rtl for Arabic, ltr for others) */
 }
 
 .alphabet-grid {
@@ -20,6 +21,7 @@
   width: 100%;
   box-sizing: border-box;
   /* grid-template-columns will be set inline based on gridColumns prop */
+  /* direction will be set inline (rtl for Arabic, ltr for others) */
 }
 
 .alphabet-letter-card {

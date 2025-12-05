@@ -99,6 +99,7 @@ const Whiteboard = forwardRef(({
   const [backgroundDimensions, setBackgroundDimensions] = useState({ width: 0, height: 0 });
   const [arabicAlphabetShuffleOrder, setArabicAlphabetShuffleOrder] = useState(null);
   const [isArabicAlphabetClickMode, setIsArabicAlphabetClickMode] = useState(true); // Default to click mode
+  const arabicAlphabetOverlayRef = useRef(null); // Ref to access AlphabetOverlay methods
   // State to track screen share dimensions - MOVED TO TOP TO PREVENT HOISTING ERRORS
   const [screenShareDimensions, setScreenShareDimensions] = useState({ width: 0, height: 0 });
   
@@ -1001,6 +1002,50 @@ const Whiteboard = forwardRef(({
           setArabicAlphabetShuffleOrder(data.shuffleOrder);
         }
         break;
+      case 'arabicAlphabetCharacterClick': // Handle Arabic alphabet character click synchronization
+        // Check if characterIndex is valid
+        if (data.characterIndex !== undefined) {
+          // Try to trigger speech even if backgroundType is not set yet
+          // This handles cases where the message arrives before background is fully loaded
+          log('INFO', 'Whiteboard', '🔊 RECEIVED ARABIC ALPHABET CHARACTER CLICK from peer', { 
+            characterIndex: data.characterIndex,
+            backgroundType,
+            hasRef: !!arabicAlphabetOverlayRef.current,
+            timestamp: Date.now()
+          });
+          
+          // Find the character by originalIndex and trigger speech
+          if (arabicAlphabetOverlayRef.current) {
+            try {
+              log('INFO', 'Whiteboard', '🔊 Calling speakCharacterByIndex', { characterIndex: data.characterIndex });
+              arabicAlphabetOverlayRef.current.speakCharacterByIndex(data.characterIndex);
+              log('INFO', 'Whiteboard', '🔊 speakCharacterByIndex called successfully');
+            } catch (error) {
+              log('ERROR', 'Whiteboard', '🔊 Error calling speakCharacterByIndex', { error: error.message, characterIndex: data.characterIndex });
+            }
+          } else {
+            log('WARN', 'Whiteboard', '🔊 arabicAlphabetOverlayRef.current is null - will retry after delay', { characterIndex: data.characterIndex });
+            // Retry after a short delay in case the ref isn't ready yet
+            setTimeout(() => {
+              if (arabicAlphabetOverlayRef.current) {
+                log('INFO', 'Whiteboard', '🔊 Retry: Calling speakCharacterByIndex', { characterIndex: data.characterIndex });
+                try {
+                  arabicAlphabetOverlayRef.current.speakCharacterByIndex(data.characterIndex);
+                } catch (error) {
+                  log('ERROR', 'Whiteboard', '🔊 Retry: Error calling speakCharacterByIndex', { error: error.message, characterIndex: data.characterIndex });
+                }
+              } else {
+                log('WARN', 'Whiteboard', '🔊 Retry: arabicAlphabetOverlayRef.current is still null', { characterIndex: data.characterIndex });
+              }
+            }, 500);
+          }
+        } else {
+          log('WARN', 'Whiteboard', '🔊 Received character click but characterIndex is undefined', { 
+            data,
+            backgroundType
+          });
+        }
+        break;
         case 'background':
           if (data.background) {
             log('INFO', 'Whiteboard', 'Received background update', data.background);
@@ -1038,11 +1083,19 @@ const Whiteboard = forwardRef(({
               // Use received dimensions if available, otherwise use default
               const dimensions = data.background.dimensions || { width: 1200, height: 800 };
               
+              // CRITICAL: Set backgroundType and backgroundFile BEFORE calling setBackgroundDirectly
+              // This ensures the ref is available when character clicks arrive
+              setBackgroundType('arabic-alphabet');
+              setBackgroundFile('arabic-alphabet');
+              setBackgroundDimensions(dimensions);
+              
               // Use setBackgroundDirectly with dimensions to ensure synchronization
               setBackgroundDirectly('arabic-alphabet', 'arabic-alphabet', dimensions);
               
               log('INFO', 'Whiteboard', '🕌 ARABIC ALPHABET DIMENSIONS SYNCHRONIZED', {
                 dimensions,
+                backgroundType: 'arabic-alphabet',
+                backgroundFile: 'arabic-alphabet',
                 note: 'Both peers now have identical Stage dimensions (1200x800) for coordinate synchronization'
               });
             }
@@ -1222,6 +1275,9 @@ const Whiteboard = forwardRef(({
       } else if (data.shuffleOrder !== undefined) {
         // For Arabic alphabet shuffle actions
         message.shuffleOrder = data.shuffleOrder;
+      } else if (data.characterIndex !== undefined) {
+        // For Arabic alphabet character click actions
+        message.characterIndex = data.characterIndex;
       } else {
         // Fallback - spread other data properties
         Object.assign(message, data);
@@ -3844,6 +3900,7 @@ const Whiteboard = forwardRef(({
                 pointerEvents: isArabicAlphabetClickMode ? 'auto' : 'none' // Allow clicks in click mode, block in drawing mode
               }}>
                 <ArabicAlphabetOverlay
+                  ref={arabicAlphabetOverlayRef}
                   isVisible={true}
                   onClose={() => {
                     setBackgroundFile(null);
@@ -3870,6 +3927,28 @@ const Whiteboard = forwardRef(({
                       timestamp: Date.now()
                     });
                     setIsArabicAlphabetClickMode(isClickMode);
+                  }}
+                  onCharacterClick={(characterIndex) => {
+                    console.log('[Whiteboard] Arabic alphabet character clicked', { 
+                      characterIndex,
+                      timestamp: Date.now(),
+                      hasWebRTCProvider: !!webRTCProviderRef.current,
+                      hasSelectedPeer: !!selectedPeerRef.current
+                    });
+                    // Send character click to peer
+                    if (webRTCProviderRef.current && selectedPeerRef.current) {
+                      sendWhiteboardMsg('arabicAlphabetCharacterClick', { characterIndex });
+                      log('INFO', 'Whiteboard', '🔊 SENT ARABIC ALPHABET CHARACTER CLICK to peer', { 
+                        characterIndex,
+                        timestamp: Date.now()
+                      });
+                    } else {
+                      log('WARN', 'Whiteboard', '🔊 Cannot send character click - no peer connection', { 
+                        characterIndex,
+                        hasWebRTCProvider: !!webRTCProviderRef.current,
+                        hasSelectedPeer: !!selectedPeerRef.current
+                      });
+                    }
                   }}
                 />
               </div>
