@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useImperativeHandle, forwardRef, useCallback, useMemo } from 'react';
 import PDFRenderer from './PDFRenderer';
 import ImageRenderer from './ImageRenderer';
+import ArabicAlphabetOverlay from './ArabicAlphabetOverlay';
 import { Stage, Layer, Line, Circle, Ellipse, Rect, Transformer, Group, Text, RegularPolygon } from 'react-konva';
 import { v4 as uuidv4 } from 'uuid';
 import { throttle } from 'lodash';
@@ -39,7 +40,8 @@ const Whiteboard = forwardRef(({
   onBackgroundCleared = null,
   onRemoteStateTransition = null,
   onImageChange = null, 
-  selectedContent = null, 
+  selectedContent = null,
+  onContentSelect = null,
   onPdfChange = null,
   onPDFDimensionsChange = null,
   webRTCProvider = null, 
@@ -131,6 +133,11 @@ const Whiteboard = forwardRef(({
       finalWidth = screenShareDimensions.width;
       finalHeight = screenShareDimensions.height;
       source = 'screenShare';
+    } else if (backgroundType === 'arabic-alphabet') {
+      // For Arabic alphabet, always use fixed dimensions to prevent coordinate shifts
+      finalWidth = backgroundDimensions.width > 0 ? backgroundDimensions.width : 1200;
+      finalHeight = backgroundDimensions.height > 0 ? backgroundDimensions.height : 800;
+      source = 'arabic-alphabet-fixed';
     } else if (backgroundDimensions.width > 0 && backgroundDimensions.height > 0) {
       // Use background dimensions
       finalWidth = backgroundDimensions.width;
@@ -147,6 +154,7 @@ const Whiteboard = forwardRef(({
       isScreenShareActive,
       screenShareDimensions,
       backgroundDimensions,
+      backgroundType,
       currentContainerSize,
       source,
       finalWidth,
@@ -403,24 +411,36 @@ const Whiteboard = forwardRef(({
               timestamp: Date.now()
             });
             
-            // Use coordinates directly since both peers now use unified coordinate system
+            // CRITICAL: Round all coordinates to integers to prevent sub-pixel differences
+            // Floating-point coordinates can render differently on different browsers/devices
+            const roundedShape = {
+              ...data.shape,
+              points: data.shape.points ? data.shape.points.map((coord, index) => 
+                index % 2 === 0 ? Math.round(coord) : Math.round(coord) // Round x and y coordinates
+              ) : data.shape.points,
+              x: data.shape.x !== undefined ? Math.round(data.shape.x) : data.shape.x,
+              y: data.shape.y !== undefined ? Math.round(data.shape.y) : data.shape.y
+            };
+            
+            // Use rounded coordinates to ensure pixel-perfect alignment
             setLines(prev => {
-              const newLines = [...prev, data.shape];
-              log('INFO', 'Whiteboard', '✅ UPDATED regular lines with unified coordinates', {
+              const newLines = [...prev, roundedShape];
+              log('INFO', 'Whiteboard', '✅ UPDATED regular lines with unified coordinates (rounded)', {
                 oldCount: prev.length,
                 newCount: newLines.length,
-                shapeType: data.shape.type,
+                shapeType: roundedShape.type,
                 // Enhanced debugging for Y shift investigation
                 receivedCoordinates: data.shape.points,
+                roundedCoordinates: roundedShape.points,
                 coordinateAnalysis: {
-                  firstPoint: data.shape.points?.[0],
-                  secondPoint: data.shape.points?.[1],
-                  coordinateCount: data.shape.points?.length,
-                  isLine: data.shape.type === 'line',
-                  isPen: data.shape.tool === 'pen'
+                  firstPoint: roundedShape.points?.[0],
+                  secondPoint: roundedShape.points?.[1],
+                  coordinateCount: roundedShape.points?.length,
+                  isLine: roundedShape.type === 'line',
+                  isPen: roundedShape.tool === 'pen'
                 },
                 peerType: 'REMOTE_PEER',
-                points: data.shape.points,
+                points: roundedShape.points,
                 timestamp: Date.now()
               });
               return newLines;
@@ -443,11 +463,16 @@ const Whiteboard = forwardRef(({
             // Create Konva object for remote peer
             if (layerRef.current) {
               let konvaShape;
+              // CRITICAL: Round all coordinates to integers for pixel-perfect alignment
+              const roundedPoints = data.shape.points ? data.shape.points.map((coord, index) => 
+                index % 2 === 0 ? Math.round(coord) : Math.round(coord) // Round x and y coordinates
+              ) : data.shape.points;
+              
               switch (data.shape.type) {
                 case 'line':
                   konvaShape = new Konva.Line({
                     id: data.shape.id,
-                    points: data.shape.points,
+                    points: roundedPoints,
                     stroke: data.shape.stroke,
                     strokeWidth: data.shape.strokeWidth,
                     lineCap: 'round',
@@ -457,9 +482,9 @@ const Whiteboard = forwardRef(({
                 case 'circle':
                   konvaShape = new Konva.Circle({
                     id: data.shape.id,
-                    x: data.shape.x,
-                    y: data.shape.y,
-                    radius: data.shape.radius,
+                    x: Math.round(data.shape.x),
+                    y: Math.round(data.shape.y),
+                    radius: Math.round(data.shape.radius),
                     stroke: data.shape.stroke,
                     strokeWidth: data.shape.strokeWidth,
                     fill: data.shape.fill
@@ -529,8 +554,15 @@ const Whiteboard = forwardRef(({
       case 'update':
         if (data.shape) {
           if (data.shape.tool === 'pen') {
+            // CRITICAL: Round all coordinates to integers to prevent sub-pixel differences
+            const roundedShape = {
+              ...data.shape,
+              points: data.shape.points ? data.shape.points.map((coord, index) => 
+                index % 2 === 0 ? Math.round(coord) : Math.round(coord) // Round x and y coordinates
+              ) : data.shape.points
+            };
             // Use regular lines storage for pen tool only
-            setLines(prev => prev.map(line => line.id === data.shape.id ? data.shape : line));
+            setLines(prev => prev.map(line => line.id === data.shape.id ? roundedShape : line));
           } else {
             // KONVA-BASED REMOTE SYNC: Update Konva objects for shapes
             log('INFO', 'Whiteboard', '📨 RECEIVING shape update', {
@@ -544,6 +576,11 @@ const Whiteboard = forwardRef(({
               timestamp: Date.now()
             });
             
+            // CRITICAL: Round all coordinates to integers for pixel-perfect alignment
+            const roundedPoints = data.shape.points ? data.shape.points.map((coord, index) => 
+              index % 2 === 0 ? Math.round(coord) : Math.round(coord) // Round x and y coordinates
+            ) : data.shape.points;
+            
             // Update Konva object for remote peer
             if (layerRef.current) {
               const existingShape = layerRef.current.findOne(`#${data.shape.id}`);
@@ -551,29 +588,29 @@ const Whiteboard = forwardRef(({
                 // Update existing Konva object
                 switch (data.shape.type) {
                   case 'line':
-                    existingShape.points(data.shape.points);
+                    existingShape.points(roundedPoints);
                     break;
                   case 'circle':
-                    existingShape.x(data.shape.x);
-                    existingShape.y(data.shape.y);
-                    existingShape.radius(data.shape.radius);
+                    existingShape.x(Math.round(data.shape.x));
+                    existingShape.y(Math.round(data.shape.y));
+                    existingShape.radius(Math.round(data.shape.radius));
                     break;
                   case 'ellipse':
-                    existingShape.x(data.shape.x);
-                    existingShape.y(data.shape.y);
-                    existingShape.radiusX(data.shape.radiusX);
-                    existingShape.radiusY(data.shape.radiusY);
+                    existingShape.x(Math.round(data.shape.x));
+                    existingShape.y(Math.round(data.shape.y));
+                    existingShape.radiusX(Math.round(data.shape.radiusX));
+                    existingShape.radiusY(Math.round(data.shape.radiusY));
                     break;
                   case 'rectangle':
-                    existingShape.x(data.shape.x);
-                    existingShape.y(data.shape.y);
-                    existingShape.width(data.shape.width);
-                    existingShape.height(data.shape.height);
+                    existingShape.x(Math.round(data.shape.x));
+                    existingShape.y(Math.round(data.shape.y));
+                    existingShape.width(Math.round(data.shape.width));
+                    existingShape.height(Math.round(data.shape.height));
                     break;
                   case 'triangle':
-                    existingShape.x(data.shape.x);
-                    existingShape.y(data.shape.y);
-                    existingShape.radius(data.shape.radius);
+                    existingShape.x(Math.round(data.shape.x));
+                    existingShape.y(Math.round(data.shape.y));
+                    existingShape.radius(Math.round(data.shape.radius));
                     break;
                   case 'text':
                     // Handle text annotation updates from remote peer
@@ -942,6 +979,17 @@ const Whiteboard = forwardRef(({
           });
         }
         break;
+      case 'contentSelection':
+        if (data.content && onContentSelect) {
+          log('INFO', 'Whiteboard', '📚 Received content selection from peer', {
+            contentId: data.content.id,
+            contentType: data.content.type,
+            contentName: data.content.name
+          });
+          // Update selected content in parent component
+          onContentSelect(data.content);
+        }
+        break;
         case 'background':
           if (data.background) {
             log('INFO', 'Whiteboard', 'Received background update', data.background);
@@ -969,10 +1017,30 @@ const Whiteboard = forwardRef(({
               log('INFO', 'Whiteboard', 'Remote PDF received, checking exclusivity');
               log('INFO', 'Whiteboard', 'Triggering PDF exclusivity check', data.background.file);
               onPdfChange(data.background.file);
+            } else if (data.background.type === 'arabic-alphabet') {
+              log('INFO', 'Whiteboard', '🕌 REMOTE ARABIC ALPHABET RECEIVED', {
+                timestamp: Date.now(),
+                receivedDimensions: data.background.dimensions
+              });
+              
+              // CRITICAL: Ensure both peers use the same dimensions for coordinate synchronization
+              // Use received dimensions if available, otherwise use default
+              const dimensions = data.background.dimensions || { width: 1200, height: 800 };
+              
+              // Use setBackgroundDirectly with dimensions to ensure synchronization
+              setBackgroundDirectly('arabic-alphabet', 'arabic-alphabet', dimensions);
+              
+              log('INFO', 'Whiteboard', '🕌 ARABIC ALPHABET DIMENSIONS SYNCHRONIZED', {
+                dimensions,
+                note: 'Both peers now have identical Stage dimensions (1200x800) for coordinate synchronization'
+              });
             }
             
-            setBackgroundFile(data.background.file);
-            setBackgroundType(data.background.type);
+            // Only set background file/type if not already handled above
+            if (data.background.type !== 'arabic-alphabet') {
+              setBackgroundFile(data.background.file);
+              setBackgroundType(data.background.type);
+            }
             
             log('INFO', 'Whiteboard', '✅ UPDATED background type from remote', {
               type: data.background.type,
@@ -1197,19 +1265,41 @@ const Whiteboard = forwardRef(({
       return; // No layout calculations needed for non-drawing mouse movement
     }
 
-    // Simple coordinate calculation for drawing within existing canvas
+    // CRITICAL: Always calculate coordinates relative to Stage's top-left corner
+    // getPointerPosition() automatically handles viewport-to-stage coordinate transformation
     const stage = e.target.getStage();
+    if (!stage) {
+      log('WARN', 'Whiteboard', 'Stage not found in mouse move event');
+      return;
+    }
+    
     const point = stage.getPointerPosition();
+    if (!point) {
+      log('WARN', 'Whiteboard', 'Could not get pointer position from stage');
+      return;
+    }
+    
+    // Coordinates are ALWAYS relative to Stage's top-left corner (0,0)
+    // This ensures drawings stay in correct position regardless of container movement
     const correctedX = point.x;
     const correctedY = point.y;
     
+    // Validate coordinates to prevent NaN/Infinity values
+    if (!isFinite(correctedX) || !isFinite(correctedY) || isNaN(correctedX) || isNaN(correctedY)) {
+      log('WARN', 'Whiteboard', 'Invalid coordinates detected, skipping', { correctedX, correctedY });
+      return;
+    }
+    
     // Log coordinates when drawing with line tool (only if debug enabled)
     if (DEBUG_MOUSE_MOVEMENT && actualTool === 'line') {
-      log('INFO', 'Whiteboard', 'Mouse move - Using simple coordinates', { 
+      log('INFO', 'Whiteboard', 'Mouse move - Using Stage-relative coordinates', { 
         correctedX, 
         correctedY, 
         konvaX: point.x, 
-        konvaY: point.y 
+        konvaY: point.y,
+        stageWidth: stage.width(),
+        stageHeight: stage.height(),
+        note: 'Coordinates are relative to Stage top-left (0,0)'
       });
     }
 
@@ -1351,15 +1441,42 @@ const Whiteboard = forwardRef(({
       selectedShape: selectedShape?.id
     });
 
-    // Simple coordinate calculation for drawing within existing canvas
+    // CRITICAL: Always calculate coordinates relative to Stage's top-left corner
+    // getPointerPosition() automatically handles viewport-to-stage coordinate transformation
     const stage = e.target.getStage();
+    if (!stage) {
+      log('WARN', 'Whiteboard', 'Stage not found in mouse down event');
+      return;
+    }
+    
     const point = stage.getPointerPosition();
-    const correctedX = point.x;
-    const correctedY = point.y;
+    if (!point) {
+      log('WARN', 'Whiteboard', 'Could not get pointer position from stage');
+      return;
+    }
+    
+    // Coordinates are ALWAYS relative to Stage's top-left corner (0,0)
+    // This ensures drawings stay in correct position regardless of container movement
+    // CRITICAL: Round to integers to prevent sub-pixel differences between peers
+    // Floating-point coordinates can render differently on different browsers/devices
+    const correctedX = Math.round(point.x);
+    const correctedY = Math.round(point.y);
+    
+    // Validate coordinates to prevent NaN/Infinity values
+    if (!isFinite(correctedX) || !isFinite(correctedY) || isNaN(correctedX) || isNaN(correctedY)) {
+      log('WARN', 'Whiteboard', 'Invalid coordinates detected, skipping', { correctedX, correctedY });
+      return;
+    }
     
     if (DEBUG_MOUSE_MOVEMENT) {
       log('VERBOSE', 'Whiteboard', 'Mouse down - Starting drawing with tool', { drawingTool, position: point });
-      log('VERBOSE', 'Whiteboard', 'Mouse down - Using simple coordinates', { correctedX, correctedY });
+      log('VERBOSE', 'Whiteboard', 'Mouse down - Using Stage-relative coordinates', { 
+        correctedX, 
+        correctedY,
+        stageWidth: stage.width(),
+        stageHeight: stage.height(),
+        note: 'Coordinates are relative to Stage top-left (0,0)'
+      });
     }
 
     if (currentTool === 'text') {
@@ -1638,8 +1755,18 @@ const Whiteboard = forwardRef(({
     const currentTool = getActualTool();
     
     if (currentTool === 'text') {
+      // CRITICAL: Always calculate coordinates relative to Stage's top-left corner
       const stage = e.target.getStage();
+      if (!stage) {
+        log('WARN', 'Whiteboard', 'Stage not found in double-click event');
+        return;
+      }
+      
       const point = stage.getPointerPosition();
+      if (!point) {
+        log('WARN', 'Whiteboard', 'Could not get pointer position from stage');
+        return;
+      }
       
       log('INFO', 'Whiteboard', '📝 TEXT TOOL: Double-click detected', {
         position: point,
@@ -2594,13 +2721,33 @@ const Whiteboard = forwardRef(({
   };
 
   // Function to set background directly (for remote peers) - REMOUNT-SAFE
-  const setBackgroundDirectly = (type, url) => {
-    log('INFO', 'Whiteboard', '🖼️ UNIFIED: Setting background directly', { type, url });
+  const setBackgroundDirectly = (type, url, dimensions = null) => {
+    log('INFO', 'Whiteboard', '🖼️ UNIFIED: Setting background directly', { type, url, dimensions });
     
     if (type === 'pdf') {
       // Use unified PDF rendering for consistent dimensions
       log('INFO', 'Whiteboard', 'Using unified PDF rendering for remote PDF');
       renderPDF(url);
+    } else if (type === 'arabic-alphabet') {
+      // Handle Arabic alphabet background
+      log('INFO', 'Whiteboard', '🕌 Setting Arabic alphabet background from remote', { dimensions });
+      
+      // Clear drawings when switching to Arabic alphabet
+      clearAllDrawings();
+      
+      // Set background state
+      setBackgroundFile('arabic-alphabet');
+      setBackgroundType('arabic-alphabet');
+      
+      // CRITICAL: Use received dimensions to ensure both peers have identical Stage size
+      // This ensures coordinates are synchronized between peers
+      const finalDimensions = dimensions || { width: 1200, height: 800 };
+      setBackgroundDimensions(finalDimensions);
+      
+      log('INFO', 'Whiteboard', '🕌 Arabic alphabet background set from remote', {
+        dimensions: finalDimensions,
+        note: 'Using synchronized dimensions for coordinate consistency'
+      });
     } else {
       // For images, use REMOUNT-SAFE approach
       log('INFO', 'Whiteboard', '🖼️ UNIFIED: Setting image background safely');
@@ -2696,7 +2843,31 @@ const Whiteboard = forwardRef(({
       containerStyle.height = `${finalHeight}px`;
       containerStyle.minWidth = `${finalWidth}px`;
       containerStyle.minHeight = `${finalHeight}px`;
-        } else {
+        } else if (backgroundType === 'arabic-alphabet') {
+      // For Arabic alphabet, use fixed dimensions to ensure coordinate synchronization
+      containerStyle.width = `${finalWidth}px`;
+      containerStyle.height = `${finalHeight}px`;
+      containerStyle.minWidth = `${finalWidth}px`;
+      containerStyle.minHeight = `${finalHeight}px`;
+      containerStyle.maxWidth = `${finalWidth}px`; // Prevent resizing
+      containerStyle.maxHeight = `${finalHeight}px`; // Prevent resizing
+      
+      log('DEBUG', 'Whiteboard', '📦 CONTAINER STYLE CALCULATION (Arabic Alphabet)', {
+        backgroundType,
+        finalWidth,
+        finalHeight,
+        backgroundDimensions,
+        containerStyle: {
+          width: containerStyle.width,
+          height: containerStyle.height,
+          minWidth: containerStyle.minWidth,
+          minHeight: containerStyle.minHeight,
+          maxWidth: containerStyle.maxWidth,
+          maxHeight: containerStyle.maxHeight
+        },
+        note: 'Fixed dimensions (1200x800) for coordinate synchronization between peers'
+      });
+    } else {
       // For PDFs and screen share, use fixed dimensions
       containerStyle.width = `${finalWidth}px`;
       containerStyle.height = `${finalHeight}px`;
@@ -2792,11 +2963,14 @@ const Whiteboard = forwardRef(({
   ]);
 
   // Memoized stage style - only recalculates during background transitions
+  // CRITICAL: Stage is positioned at top: 0, left: 0 relative to container
+  // This ensures coordinates from getPointerPosition() are always relative to Stage's top-left corner (0,0)
+  // regardless of where the container is positioned on the screen
   const stageStyle = useMemo(() => {
     return {
       position: 'absolute',
-      top: 0,
-      left: 0,
+      top: 0,  // Always at top of container
+      left: 0, // Always at left of container
       zIndex: 2,
       pointerEvents: 'all',
       background: 'transparent'
@@ -3053,12 +3227,55 @@ const Whiteboard = forwardRef(({
   }, [lines, shapes, pageLines, pageShapes, historyStep, history]);
 
 
+  // Function to set Arabic alphabet as background
+  const setArabicAlphabetBackground = useCallback((show, sendToPeers = false) => {
+    log('INFO', 'Whiteboard', 'Setting Arabic alphabet background', { show, sendToPeers });
+    if (show) {
+      // Clear drawings when switching to Arabic alphabet
+      clearAllDrawings();
+      
+      setBackgroundType('arabic-alphabet');
+      setBackgroundFile('arabic-alphabet'); // Use a marker value
+      // Set default dimensions for Arabic alphabet display
+      setBackgroundDimensions({ width: 1200, height: 800 });
+      
+      // Send to peers if requested
+      if (sendToPeers && webRTCProvider && selectedPeer) {
+        try {
+          log('INFO', 'Whiteboard', 'Sending Arabic alphabet to remote peer', { selectedPeer });
+          
+          const arabicAlphabetMessage = {
+            action: 'background',
+            background: {
+              file: 'arabic-alphabet',
+              type: 'arabic-alphabet',
+              dimensions: { width: 1200, height: 800 } // Send fixed dimensions for synchronization
+            },
+            timestamp: Date.now()
+          };
+          
+          webRTCProvider.sendWhiteboardMessage(selectedPeer, arabicAlphabetMessage);
+          log('INFO', 'Whiteboard', 'Arabic alphabet sent to remote peer successfully');
+        } catch (error) {
+          log('ERROR', 'Whiteboard', 'Failed to send Arabic alphabet to remote peer', {
+            error: error.message,
+            selectedPeer
+          });
+        }
+      }
+    } else {
+      setBackgroundFile(null);
+      setBackgroundType(null);
+    }
+  }, [webRTCProvider, selectedPeer]);
+
   // Expose functions to parent component
   useImperativeHandle(ref, () => ({
     handleImageUpload: handleImageUpload,
     handleFileUpload: handleFileUpload,
     setBackgroundDirectly: setBackgroundDirectly,
     renderPDFUrl: renderPDFUrl,
+    setArabicAlphabetBackground: setArabicAlphabetBackground,
     clearBackground: () => {
       log('INFO', 'Whiteboard', 'Clearing background due to screen share activation');
       setBackgroundFile(null);
@@ -3481,37 +3698,63 @@ const Whiteboard = forwardRef(({
         className={`whiteboard-container ${isScreenShareActive ? 'screen-share-overlay' : ''}`}
          style={containerStyle}
       >
-        {/* Background Layer - PDF and Images */}
+        {/* Background Layer - PDF, Images, and Arabic Alphabet */}
         {backgroundFile && (
           <div
             style={{
               position: 'absolute',
               top: 0,
               left: 0,
+              // CRITICAL: Background div must match Stage dimensions exactly for coordinate synchronization
               width: backgroundType === 'image' 
                 ? `${backgroundDimensions.width > 0 ? backgroundDimensions.width : 1200}px` 
+                : backgroundType === 'arabic-alphabet'
+                ? `${backgroundDimensions.width > 0 ? backgroundDimensions.width : 1200}px`
                 : '100%',
               height: backgroundType === 'image' 
                 ? `${backgroundDimensions.height > 0 ? backgroundDimensions.height : 800}px` 
+                : backgroundType === 'arabic-alphabet'
+                ? `${backgroundDimensions.height > 0 ? backgroundDimensions.height : 800}px`
                 : '100%',
               zIndex: 1,
-              backgroundColor: '#f5f5f5',
+              backgroundColor: backgroundType === 'arabic-alphabet' ? 'rgba(255, 255, 255, 0.85)' : '#f5f5f5',
               display: 'flex',
               justifyContent: 'flex-start', // Left-align instead of center
               alignItems: 'flex-start', // Start from top instead of center
-              padding: '10px', // Add 10px padding around the PDF
+              // CRITICAL: No padding for Arabic alphabet to ensure exact alignment with Stage
+              // Padding would offset content and cause coordinate mismatch between peers
+              padding: backgroundType === 'arabic-alphabet' ? '0px' : '10px',
+              boxSizing: 'border-box', // Ensure padding is included in width/height calculation
               pointerEvents: 'none' // Allow mouse events to pass through to Stage
             }}
             onLoad={() => {
+              const bgWidth = backgroundType === 'image' 
+                ? (backgroundDimensions.width > 0 ? backgroundDimensions.width : 1200)
+                : backgroundType === 'arabic-alphabet'
+                ? (backgroundDimensions.width > 0 ? backgroundDimensions.width : 1200)
+                : '100%';
+              const bgHeight = backgroundType === 'image' 
+                ? (backgroundDimensions.height > 0 ? backgroundDimensions.height : 800)
+                : backgroundType === 'arabic-alphabet'
+                ? (backgroundDimensions.height > 0 ? backgroundDimensions.height : 800)
+                : '100%';
+              
               log('INFO', 'Whiteboard', 'Background div rendered', {
                 backgroundType,
                 backgroundDimensions,
-                width: backgroundType === 'image' 
-                  ? `${backgroundDimensions.width > 0 ? backgroundDimensions.width : 1200}px` 
-                  : '100%',
-                height: backgroundType === 'image' 
-                  ? `${backgroundDimensions.height > 0 ? backgroundDimensions.height : 800}px` 
-                  : '100%',
+                calculatedWidth: bgWidth,
+                calculatedHeight: bgHeight,
+                finalWidth,
+                finalHeight,
+                stageWidth: backgroundType === 'arabic-alphabet' 
+                  ? (backgroundDimensions.width > 0 ? backgroundDimensions.width : 1200)
+                  : 'N/A',
+                stageHeight: backgroundType === 'arabic-alphabet'
+                  ? (backgroundDimensions.height > 0 ? backgroundDimensions.height : 800)
+                  : 'N/A',
+                coordinateSync: backgroundType === 'arabic-alphabet' 
+                  ? 'Background div and Stage must match exactly (1200x800)'
+                  : 'Standard sizing',
                 timestamp: Date.now()
               });
             }}
@@ -3532,6 +3775,16 @@ const Whiteboard = forwardRef(({
               isMobile={isMobile}
               scale={1}
             />
+            ) : backgroundType === 'arabic-alphabet' ? (
+              <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                <ArabicAlphabetOverlay
+                  isVisible={true}
+                  onClose={() => {
+                    setBackgroundFile(null);
+                    setBackgroundType(null);
+                  }}
+                />
+              </div>
             ) : (
               <div style={{ position: 'relative', width: '100%', height: '100%' }}>
                 {/* ImageRenderer handles ALL image logic - parent only needs dimensions for canvas matching */}
@@ -3560,8 +3813,8 @@ const Whiteboard = forwardRef(({
           </div>
         )}
 
-        {/* Selected Content Background Layer */}
-        {selectedContent && !backgroundFile && (
+        {/* Selected Content Background Layer - Exclude Arabic alphabet (handled by overlay) */}
+        {selectedContent && !backgroundFile && selectedContent.type !== 'arabic-alphabet' && (
                           <div 
                       style={{
               position: 'absolute',
@@ -3602,6 +3855,8 @@ const Whiteboard = forwardRef(({
               ? screenShareDimensions.width 
               : backgroundType === 'pdf' 
                 ? backgroundDimensions.width > 0 ? backgroundDimensions.width : 1200  // Use PDF width for left-aligned layout
+              : backgroundType === 'arabic-alphabet'
+                ? backgroundDimensions.width > 0 ? backgroundDimensions.width : 1200  // Fixed width for Arabic alphabet
               : backgroundDimensions.width > 0 
                 ? backgroundDimensions.width 
                 : currentContainerSize.width;
@@ -3609,8 +3864,12 @@ const Whiteboard = forwardRef(({
               isScreenShareActive,
               screenShareDimensions,
               backgroundDimensions,
+              backgroundType,
               currentContainerSize,
-              finalStageWidth: stageWidth
+              finalStageWidth: stageWidth,
+              note: backgroundType === 'arabic-alphabet' 
+                ? 'Arabic alphabet: Using fixed 1200px width for coordinate synchronization'
+                : 'Standard width calculation'
             });
             return stageWidth;
           })()}
@@ -3619,6 +3878,8 @@ const Whiteboard = forwardRef(({
               ? screenShareDimensions.height 
               : backgroundType === 'pdf' 
                 ? backgroundDimensions.height > 0 ? backgroundDimensions.height : 800  // Use PDF height for drawing area
+              : backgroundType === 'arabic-alphabet'
+                ? backgroundDimensions.height > 0 ? backgroundDimensions.height : 800  // Fixed height for Arabic alphabet
               : backgroundDimensions.height > 0 
                 ? backgroundDimensions.height 
                 : currentContainerSize.height;
@@ -3632,7 +3893,10 @@ const Whiteboard = forwardRef(({
               finalWidth,
               finalHeight,
               calculatedStageHeight: stageHeight,
-              note: 'Stage height should match container height for PDF drawing across all pages'
+              note: backgroundType === 'arabic-alphabet'
+                ? 'Arabic alphabet: Using fixed 800px height for coordinate synchronization'
+                : 'Stage height should match container height for PDF/Arabic alphabet drawing',
+              coordinateSystem: 'All coordinates are relative to Stage top-left (0,0)'
             });
             return stageHeight;
           })()}

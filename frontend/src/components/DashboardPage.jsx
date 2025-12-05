@@ -3077,6 +3077,44 @@ const DashboardPage = () => {
         await processImageUrl(imageUrl, true); // sendToPeers = true
     };
 
+    // Handle Arabic Alphabet topic selection from ContentSelector
+    const handleArabicAlphabetSelect = async () => {
+        log('INFO', 'DashboardPage', 'Arabic Alphabet selected');
+        
+        // Create the selected content object for synchronization
+        const arabicAlphabetContent = {
+            id: 'arabic-alphabet-display',
+            name: 'Arabic Alphabet',
+            content: 'Display Arabic alphabet overlay for practice.',
+            type: 'arabic-alphabet'
+        };
+        
+        // Set selected content locally
+        setSelectedContent(arabicAlphabetContent);
+        
+        // Set Arabic alphabet as background type in whiteboard and send to peers
+        if (whiteboardRef.current && whiteboardRef.current.setArabicAlphabetBackground) {
+            log('INFO', 'DashboardPage', 'Setting Arabic alphabet as background and sending to peers');
+            whiteboardRef.current.setArabicAlphabetBackground(true, true); // true = sendToPeers
+        } else {
+            log('WARN', 'DashboardPage', 'Whiteboard ref or setArabicAlphabetBackground not available');
+        }
+        
+        // Send content selection to peer for UI synchronization
+        if (provider && selectedPeer) {
+            try {
+                log('INFO', 'DashboardPage', 'Sending content selection to peer', { content: arabicAlphabetContent });
+                provider.sendWhiteboardMessage(selectedPeer, {
+                    action: 'contentSelection',
+                    content: arabicAlphabetContent,
+                    timestamp: Date.now()
+                });
+            } catch (error) {
+                log('ERROR', 'DashboardPage', 'Failed to send content selection to peer', { error: error.message });
+            }
+        }
+    };
+
     const handleImageSizeChange = (newSize) => {
         log('INFO', 'DashboardPage', 'Image size changed', { newSize });
         // Note: Not updating dynamicContainerSize to maintain coordinate consistency between peers
@@ -3428,6 +3466,7 @@ const DashboardPage = () => {
                                 selectedContent={selectedContent}
                                 onPdfTopicSelect={handlePdfTopicSelect}
                                 onImageTopicSelect={handleImageTopicSelect}
+                                onArabicAlphabetSelect={handleArabicAlphabetSelect}
                             />
                         </div>
                         
@@ -3452,7 +3491,7 @@ const DashboardPage = () => {
                 )}
                 
                 {/* Right Panel - Fixed Size Dashboard Content */}
-                <div className="dashboard-content">
+                <div className="dashboard-content" style={{ position: 'relative' }}>
                     {/* Full-screen Toggle Button - Positioned in corner */}
                     <div className="fullscreen-toggle-container">
                         <button 
@@ -3546,6 +3585,7 @@ const DashboardPage = () => {
                             onPdfChange={handlePdfChange}
                             onPDFDimensionsChange={handlePDFDimensionsChange}
                             selectedContent={selectedContent}
+                            onContentSelect={setSelectedContent}
                             webRTCProvider={provider}
                             selectedPeer={selectedPeer}
                             // GLOBAL STATE APPROACH: Not needed anymore

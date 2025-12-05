@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import '../styles/ContentSelector.css';
 
-const ContentSelector = ({ onContentSelect, selectedContent, onPdfTopicSelect, onImageTopicSelect }) => {
+const ContentSelector = ({ onContentSelect, selectedContent, onPdfTopicSelect, onImageTopicSelect, onArabicAlphabetSelect }) => {
   const [expandedSubjects, setExpandedSubjects] = useState({});
   const [expandedChapters, setExpandedChapters] = useState({});
 
@@ -139,6 +139,25 @@ const ContentSelector = ({ onContentSelect, selectedContent, onPdfTopicSelect, o
           ]
         }
       ]
+    },
+    {
+      id: 'arabic',
+      name: 'Arabic',
+      icon: '🕌',
+      chapters: [
+        {
+          id: 'arabic-alphabet',
+          name: 'Alphabet',
+          topics: [
+            { 
+              id: 'arabic-alphabet-display', 
+              name: 'Arabic Alphabet', 
+              content: 'Display Arabic alphabet overlay for practice.',
+              type: 'arabic-alphabet'
+            }
+          ]
+        }
+      ]
     }
   ];
 
@@ -186,6 +205,16 @@ const ContentSelector = ({ onContentSelect, selectedContent, onPdfTopicSelect, o
       // Call the image topic handler
       if (onImageTopicSelect) {
         onImageTopicSelect(imageUrl);
+      }
+    } else if (topic.type === 'arabic-alphabet') {
+      // Handle Arabic alphabet background
+      console.log('Arabic Alphabet Selected:', {
+        topic: topic.name
+      });
+      
+      // Call the Arabic alphabet handler
+      if (onArabicAlphabetSelect) {
+        onArabicAlphabetSelect();
       }
     } else {
       // Handle regular content selection
