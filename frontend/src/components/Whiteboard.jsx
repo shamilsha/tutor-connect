@@ -97,6 +97,8 @@ const Whiteboard = forwardRef(({
 
   // State to track background dimensions - MOVED TO TOP TO PREVENT HOISTING ERRORS
   const [backgroundDimensions, setBackgroundDimensions] = useState({ width: 0, height: 0 });
+  const [arabicAlphabetShuffleOrder, setArabicAlphabetShuffleOrder] = useState(null);
+  const [isArabicAlphabetClickMode, setIsArabicAlphabetClickMode] = useState(true); // Default to click mode
   // State to track screen share dimensions - MOVED TO TOP TO PREVENT HOISTING ERRORS
   const [screenShareDimensions, setScreenShareDimensions] = useState({ width: 0, height: 0 });
   
@@ -990,6 +992,15 @@ const Whiteboard = forwardRef(({
           onContentSelect(data.content);
         }
         break;
+      case 'arabicAlphabetShuffle': // Handle Arabic alphabet shuffle synchronization
+        if (data.shuffleOrder !== undefined) {
+          log('INFO', 'Whiteboard', '🔀 RECEIVED ARABIC ALPHABET SHUFFLE ORDER from peer', { 
+            shuffleOrder: data.shuffleOrder,
+            isReset: data.shuffleOrder === null
+          });
+          setArabicAlphabetShuffleOrder(data.shuffleOrder);
+        }
+        break;
         case 'background':
           if (data.background) {
             log('INFO', 'Whiteboard', 'Received background update', data.background);
@@ -1208,6 +1219,9 @@ const Whiteboard = forwardRef(({
       } else if (data.position) {
         // For cursor actions
         message.position = data.position;
+      } else if (data.shuffleOrder !== undefined) {
+        // For Arabic alphabet shuffle actions
+        message.shuffleOrder = data.shuffleOrder;
       } else {
         // Fallback - spread other data properties
         Object.assign(message, data);
@@ -1461,6 +1475,41 @@ const Whiteboard = forwardRef(({
     // Floating-point coordinates can render differently on different browsers/devices
     const correctedX = Math.round(point.x);
     const correctedY = Math.round(point.y);
+    
+    // LOCAL TOGGLE: Only disable drawing over alphabet area when in click mode
+    if (backgroundType === 'arabic-alphabet' && isArabicAlphabetClickMode) {
+      // Check if click is within alphabet area (1200x800)
+      if (correctedX >= 0 && correctedX <= 1200 && correctedY >= 0 && correctedY <= 800) {
+        // Check if click target is an alphabet card - if so, let it handle the click
+        const target = e.evt?.target || e.target;
+        const isAlphabetCard = target && (
+          target.classList?.contains('arabic-letter-card') ||
+          target.closest?.('.arabic-letter-card') ||
+          target.closest?.('.arabic-alphabet-grid')
+        );
+        
+        if (isAlphabetCard) {
+          log('INFO', 'Whiteboard', '🖱️ Click on alphabet card - allowing card to handle click', {
+            backgroundType,
+            isArabicAlphabetClickMode,
+            x: correctedX,
+            y: correctedY,
+            timestamp: Date.now()
+          });
+          return; // Let alphabet card handle the click
+        }
+        
+        log('INFO', 'Whiteboard', '🖱️ Drawing disabled over alphabet area - Click mode active', {
+          backgroundType,
+          isArabicAlphabetClickMode,
+          x: correctedX,
+          y: correctedY,
+          timestamp: Date.now()
+        });
+        return; // Don't allow drawing over alphabet area in click mode
+      }
+      // If click is outside alphabet area, allow drawing normally
+    }
     
     // Validate coordinates to prevent NaN/Infinity values
     if (!isFinite(correctedX) || !isFinite(correctedY) || isNaN(correctedX) || isNaN(correctedY)) {
@@ -2967,15 +3016,21 @@ const Whiteboard = forwardRef(({
   // This ensures coordinates from getPointerPosition() are always relative to Stage's top-left corner (0,0)
   // regardless of where the container is positioned on the screen
   const stageStyle = useMemo(() => {
+    // In click mode, allow pointer events to pass through to alphabet cards
+    // But we still need to capture events for drawing outside alphabet area
+    const pointerEvents = (backgroundType === 'arabic-alphabet' && isArabicAlphabetClickMode) 
+      ? 'none' // Disable Stage events in click mode so alphabet cards can capture
+      : 'all'; // Enable Stage events in drawing mode
+    
     return {
       position: 'absolute',
       top: 0,  // Always at top of container
       left: 0, // Always at left of container
-      zIndex: 2,
-      pointerEvents: 'all',
+      zIndex: backgroundType === 'arabic-alphabet' && isArabicAlphabetClickMode ? 1 : 2, // Lower z-index in click mode so cards are above
+      pointerEvents: pointerEvents,
       background: 'transparent'
     };
-  }, []); // Stage style is static - no need to recalculate
+  }, [backgroundType, isArabicAlphabetClickMode]); // Recalculate when mode changes
 
   // Memoized stage dimensions - only recalculates during background transitions
   const stageDimensions = useMemo(() => {
@@ -3776,12 +3831,45 @@ const Whiteboard = forwardRef(({
               scale={1}
             />
             ) : backgroundType === 'arabic-alphabet' ? (
-              <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+              // Arabic alphabet overlay - rendered in background
+              // In click mode: cards are above Stage, container allows pointer events
+              // In drawing mode: cards are below Stage, container blocks pointer events
+              <div style={{ 
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%', 
+                height: '100%',
+                zIndex: isArabicAlphabetClickMode ? 3 : 1, // Above Stage in click mode, below in drawing mode
+                pointerEvents: isArabicAlphabetClickMode ? 'auto' : 'none' // Allow clicks in click mode, block in drawing mode
+              }}>
                 <ArabicAlphabetOverlay
                   isVisible={true}
                   onClose={() => {
                     setBackgroundFile(null);
                     setBackgroundType(null);
+                    setArabicAlphabetShuffleOrder(null);
+                    setIsArabicAlphabetClickMode(true); // Reset to click mode
+                  }}
+                  shuffleOrder={arabicAlphabetShuffleOrder}
+                  onShuffleOrderChange={(shuffleOrder) => {
+                    console.log('[Whiteboard] Arabic alphabet shuffle order changed', { 
+                      shuffleOrder,
+                      isNull: shuffleOrder === null,
+                      isArray: Array.isArray(shuffleOrder),
+                      length: Array.isArray(shuffleOrder) ? shuffleOrder.length : undefined,
+                      timestamp: Date.now()
+                    });
+                    setArabicAlphabetShuffleOrder(shuffleOrder);
+                    sendWhiteboardMsg('arabicAlphabetShuffle', { shuffleOrder });
+                  }}
+                  onModeChange={(isClickMode) => {
+                    console.log('[Whiteboard] Arabic alphabet mode changed', { 
+                      isClickMode,
+                      mode: isClickMode ? 'Click Mode' : 'Drawing Mode',
+                      timestamp: Date.now()
+                    });
+                    setIsArabicAlphabetClickMode(isClickMode);
                   }}
                 />
               </div>
@@ -3848,7 +3936,7 @@ const Whiteboard = forwardRef(({
           </div>
         )}
 
-        {/* Drawing Layer */}
+        {/* Drawing Layer - MUST be on top for drawing to work */}
         <Stage
           width={(() => {
             const stageWidth = isScreenShareActive && screenShareDimensions.width > 0 
@@ -3914,8 +4002,10 @@ const Whiteboard = forwardRef(({
             log('INFO', 'Whiteboard', '🖱️ STAGE MOUSE DOWN', {
               actualTool,
               isDrawing,
+              isArabicAlphabetClickMode,
               timestamp: Date.now()
             });
+            // handleMouseDown will check if drawing should be disabled over alphabet area
             handleMouseDown(e);
           }}
           onMouseMove={handleMouseMove}
@@ -3974,7 +4064,7 @@ const Whiteboard = forwardRef(({
                     preventDefault: () => { if (e.preventDefault) e.preventDefault(); },
                     stopPropagation: () => { if (e.stopPropagation) e.stopPropagation(); }
                   };
-                  // Use the same mouse handler - coordinates are already in same system
+                  // Use the same mouse handler - it will check if drawing should be disabled over alphabet area
                   handleMouseDown(mouseEvent);
                 } else {
                   log('WARN', 'Whiteboard', '👆 TOUCH START - NO TOUCH FOUND', {

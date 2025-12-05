@@ -1,0 +1,210 @@
+/* CRITICAL: All dimensions must be FIXED PIXEL VALUES to ensure identical rendering on all devices/peers */
+/* No responsive units, no media queries, no percentages - everything must be identical */
+
+.arabic-alphabet-overlay {
+    position: relative;
+    width: 1200px; /* FIXED: Must match Stage width exactly */
+    height: 800px; /* FIXED: Must match Stage height exactly */
+    pointer-events: none; /* Allow drawing through the overlay */
+    overflow: hidden; /* Prevent scrolling */
+    padding: 0;
+    margin: 0;
+    box-sizing: border-box;
+    /* Use system fonts with good Arabic support - Arial and Tahoma render well on both desktop and mobile */
+    font-family: Arial, Tahoma, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.arabic-overlay-close-button {
+    pointer-events: auto; /* Close button needs to be clickable */
+    position: absolute;
+    top: 10px; /* FIXED */
+    right: 10px; /* FIXED */
+    z-index: 10;
+    margin: 0;
+    padding: 0;
+}
+
+.arabic-shuffle-button {
+    pointer-events: auto !important; /* CRITICAL: Override any parent pointer-events */
+    position: relative; /* Changed from absolute - now in flex container */
+    z-index: 10000 !important; /* Very high z-index to be above Stage */
+    margin: 0;
+    padding: 0;
+    display: block;
+}
+
+.arabic-shuffle-btn {
+    background: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 0; /* No padding for icon-only button */
+    cursor: pointer !important;
+    font-size: 18px; /* Larger icon size */
+    font-weight: normal;
+    transition: background-color 0.3s, transform 0.2s;
+    margin: 0;
+    width: 32px; /* Fixed small size */
+    height: 32px; /* Fixed small size */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    pointer-events: auto !important; /* Ensure button itself is clickable */
+    position: relative;
+    z-index: 1001 !important; /* Even higher z-index */
+}
+
+.arabic-shuffle-btn:hover {
+    background: #0056b3;
+    transform: scale(1.1);
+}
+
+.arabic-shuffle-btn:active {
+    transform: scale(0.95);
+    background: #004085;
+}
+
+.arabic-close-btn {
+    background: #dc3545;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 16px; /* FIXED */
+    cursor: pointer;
+    font-size: 14px; /* FIXED */
+    font-weight: bold;
+    transition: background-color 0.3s;
+    margin: 0;
+}
+
+.arabic-close-btn:hover {
+    background: #c82333;
+}
+
+.arabic-alphabet-grid {
+    display: grid;
+    /* FIXED: 6 columns, each exactly 180px, with 15px gaps = 6*180 + 5*15 + 40 padding = 1195px total */
+    grid-template-columns: 180px 180px 180px 180px 180px 180px; /* FIXED: 6 columns of 180px each */
+    gap: 15px; /* FIXED: 15px gap between all items */
+    padding: 20px; /* FIXED: 20px padding on all sides */
+    width: 1200px; /* FIXED: Must match Stage width */
+    height: auto;
+    margin: 0; /* FIXED: No margin */
+    pointer-events: none; /* Grid itself doesn't capture events, but children can */
+    box-sizing: border-box; /* Include padding in width calculation */
+    /* Total width: 6 * 180 + 5 * 15 + 40 = 1080 + 75 + 40 = 1195px (fits in 1200px) */
+}
+
+.arabic-letter-card {
+    background: rgba(255, 255, 255, 0.95); /* Slightly more opaque for better visibility */
+    border: 2px solid #007bff; /* FIXED: 2px border */
+    border-radius: 8px; /* FIXED */
+    padding: 20px; /* FIXED: 20px padding on all sides */
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    pointer-events: none; /* Default: allow drawing through */
+    transition: transform 0.2s, box-shadow 0.2s;
+    height: 140px; /* FIXED: Fixed height instead of min-height */
+    width: 180px; /* FIXED: Fixed width to match grid column */
+    margin: 0; /* FIXED: No margin */
+    box-sizing: border-box; /* Include border and padding in width/height */
+    /* Use system fonts with good Arabic support */
+    font-family: Arial, Tahoma, "Segoe UI", sans-serif;
+    z-index: 0; /* Default: below Stage */
+}
+
+.arabic-letter-card.drawing-mode {
+    pointer-events: none !important; /* CRITICAL: Completely disable in drawing mode */
+    z-index: 0 !important; /* Below Stage */
+    cursor: default !important;
+}
+
+.arabic-letter-card.clickable {
+    pointer-events: auto !important; /* Enable clicks for speaking - override parent */
+    user-select: none; /* Prevent text selection */
+    position: relative; /* Ensure it's in the stacking context */
+    z-index: 3 !important; /* Above Stage when in click mode (Stage is z-index 2) */
+    -webkit-tap-highlight-color: rgba(0, 123, 255, 0.3); /* Mobile tap highlight */
+    touch-action: manipulation; /* Optimize touch for mobile - prevent double-tap zoom */
+    -webkit-touch-callout: none; /* Disable long-press menu on iOS */
+    isolation: isolate; /* Create new stacking context */
+}
+
+.arabic-letter-card.clickable:hover {
+    transform: scale(1.05); /* Slight zoom on hover */
+    box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3); /* Enhanced shadow on hover */
+}
+
+.arabic-letter-card.clickable:active {
+    transform: scale(0.98); /* Slight shrink on click */
+}
+
+.arabic-letter-main {
+    font-size: 64px; /* FIXED: 64px font size */
+    font-weight: bold; /* FIXED: Bold weight */
+    margin-bottom: 8px; /* FIXED: 8px margin */
+    margin-top: 0;
+    margin-left: 0;
+    margin-right: 0;
+    color: #007bff;
+    line-height: 1.2; /* FIXED */
+    padding: 0;
+    /* Use system fonts with good Arabic support - Arial and Tahoma render well on both desktop and mobile */
+    font-family: Arial, Tahoma, "Segoe UI", sans-serif;
+    font-feature-settings: "kern" 1; /* Enable kerning for better Arabic rendering */
+    text-rendering: optimizeLegibility; /* Better text rendering */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.arabic-letter-name {
+    font-size: 14px; /* FIXED: 14px font size */
+    font-weight: bold;
+    color: #333;
+    margin-bottom: 4px; /* FIXED: 4px margin */
+    margin-top: 0;
+    margin-left: 0;
+    margin-right: 0;
+    padding: 0;
+}
+
+.arabic-letter-pronunciation {
+    font-size: 12px; /* FIXED: 12px font size */
+    color: #666;
+    margin: 0; /* FIXED: No margin */
+    padding: 0;
+}
+
+.arabic-letter-forms {
+    font-size: 11px; /* FIXED: 11px font size */
+    color: #999;
+    margin-top: 8px; /* FIXED: 8px top margin */
+    margin-bottom: 0;
+    margin-left: 0;
+    margin-right: 0;
+    display: flex;
+    justify-content: space-around;
+    flex-wrap: wrap;
+    gap: 4px; /* FIXED: 4px gap */
+    padding: 0;
+}
+
+.arabic-instructions {
+    position: absolute;
+    bottom: 10px; /* FIXED: 10px from bottom */
+    left: 0;
+    right: 0;
+    text-align: center;
+    padding: 10px; /* FIXED: 10px padding */
+    color: #666;
+    font-size: 14px; /* FIXED: 14px font size */
+    pointer-events: none;
+    margin: 0;
+    box-sizing: border-box;
+}
+
+/* REMOVED ALL MEDIA QUERIES - Everything must be identical on all devices */
