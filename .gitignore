@@ -3,6 +3,8 @@ target/
 backend/target/
 frontend/target/
 frontend/node_modules/
+frontend/desktopdrawing/bin/
+frontend/desktopdrawing/obj/
 signaling-server/node_modules/
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
@@ -53,6 +55,11 @@ backend/src/main/resources/data/
 # IDE files
 .vscode/
 .idea/
+
+# Visual Studio / .NET user files
+*.csproj.user
+*.user
+*.suo
 
 # Logs
 *.log
