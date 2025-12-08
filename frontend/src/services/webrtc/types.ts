@@ -21,6 +21,18 @@ export interface StreamEventData {
     stream: MediaStream | null;
     type: 'local' | 'remote';
     streamType?: 'audio' | 'video' | 'screen';
+    originalDimensions?: {
+        width: number;
+        height: number;
+        aspectRatio: number;
+    };
+    displayInfo?: {
+        displaySurface?: string; // 'monitor', 'window', 'browser', or 'application'
+        width?: number;
+        height?: number;
+        frameRate?: number;
+        aspectRatio?: number | null;
+    };
 }
 
 export interface ErrorEventData {

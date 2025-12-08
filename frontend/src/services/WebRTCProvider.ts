@@ -2167,6 +2167,19 @@ export class WebRTCProvider implements IWebRTCProvider {
                 case 'closed':
 
                     if (peerState.phase !== 'disconnected') {
+                        // Don't immediately clean up if ICE is just disconnected - wait for the timeout
+                        // The ICE disconnection handler will handle cleanup after the timeout
+                        if (connection.iceConnectionState === 'disconnected' && (peerState.phase === 'connecting' || peerState.phase === 'connected')) {
+                            log('WARN', 'WebRTC', 'Connection state changed to failed/closed but ICE is disconnected - waiting for ICE timeout', { 
+                                peerId,
+                                connectionState: state,
+                                iceConnectionState: connection.iceConnectionState,
+                                phase: peerState.phase,
+                                note: 'ICE disconnection handler will clean up after timeout'
+                            });
+                            // Don't clean up yet - let the ICE disconnection handler deal with it
+                            return;
+                        }
 
                         log('WARN', 'WebRTC', 'Peer connection failed/closed, cleaning up', { peerId });
 
@@ -2525,7 +2538,33 @@ export class WebRTCProvider implements IWebRTCProvider {
                     // Check if this is a temporary disconnection during renegotiation
                     const currentPeerState = this.connections.get(peerId);
                     if (currentPeerState && (currentPeerState.phase === 'connecting' || currentPeerState.phase === 'connected')) {
-                        log('WARN', 'WebRTC', 'ICE disconnection detected during active phase - this may be temporary during renegotiation', { peerId });
+                        log('WARN', 'WebRTC', 'ICE disconnection detected during active phase - this may be temporary during renegotiation', { 
+                            peerId,
+                            phase: currentPeerState.phase,
+                            iceConnectionState: connection.iceConnectionState,
+                            connectionState: connection.connectionState,
+                            note: 'Waiting for reconnection or failure before cleanup'
+                        });
+                        
+                        // Set a timeout to check if connection recovers
+                        // If it doesn't recover within 5 seconds, then treat as failure
+                        setTimeout(() => {
+                            const updatedPeerState = this.connections.get(peerId);
+                            const updatedConnection = updatedPeerState?.connection;
+                            if (updatedConnection && updatedConnection.iceConnectionState === 'disconnected') {
+                                log('WARN', 'WebRTC', 'ICE disconnection persisted - treating as connection failure', { 
+                                    peerId,
+                                    iceConnectionState: updatedConnection.iceConnectionState,
+                                    connectionState: updatedConnection.connectionState
+                                });
+                                this.handleError(peerId, new Error('ICE connection disconnected and did not recover'));
+                            } else if (updatedConnection && (updatedConnection.iceConnectionState === 'connected' || updatedConnection.iceConnectionState === 'completed')) {
+                                log('INFO', 'WebRTC', 'ICE connection recovered after temporary disconnection', { 
+                                    peerId,
+                                    iceConnectionState: updatedConnection.iceConnectionState
+                                });
+                            }
+                        }, 5000); // Wait 5 seconds for reconnection
                         
                         // Don't immediately clean up - wait for reconnection or failure
                         // The connection will either reconnect or fail, and we'll handle it then
@@ -3461,11 +3500,47 @@ private detectTrackRemoval(peerId: string, changeType: 'sender' | 'receiver') {
                             trackId: videoTrack.id,
                             contentHint: videoTrack.contentHint
                         }});
+                        
+                        // Get original dimensions and display information from video track settings
+                        const settings = videoTrack.getSettings();
+                        const originalDimensions = settings.width && settings.height ? {
+                            width: settings.width,
+                            height: settings.height,
+                            aspectRatio: settings.width / settings.height
+                        } : null;
+                        
+                        // Capture display information (what's available from the API)
+                        // Note: displaySurface may not be in TypeScript definitions but exists at runtime in some browsers
+                        const settingsAny = settings as any;
+                        const displayInfo = {
+                            displaySurface: settingsAny.displaySurface || 'unknown', // 'monitor', 'window', 'browser', or 'application'
+                            width: settings.width,
+                            height: settings.height,
+                            frameRate: settings.frameRate,
+                            aspectRatio: settings.width && settings.height ? (settings.width / settings.height) : null,
+                            // Note: The API does NOT provide monitor position/coordinates for security reasons
+                            // We can only detect that it's a monitor, not which monitor or where it's positioned
+                        };
+                        
+                        log('INFO', 'WebRTC', 'Screen share display information', {
+                            displayInfo,
+                            note: 'displaySurface indicates type of shared surface, but monitor position/coordinates are not available for security reasons'
+                        });
+                        
+                        // Send screen share signal via data channel BEFORE renegotiation
+                        // Include original dimensions and display info so remote peer knows the exact size and type
+                        log('DEBUG', 'WebRTC', 'Sending screen share signal to peer via data channel', { 
+                            peerId, 
+                            streamId: screenStream.id,
+                            originalDimensions,
+                            displayInfo
+                        });
+                        this.sendScreenShareSignal(peerId, screenStream.id, originalDimensions, displayInfo);
+                    } else {
+                        // Send screen share signal even if no video track (shouldn't happen, but safety check)
+                        log('WARN', 'WebRTC', 'No video track in screen share stream', { peerId });
+                        this.sendScreenShareSignal(peerId, screenStream.id, null);
                     }
-                    
-                    // Send screen share signal via data channel BEFORE renegotiation
-                    log('DEBUG', 'WebRTC', 'Sending screen share signal to peer via data channel', { peerId });
-                    this.sendScreenShareSignal(peerId, screenStream.id);
                     
                     // Trigger renegotiation
                     log('DEBUG', 'WebRTC', 'Triggering renegotiation for screen share to peer', { peerId });
@@ -3625,7 +3700,10 @@ private detectTrackRemoval(peerId: string, changeType: 'sender' | 'receiver') {
         
         // Bold logging for screen share signals received from peer
         if (message.screenId) {
-            log('INFO', 'WebRTC', 'Screen share started received from peer (responder side)', { peerId });
+            log('INFO', 'WebRTC', 'Screen share started received from peer (responder side)', { 
+                peerId,
+                originalDimensions: message.originalDimensions 
+            });
         } else {
             log('INFO', 'WebRTC', 'Screen share stopped received from peer (responder side)', { peerId });
         }
@@ -3634,6 +3712,27 @@ private detectTrackRemoval(peerId: string, changeType: 'sender' | 'receiver') {
         if (message.screenId) {
             peerState.remoteScreenShareId = message.screenId;
             log('DEBUG', 'WebRTC', 'Stored remote screen share ID for peer', { peerId, screenId: message.screenId });
+            
+            // Dispatch event with original dimensions and display info so DashboardPage can use them
+            if (message.originalDimensions) {
+                // Use 'stream' event type with custom data for screen share dimensions
+                this.dispatchEvent({
+                    type: 'stream',
+                    peerId,
+                    data: {
+                        type: 'remote',
+                        streamType: 'screen',
+                        stream: null, // Stream will be set separately
+                        originalDimensions: message.originalDimensions, // Add original dimensions to stream event
+                        displayInfo: message.displayInfo || null // Add display information (displaySurface, etc.)
+                    }
+                });
+                log('INFO', 'WebRTC', 'Dispatched screen share original dimensions and display info event', { 
+                    peerId,
+                    dimensions: message.originalDimensions,
+                    displayInfo: message.displayInfo
+                });
+            }
         } else {
             peerState.remoteScreenShareId = null;
             log('DEBUG', 'WebRTC', 'Cleared remote screen share ID for peer', { peerId });
@@ -3646,7 +3745,7 @@ private detectTrackRemoval(peerId: string, changeType: 'sender' | 'receiver') {
     /**
      * Send screen share signals via data channels
      */
-    private sendScreenShareSignal(peerId: string, screenId: string | null): void {
+    private sendScreenShareSignal(peerId: string, screenId: string | null, originalDimensions: { width: number; height: number; aspectRatio: number } | null = null, displayInfo: any = null): void {
         const peerState = this.connections.get(peerId);
         if (!peerState || !peerState.dataChannel || peerState.dataChannel.readyState !== 'open') {
             console.warn(`[WebRTC] Cannot send screen share signal to peer ${peerId}: data channel not ready`);
@@ -3656,17 +3755,26 @@ private detectTrackRemoval(peerId: string, changeType: 'sender' | 'receiver') {
         const message = {
             type: 'screenShare',
             screenId: screenId || null,
+            originalDimensions: originalDimensions || null, // Include original dimensions
+            displayInfo: displayInfo || null, // Include display information (displaySurface, etc.)
             timestamp: Date.now()
         };
         
-        log('DEBUG', 'WebRTC', 'Sending screen share signal to peer', { peer: peerId, screenId: screenId || null });
+        log('DEBUG', 'WebRTC', 'Sending screen share signal to peer', { 
+            peer: peerId, 
+            screenId: screenId || null,
+            originalDimensions 
+        });
         
         try {
             peerState.dataChannel.send(JSON.stringify(message));
             
             // Bold logging for screen share signals sent to peer
             if (screenId) {
-                log('INFO', 'WebRTC', 'Screen share started sent to peer (initiator side)', { peerId });
+                log('INFO', 'WebRTC', 'Screen share started sent to peer (initiator side)', { 
+                    peerId,
+                    originalDimensions 
+                });
             } else {
                 log('INFO', 'WebRTC', 'Screen share stopped sent to peer (initiator side)', { peerId });
             }
