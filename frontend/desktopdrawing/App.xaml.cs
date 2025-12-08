@@ -1,4 +1,5 @@
-﻿using System.Configuration;
+﻿using System;
+using System.Configuration;
 using System.Data;
 using System.Windows;
 using System.Threading;
@@ -12,6 +13,12 @@ namespace desktopdrawing
     {
         private const string MutexName = "desktopdrawing_singleton_mutex";
         private static Mutex? mutex = null;
+        private DrawingServer? _drawingServer;
+
+        /// <summary>
+        /// Get the drawing server instance (accessible from MainWindow)
+        /// </summary>
+        public static DrawingServer? DrawingServer => ((App)Current)._drawingServer;
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -30,11 +37,34 @@ namespace desktopdrawing
                 return;
             }
 
+            // Start the local HTTP server for drawing coordinates
+            try
+            {
+                _drawingServer = new DrawingServer(port: 8888);
+                _drawingServer.Start();
+            }
+            catch (Exception ex)
+            {
+                // Log error but don't prevent app from starting
+                System.Diagnostics.Debug.WriteLine($"[App] Failed to start drawing server: {ex.Message}");
+            }
+
             base.OnStartup(e);
         }
 
         protected override void OnExit(ExitEventArgs e)
         {
+            // Stop the drawing server
+            try
+            {
+                _drawingServer?.Stop();
+                _drawingServer?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[App] Error stopping drawing server: {ex.Message}");
+            }
+
             // Release the mutex when the application exits
             mutex?.ReleaseMutex();
             mutex?.Dispose();

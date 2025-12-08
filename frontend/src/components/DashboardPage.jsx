@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { WebRTCProvider } from '../services/WebRTCProvider';
 import VideoChat from './VideoChat';
@@ -41,6 +42,8 @@ const DashboardPage = () => {
     const [screenShareAspectRatio, setScreenShareAspectRatio] = useState(null);
     const [originalScreenShareDimensions, setOriginalScreenShareDimensions] = useState(null);
     const [showFullscreenRecommendation, setShowFullscreenRecommendation] = useState(false);
+    // Track if whiteboard should be in fullscreen overlay mode (for initiator)
+    const [isWhiteboardFullscreenOverlay, setIsWhiteboardFullscreenOverlay] = useState(false);
     const navigate = useNavigate();
     const { signalingService } = useCommunication();
 
@@ -113,6 +116,72 @@ const DashboardPage = () => {
                 // Enter full-screen mode
                 const dashboardContent = document.querySelector('.dashboard-content');
                 if (dashboardContent) {
+                        // For screen share on remote peer, use original dimensions (not fitted to screen)
+                        if (isScreenShareActive && !isScreenSharing && originalScreenShareDimensions) {
+                            // Use original dimensions - allow overflow with scrollbars
+                            const contentWidth = originalScreenShareDimensions.width;
+                            const contentHeight = originalScreenShareDimensions.height;
+                            
+                            log('INFO', 'DashboardPage', 'Fullscreen with original dimensions', {
+                                originalWidth: contentWidth,
+                                originalHeight: contentHeight,
+                                screenWidth: screen.width,
+                                screenHeight: screen.height,
+                                willExceedScreen: contentWidth > screen.width || contentHeight > screen.height
+                            });
+                            
+                            // Request fullscreen FIRST, then set dimensions
+                            if (dashboardContent.requestFullscreen) {
+                                await dashboardContent.requestFullscreen();
+                            } else if (dashboardContent.webkitRequestFullscreen) {
+                                await dashboardContent.webkitRequestFullscreen();
+                            } else if (dashboardContent.msRequestFullscreen) {
+                                await dashboardContent.msRequestFullscreen();
+                            }
+                            
+                            // Wait a bit for fullscreen to activate, then set dimensions
+                            setTimeout(() => {
+                                // Set dimensions to original size (may exceed screen)
+                                dashboardContent.style.setProperty('width', `${contentWidth}px`, 'important');
+                                dashboardContent.style.setProperty('height', `${contentHeight}px`, 'important');
+                                dashboardContent.style.setProperty('max-width', 'none', 'important');
+                                dashboardContent.style.setProperty('max-height', 'none', 'important');
+                                dashboardContent.style.setProperty('min-width', 'unset', 'important');
+                                dashboardContent.style.setProperty('min-height', 'unset', 'important');
+                                dashboardContent.style.setProperty('overflow', 'auto', 'important'); // Enable scrollbars
+                                
+                                // Also update ScreenShareWindow to use original dimensions
+                                const screenShareWindow = document.querySelector('.screen-share-window');
+                                if (screenShareWindow) {
+                                    screenShareWindow.style.setProperty('width', `${contentWidth}px`, 'important');
+                                    screenShareWindow.style.setProperty('height', `${contentHeight}px`, 'important');
+                                    screenShareWindow.style.setProperty('max-width', 'none', 'important');
+                                    screenShareWindow.style.setProperty('max-height', 'none', 'important');
+                                    screenShareWindow.style.setProperty('overflow', 'auto', 'important');
+                                    
+                                    // Update video to use natural dimensions
+                                    const video = screenShareWindow.querySelector('video');
+                                    if (video) {
+                                        video.style.setProperty('width', 'auto', 'important');
+                                        video.style.setProperty('height', 'auto', 'important');
+                                        video.style.setProperty('max-width', 'none', 'important');
+                                        video.style.setProperty('max-height', 'none', 'important');
+                                    }
+                                }
+                                
+                                log('INFO', 'DashboardPage', 'Set original dimensions after fullscreen', {
+                                    dashboardWidth: dashboardContent.style.width,
+                                    dashboardHeight: dashboardContent.style.height,
+                                    screenShareWindowWidth: screenShareWindow?.style.width,
+                                    screenShareWindowHeight: screenShareWindow?.style.height
+                                });
+                            }, 100);
+                            
+                            setIsFullScreen(true);
+                            log('INFO', 'DashboardPage', 'Entered full-screen mode with original dimensions');
+                            return; // Exit early - don't do aspect ratio fitting
+                        }
+                        
                         // Calculate optimal dimensions based on screen share aspect ratio
                         // Use stored aspect ratio or calculate from original dimensions
                         let aspectRatio = screenShareAspectRatio;
@@ -564,6 +633,7 @@ const DashboardPage = () => {
     const whiteboardUndoRef = useRef(null);
     const whiteboardRedoRef = useRef(null);
     const whiteboardRef = useRef(null);
+    const whiteboardFullscreenOverlayRef = useRef(null);
     
     // Stable callback functions to prevent Whiteboard remounting
     const handleWhiteboardClose = useCallback(() => {
@@ -872,16 +942,8 @@ const DashboardPage = () => {
         }
     };
 
-    // Cleanup provider when provider state changes
-    useEffect(() => {
-        return () => {
-            if (provider) {
-                log('INFO', 'DashboardPage', 'Cleaning up WebRTC provider on provider change');
-                WebRTCProvider.clearAllInstances();
-                WebRTCProvider.clearActiveInstance(); // Clear the active instance reference
-            }
-        };
-    }, [provider]);
+    // NOTE: Removed provider cleanup on provider change - this was causing disconnections
+    // Provider cleanup is handled by the unmount useEffect below
     
 
     // Check screen sharing support on component mount
@@ -1262,16 +1324,17 @@ const DashboardPage = () => {
         }
     }, [peerList, selectedPeer, isPeerConnected, isConnecting]);
 
-    // WebRTC Provider lifecycle management
+    // WebRTC Provider lifecycle management - ONLY cleanup on unmount, not on provider change
     useEffect(() => {
-        // Cleanup function to destroy provider when it changes or component unmounts
+        // Cleanup function to destroy provider ONLY on component unmount
         return () => {
+            // Only cleanup on actual unmount, not when provider reference changes
+            // Use a ref to track if we're actually unmounting
+            log('INFO', 'DashboardPage', 'Component unmounting - cleaning up WebRTC provider');
+            
             if (provider) {
-                log('INFO', 'DashboardPage', 'Cleaning up WebRTC provider on unmount/change');
-                
-                // OWNERSHIP: DashboardPage owns WebRTCProvider - manage its cleanup
                 try {
-                    log('INFO', 'DashboardPage', 'DashboardPage managing WebRTCProvider cleanup');
+                    log('INFO', 'DashboardPage', 'DashboardPage managing WebRTCProvider cleanup on unmount');
                     
                     // DashboardPage removes the message handler (it owns the provider)
                     if (signalingService) {
@@ -1290,7 +1353,7 @@ const DashboardPage = () => {
                 }
             }
         };
-    }, [provider]); // This effect runs when provider changes or component unmounts
+    }, []); // Empty dependency array - only run on mount/unmount, NOT on provider changes
 
 
 
@@ -1325,6 +1388,34 @@ const DashboardPage = () => {
         const handleStreamChange = (event) => {
             const timestamp = Date.now();
             log('INFO', 'DashboardPage', 'Received stream event from provider', { timestamp, data: event.data });
+            
+            // Check if this stream event includes original dimensions from initiator
+            if (event.data && event.data.originalDimensions && event.data.streamType === 'screen') {
+                const dimensions = event.data.originalDimensions;
+                const displayInfo = event.data.displayInfo;
+                
+                log('INFO', 'DashboardPage', 'Received screen share original dimensions from initiator', {
+                    width: dimensions.width,
+                    height: dimensions.height,
+                    aspectRatio: dimensions.aspectRatio,
+                    displayInfo: displayInfo
+                });
+                
+                // Log display information for multi-monitor awareness
+                if (displayInfo) {
+                    log('INFO', 'DashboardPage', 'Screen share display information', {
+                        displaySurface: displayInfo.displaySurface,
+                        note: displayInfo.displaySurface === 'monitor' 
+                            ? 'A monitor is being shared, but specific monitor position/coordinates are not available (security limitation)'
+                            : `Shared surface type: ${displayInfo.displaySurface}`
+                    });
+                }
+                
+                // Store original dimensions received from initiator (preferred over getSettings())
+                setOriginalScreenShareDimensions(dimensions);
+                setScreenShareAspectRatio(dimensions.aspectRatio);
+                // Continue processing the stream change as well
+            }
             
             // Update screen share active status when streams change
             const hasLocalScreenShare = !!provider.getScreenShareStream();
@@ -1363,10 +1454,14 @@ const DashboardPage = () => {
                 log('INFO', 'DashboardPage', 'TRIGGERING SCREEN SHARE EXCLUSIVITY CHECK');
                 checkExclusivity('screenShare', true);
                 
-                // Show fullscreen prompt for remote peer when screen share starts
+                // REMOTE PEER: Show fullscreen prompt (optional, user can choose)
                 // Only trigger if we're receiving a remote screen share (not initiating one)
                 if (!isScreenSharing && !provider?.getScreenShareStream()) {
-                    log('INFO', 'DashboardPage', 'Screen share detected - showing fullscreen prompt for remote peer');
+                    log('INFO', 'DashboardPage', '📺 REMOTE PEER: Screen share detected - showing optional fullscreen prompt', {
+                        isScreenSharing,
+                        hasLocalScreenShare: !!provider?.getScreenShareStream(),
+                        note: 'Remote peer can optionally go fullscreen, but whiteboard stays in normal position'
+                    });
                     // Show visible notification to user
                     setShowFullscreenRecommendation(true);
                     // Auto-hide after 10 seconds
@@ -1374,7 +1469,11 @@ const DashboardPage = () => {
                         setShowFullscreenRecommendation(false);
                     }, 10000);
                 } else {
-                    log('INFO', 'DashboardPage', 'Skipping fullscreen prompt - this is initiator side or local screen share');
+                    log('INFO', 'DashboardPage', '📺 INITIATOR: Skipping fullscreen prompt - this is initiator side', {
+                        isScreenSharing,
+                        hasLocalScreenShare: !!provider?.getScreenShareStream(),
+                        note: 'Initiator whiteboard will automatically cover entire screen'
+                    });
                 }
             } else {
                 log('INFO', 'DashboardPage', 'Screen share stopped, clearing any existing content');
@@ -1421,7 +1520,322 @@ const DashboardPage = () => {
             provider.removeEventListener('stream', handleStreamChange);
         };
     }, [provider, isScreenSharing, selectedPeer]);
-
+    
+    // Track if user manually exited fullscreen to prevent auto-reactivation
+    const userManuallyExitedFullscreenRef = useRef(false);
+    
+    // INITIATOR: Auto-activate whiteboard fullscreen overlay when screen share starts
+    useEffect(() => {
+        const isFullscreen = !!(
+            document.fullscreenElement ||
+            document.webkitFullscreenElement ||
+            document.mozFullScreenElement ||
+            document.msFullscreenElement
+        );
+        
+        log('INFO', 'DashboardPage', '🔍 INITIATOR: Checking whiteboard fullscreen overlay state', {
+            isScreenSharing,
+            isWhiteboardFullscreenOverlay,
+            isFullscreen,
+            userManuallyExited: userManuallyExitedFullscreenRef.current,
+            shouldActivate: isScreenSharing && !isWhiteboardFullscreenOverlay && !isFullscreen && !userManuallyExitedFullscreenRef.current,
+            shouldDeactivate: !isScreenSharing && isWhiteboardFullscreenOverlay,
+            timestamp: Date.now()
+        });
+        
+        // Only auto-activate if screen sharing is active AND not already in fullscreen
+        // AND user hasn't manually exited fullscreen
+        // This prevents reactivation when user manually exits fullscreen
+        if (isScreenSharing && !isWhiteboardFullscreenOverlay && !isFullscreen && !userManuallyExitedFullscreenRef.current) {
+            log('INFO', 'DashboardPage', '🎯 INITIATOR: Auto-activating whiteboard fullscreen overlay', {
+                isScreenSharing,
+                isWhiteboardFullscreenOverlay,
+                isFullscreen,
+                screenWidth: window.screen.width,
+                screenHeight: window.screen.height,
+                viewportWidth: window.innerWidth,
+                viewportHeight: window.innerHeight,
+                timestamp: Date.now()
+            });
+            
+            // Request fullscreen on the whiteboard container element (like fullscreenDiv example)
+            // This makes only the whiteboard fullscreen, not the entire document
+            setIsWhiteboardFullscreenOverlay(true);
+            
+            // NOTE: Fullscreen is now requested immediately in the button click handler
+            // to maintain user gesture chain. This useEffect is kept as a fallback
+            // but should not be needed if the immediate request succeeds.
+        } else if (!isScreenSharing && isWhiteboardFullscreenOverlay) {
+            log('INFO', 'DashboardPage', '🎯 INITIATOR: Auto-deactivating whiteboard fullscreen overlay', {
+                isScreenSharing,
+                isWhiteboardFullscreenOverlay,
+                timestamp: Date.now()
+            });
+            
+            // Exit fullscreen when screen sharing stops
+            if (document.exitFullscreen) {
+                document.exitFullscreen().then(() => {
+                    log('INFO', 'DashboardPage', '✅ INITIATOR: Exited fullscreen', {
+                        timestamp: Date.now()
+                    });
+                }).catch((error) => {
+                    log('ERROR', 'DashboardPage', '❌ INITIATOR: Failed to exit fullscreen', {
+                        error: error.message,
+                        timestamp: Date.now()
+                    });
+                });
+            }
+            
+            setIsWhiteboardFullscreenOverlay(false);
+        }
+    }, [isScreenSharing, isWhiteboardFullscreenOverlay]);
+    
+    // INITIATOR: Listen for fullscreen change events to sync state
+    useEffect(() => {
+        const handleFullscreenChange = () => {
+            const isFullscreen = !!(
+                document.fullscreenElement ||
+                document.webkitFullscreenElement ||
+                document.mozFullScreenElement ||
+                document.msFullscreenElement
+            );
+            
+            log('INFO', 'DashboardPage', '🖥️ INITIATOR: Fullscreen state changed', {
+                isFullscreen,
+                fullscreenElement: document.fullscreenElement?.tagName,
+                isScreenSharing,
+                isWhiteboardFullscreenOverlay,
+                timestamp: Date.now()
+            });
+            
+            // If user manually exits fullscreen (e.g., ESC key), update state
+            // CRITICAL: Only deactivate if fullscreen actually exited AND user manually exited
+            // Don't deactivate if screen sharing stopped (that's handled by the other useEffect)
+            if (!isFullscreen && isWhiteboardFullscreenOverlay && isScreenSharing) {
+                log('INFO', 'DashboardPage', '🔄 INITIATOR: User exited fullscreen manually, restoring whiteboard to original position', {
+                    isScreenSharing,
+                    isWhiteboardFullscreenOverlay,
+                    timestamp: Date.now()
+                });
+                // Mark that user manually exited to prevent auto-reactivation
+                userManuallyExitedFullscreenRef.current = true;
+                // Deactivate fullscreen overlay - whiteboard will return to original position
+                setIsWhiteboardFullscreenOverlay(false);
+            }
+            
+            // Reset manual exit flag when screen sharing stops (user can re-enable fullscreen on next share)
+            if (!isScreenSharing) {
+                userManuallyExitedFullscreenRef.current = false;
+            }
+        };
+        
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+        document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+        document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+        
+        return () => {
+            document.removeEventListener('fullscreenchange', handleFullscreenChange);
+            document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+            document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+            document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
+        };
+    }, [isScreenSharing, isWhiteboardFullscreenOverlay]);
+    
+    // INITIATOR: ESC key to restore whiteboard and prevent tab switching during fullscreen overlay
+    useEffect(() => {
+        // Only handle keys when initiator is in fullscreen overlay mode
+        if (!isScreenSharing || !isWhiteboardFullscreenOverlay) {
+            return;
+        }
+        
+        const handleKeyDown = (event) => {
+            // ESC key: Restore whiteboard and exit fullscreen
+            if (event.key === 'Escape' || event.key === 'Esc' || event.keyCode === 27) {
+                log('INFO', 'DashboardPage', '⌨️ INITIATOR: ESC key pressed - restoring whiteboard to original position', {
+                    isScreenSharing,
+                    isWhiteboardFullscreenOverlay,
+                    timestamp: Date.now()
+                });
+                event.preventDefault();
+                event.stopPropagation();
+                
+                // Mark that user manually exited to prevent auto-reactivation
+                userManuallyExitedFullscreenRef.current = true;
+                
+                // Exit fullscreen first, then restore whiteboard
+                // The fullscreen change handler will also set isWhiteboardFullscreenOverlay to false
+                // but we set it here immediately to prevent any delay
+                setIsWhiteboardFullscreenOverlay(false);
+                
+                if (document.exitFullscreen) {
+                    document.exitFullscreen().catch((error) => {
+                        log('WARN', 'DashboardPage', 'Failed to exit fullscreen via ESC', {
+                            error: error.message
+                        });
+                    });
+                }
+                
+                log('INFO', 'DashboardPage', '✅ INITIATOR: Whiteboard restored to original position via ESC', {
+                    isWhiteboardFullscreenOverlay: false,
+                    isScreenSharing,
+                    userManuallyExited: true,
+                    timestamp: Date.now()
+                });
+                return;
+            }
+            
+            // Prevent tab switching: Ctrl+Tab, Ctrl+PageUp, Ctrl+PageDown, Ctrl+1-9
+            if (event.ctrlKey || event.metaKey) {
+                if (event.key === 'Tab' || 
+                    event.key === 'PageUp' || 
+                    event.key === 'PageDown' ||
+                    (event.key >= '1' && event.key <= '9')) {
+                    log('INFO', 'DashboardPage', '🚫 INITIATOR: Tab switching prevented during fullscreen overlay', {
+                        key: event.key,
+                        ctrlKey: event.ctrlKey,
+                        metaKey: event.metaKey,
+                        note: 'Tab switching is disabled while drawing over screen share'
+                    });
+                    event.preventDefault();
+                    event.stopPropagation();
+                    // Show a brief message to user
+                    const message = document.createElement('div');
+                    message.textContent = '⚠️ Tab switching is disabled while drawing. Press ESC to exit fullscreen.';
+                    message.style.cssText = `
+                        position: fixed;
+                        top: 20px;
+                        left: 50%;
+                        transform: translateX(-50%);
+                        background: rgba(255, 193, 7, 0.95);
+                        color: #000;
+                        padding: 12px 24px;
+                        border-radius: 8px;
+                        z-index: 10001;
+                        font-size: 14px;
+                        font-weight: bold;
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                        pointer-events: none;
+                    `;
+                    document.body.appendChild(message);
+                    setTimeout(() => {
+                        if (message.parentNode) {
+                            message.parentNode.removeChild(message);
+                        }
+                    }, 3000);
+                    return;
+                }
+            }
+        };
+        
+        // Add event listener with capture phase to intercept before browser handles it
+        window.addEventListener('keydown', handleKeyDown, true);
+        
+        log('INFO', 'DashboardPage', '⌨️ INITIATOR: Key listeners attached (ESC restore, tab switching prevention)', {
+            isScreenSharing,
+            isWhiteboardFullscreenOverlay,
+            note: 'Press ESC to restore whiteboard. Tab switching is disabled.'
+        });
+        
+        // Cleanup
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown, true);
+            log('INFO', 'DashboardPage', '⌨️ INITIATOR: Key listeners removed', {
+                isScreenSharing,
+                isWhiteboardFullscreenOverlay
+            });
+        };
+    }, [isScreenSharing, isWhiteboardFullscreenOverlay]);
+    
+    // INITIATOR: Listen for fullscreen changes to sync state
+    useEffect(() => {
+        if (!isScreenSharing || !isWhiteboardFullscreenOverlay) {
+            return;
+        }
+        
+        const handleFullscreenChange = () => {
+            const isFullscreen = !!(
+                document.fullscreenElement ||
+                document.webkitFullscreenElement ||
+                document.mozFullScreenElement ||
+                document.msFullscreenElement
+            );
+            
+            const fullscreenElement = document.fullscreenElement || 
+                                     document.webkitFullscreenElement || 
+                                     document.mozFullScreenElement || 
+                                     document.msFullscreenElement;
+            
+            log('INFO', 'DashboardPage', '🖥️ INITIATOR: Fullscreen state changed', {
+                isFullscreen,
+                isWhiteboardFullscreenOverlay,
+                shouldRestore: !isFullscreen && isWhiteboardFullscreenOverlay,
+                timestamp: Date.now(),
+                fullscreenElementTag: fullscreenElement?.tagName || 'none',
+                fullscreenElementClass: fullscreenElement?.className || 'none',
+                fullscreenElementId: fullscreenElement?.id || 'no-id'
+            });
+            
+            // When entering fullscreen, check backdrop immediately
+            if (isFullscreen && fullscreenElement) {
+                setTimeout(() => {
+                    const backdropStyle = document.getElementById('whiteboard-backdrop-transparent');
+                    const containerElement = whiteboardFullscreenOverlayRef.current?.getContainerRef();
+                    const drawingSurfaceElement = whiteboardFullscreenOverlayRef.current?.getDrawingSurfaceRef();
+                    
+                    log('INFO', 'DashboardPage', '🔍 FULLSCREEN CHANGE: Element that went fullscreen', {
+                        isFullscreen: true,
+                        fullscreenElementTag: fullscreenElement.tagName,
+                        fullscreenElementId: fullscreenElement.id || 'no-id',
+                        fullscreenElementClass: fullscreenElement.className || 'no-class',
+                        isDrawingSurface: fullscreenElement === drawingSurfaceElement,
+                        drawingSurfaceElementId: drawingSurfaceElement?.id || 'no-id',
+                        drawingSurfaceElementTag: drawingSurfaceElement?.tagName || 'none',
+                        containerElementId: containerElement?.id || 'no-id',
+                        containerElementTag: containerElement?.tagName || 'none',
+                        hasBackdropStyle: !!backdropStyle,
+                        backdropStyleInHead: backdropStyle?.parentNode === document.head,
+                        containerElement: containerElement?.tagName || 'none',
+                        containerClass: containerElement?.className || 'none',
+                        isContainerFullscreen: fullscreenElement === containerElement,
+                        containerComputedBg: containerElement ? window.getComputedStyle(containerElement).backgroundColor : 'N/A',
+                        bodyComputedBg: window.getComputedStyle(document.body).backgroundColor,
+                        htmlComputedBg: window.getComputedStyle(document.documentElement).backgroundColor,
+                        instruction: 'Check ::backdrop in DevTools Elements tab - it should have display:none or opacity:0'
+                    });
+                }, 50);
+            }
+            
+            // If user exits fullscreen manually (e.g., F11), restore whiteboard
+            if (!isFullscreen && isWhiteboardFullscreenOverlay) {
+                log('INFO', 'DashboardPage', '🖥️ INITIATOR: User exited fullscreen manually - restoring whiteboard', {
+                    timestamp: Date.now()
+                });
+                setIsWhiteboardFullscreenOverlay(false);
+            }
+        };
+        
+        // Listen for fullscreen change events
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+        document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+        document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+        
+        log('INFO', 'DashboardPage', '🖥️ INITIATOR: Fullscreen change listeners attached', {
+            isScreenSharing,
+            isWhiteboardFullscreenOverlay
+        });
+        
+        // Cleanup
+        return () => {
+            document.removeEventListener('fullscreenchange', handleFullscreenChange);
+            document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+            document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+            document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
+            log('INFO', 'DashboardPage', '🖥️ INITIATOR: Fullscreen change listeners removed');
+        };
+    }, [isScreenSharing, isWhiteboardFullscreenOverlay]);
+    
     // Debug: Measure and display element dimensions
     useEffect(() => {
         const updateDimensions = () => {
@@ -2571,16 +2985,125 @@ const DashboardPage = () => {
             
             if (newScreenShareState) {
                 // Start screen sharing - use unified state transition
-                log('INFO', 'DashboardPage', 'Starting screen share...');
+                log('INFO', 'DashboardPage', '🖥️ INITIATOR: Starting screen share...');
+                log('INFO', 'DashboardPage', '📊 INITIATOR: Screen share start - preparing whiteboard overlay', {
+                    isScreenSharing,
+                    isScreenShareActive,
+                    isWhiteboardFullscreenOverlay,
+                    screenWidth: window.screen.width,
+                    screenHeight: window.screen.height,
+                    viewportWidth: window.innerWidth,
+                    viewportHeight: window.innerHeight,
+                    timestamp: Date.now()
+                });
+                
                 await currentProvider.startScreenShare();
                 setIsScreenSharing(true);
+                setIsScreenShareActive(true);
+                
+                // For INITIATOR - Position whiteboard to cover entire screen
+                log('INFO', 'DashboardPage', '📐 INITIATOR: Activating whiteboard fullscreen overlay mode', {
+                    screenDimensions: {
+                        width: window.screen.width,
+                        height: window.screen.height
+                    },
+                    viewportDimensions: {
+                        width: window.innerWidth,
+                        height: window.innerHeight
+                    },
+                    note: 'Whiteboard will cover entire screen for drawing over shared screen'
+                });
+                setIsWhiteboardFullscreenOverlay(true);
+                
+                log('INFO', 'DashboardPage', '✅ INITIATOR: Whiteboard fullscreen overlay activated', {
+                    isWhiteboardFullscreenOverlay: true,
+                    isScreenSharing: true,
+                    timestamp: Date.now()
+                });
+                
+                // CRITICAL: Request fullscreen immediately while user gesture is still valid
+                // Use requestAnimationFrame to wait for DOM update, but maintain gesture chain
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        // Double RAF ensures Portal-rendered component is in DOM
+                        if (whiteboardFullscreenOverlayRef.current) {
+                            // CRITICAL: Request fullscreen on the drawing surface (Stage wrapper), not the entire container
+                            // This ensures only the drawing canvas goes fullscreen, not toolbars/headers
+                            const drawingSurfaceElement = whiteboardFullscreenOverlayRef.current.getDrawingSurfaceRef();
+                            if (drawingSurfaceElement && drawingSurfaceElement.requestFullscreen) {
+                                log('INFO', 'DashboardPage', '🚀 INITIATOR: Requesting fullscreen on drawing surface (user gesture chain)', {
+                                    hasDrawingSurface: !!drawingSurfaceElement,
+                                    elementId: drawingSurfaceElement.id || 'no-id',
+                                    elementTag: drawingSurfaceElement.tagName,
+                                    elementClass: drawingSurfaceElement.className || 'no-class',
+                                    elementStyle: {
+                                        position: window.getComputedStyle(drawingSurfaceElement).position,
+                                        width: window.getComputedStyle(drawingSurfaceElement).width,
+                                        height: window.getComputedStyle(drawingSurfaceElement).height,
+                                        zIndex: window.getComputedStyle(drawingSurfaceElement).zIndex
+                                    },
+                                    timestamp: Date.now()
+                                });
+                                drawingSurfaceElement.requestFullscreen().then(() => {
+                                    const fullscreenEl = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+                                    log('INFO', 'DashboardPage', '✅ INITIATOR: Drawing surface entered fullscreen', {
+                                        timestamp: Date.now(),
+                                        fullscreenElement: fullscreenEl?.tagName || 'none',
+                                        fullscreenElementId: fullscreenEl?.id || 'no-id',
+                                        fullscreenElementClass: fullscreenEl?.className || 'no-class',
+                                        isDrawingSurface: fullscreenEl === drawingSurfaceElement,
+                                        drawingSurfaceElementId: drawingSurfaceElement.id || 'no-id',
+                                        drawingSurfaceElementTag: drawingSurfaceElement.tagName,
+                                        drawingSurfaceClass: drawingSurfaceElement.className || 'no-class',
+                                        drawingSurfaceId: drawingSurfaceElement.id || 'no-id',
+                                        note: 'Only drawing surface (Stage) is fullscreen, toolbars remain visible'
+                                    });
+                                    
+                                    // Check for backdrop style after fullscreen
+                                    setTimeout(() => {
+                                        const backdropStyle = document.getElementById('whiteboard-backdrop-transparent');
+                                        log('INFO', 'DashboardPage', '🔍 DEBUGGING BLACK SCREEN: Post-fullscreen backdrop check', {
+                                            hasBackdropStyle: !!backdropStyle,
+                                            backdropStyleInHead: backdropStyle?.parentNode === document.head,
+                                            fullscreenElement: document.fullscreenElement?.tagName || 'none',
+                                            instruction: 'In DevTools Elements tab, find ::backdrop and check Computed styles'
+                                        });
+                                    }, 100);
+                                }).catch((error) => {
+                                    log('ERROR', 'DashboardPage', '❌ INITIATOR: Fullscreen failed', {
+                                        error: error.message,
+                                        errorStack: error.stack,
+                                        timestamp: Date.now(),
+                                        drawingSurfaceElement: drawingSurfaceElement?.tagName || 'none',
+                                        drawingSurfaceClass: drawingSurfaceElement?.className || 'none'
+                                    });
+                                });
+                            }
+                        }
+                    });
+                });
+                
                 await transitionToBackgroundState(BACKGROUND_STATES.SCREEN_SHARE);
-                log('INFO', 'DashboardPage', 'Screen share started');
+                log('INFO', 'DashboardPage', '✅ INITIATOR: Screen share started and whiteboard overlay activated');
             } else {
                 // Stop screen sharing - use unified state transition
-                log('INFO', 'DashboardPage', 'Stopping screen share...');
+                log('INFO', 'DashboardPage', '🛑 INITIATOR: Stopping screen share...');
+                log('INFO', 'DashboardPage', '📊 INITIATOR: Screen share stop - restoring whiteboard to original position', {
+                    isScreenSharing,
+                    isScreenShareActive,
+                    isWhiteboardFullscreenOverlay,
+                    timestamp: Date.now()
+                });
+                
+                // For INITIATOR - Restore whiteboard to original position
+                setIsWhiteboardFullscreenOverlay(false);
+                log('INFO', 'DashboardPage', '✅ INITIATOR: Whiteboard fullscreen overlay deactivated', {
+                    isWhiteboardFullscreenOverlay: false,
+                    note: 'Whiteboard will return to original position in dashboard'
+                });
+                
                 await transitionToBackgroundState(BACKGROUND_STATES.NONE);
-                log('INFO', 'DashboardPage', 'Screen share stopped');
+                log('INFO', 'DashboardPage', '✅ INITIATOR: Screen share stopped and whiteboard restored');
             }
         } catch (err) {
             log('ERROR', 'DashboardPage', 'Screen share toggle error', err);
@@ -2764,17 +3287,29 @@ const DashboardPage = () => {
         // CLEANUP SCREEN SHARE STATE (if currently active and not transitioning to screenShare)
         if (currentStates.screenShare && targetState !== 'screenShare') {
             log('INFO', 'DashboardPage', '🖥️ CLEANUP: Stopping screen share (I am initiator)');
+            log('INFO', 'DashboardPage', '📊 INITIATOR: Screen share cleanup - restoring whiteboard', {
+                isScreenSharing,
+                isWhiteboardFullscreenOverlay,
+                targetState,
+                timestamp: Date.now()
+            });
             try {
                 if (provider) {
                     await provider.stopScreenShare();
                     setIsScreenSharing(false);
                     setIsScreenShareActive(false);
                 }
+                // For INITIATOR - Restore whiteboard to original position
+                setIsWhiteboardFullscreenOverlay(false);
+                log('INFO', 'DashboardPage', '✅ INITIATOR: Whiteboard restored during screen share cleanup', {
+                    isWhiteboardFullscreenOverlay: false
+                });
                 log('INFO', 'DashboardPage', '✅ Screen share stopped successfully');
             } catch (error) {
                 log('ERROR', 'DashboardPage', 'Failed to stop screen share', error);
                 setIsScreenSharing(false);
                 setIsScreenShareActive(false);
+                setIsWhiteboardFullscreenOverlay(false);
             }
         }
         
@@ -2916,7 +3451,17 @@ const DashboardPage = () => {
 
     // UNIVERSAL SCREEN SHARE FUNCTION - UNIVERSAL STATE TRANSITION
     const startScreenShare = async () => {
-        log('INFO', 'DashboardPage', '🖥️ UNIFIED startScreenShare called');
+        log('INFO', 'DashboardPage', '🖥️ UNIFIED startScreenShare called (INITIATOR SIDE)');
+        log('INFO', 'DashboardPage', '📊 INITIATOR: Screen share start - preparing whiteboard overlay', {
+            isScreenSharing,
+            isScreenShareActive,
+            isWhiteboardFullscreenOverlay,
+            screenWidth: window.screen.width,
+            screenHeight: window.screen.height,
+            viewportWidth: window.innerWidth,
+            viewportHeight: window.innerHeight,
+            timestamp: Date.now()
+        });
         
         // STEP 1: Universal cleanup (any state → screenShare)
         log('INFO', 'DashboardPage', '🧹 STEP 1: Universal cleanup (any state → screenShare)');
@@ -2928,9 +3473,88 @@ const DashboardPage = () => {
             await provider.startScreenShare();
             setIsScreenSharing(true);
             setIsScreenShareActive(true);
+            
+            // STEP 3: For INITIATOR - Position whiteboard to cover entire screen
+            log('INFO', 'DashboardPage', '📐 INITIATOR: Activating whiteboard fullscreen overlay mode', {
+                screenDimensions: {
+                    width: window.screen.width,
+                    height: window.screen.height
+                },
+                viewportDimensions: {
+                    width: window.innerWidth,
+                    height: window.innerHeight
+                },
+                note: 'Whiteboard will cover entire screen for drawing over shared screen'
+            });
+            setIsWhiteboardFullscreenOverlay(true);
+            
+            log('INFO', 'DashboardPage', '✅ INITIATOR: Whiteboard fullscreen overlay activated', {
+                isWhiteboardFullscreenOverlay: true,
+                timestamp: Date.now()
+            });
+            
+            // CRITICAL: Request fullscreen immediately while user gesture is still valid
+            // Use requestAnimationFrame to wait for DOM update, but maintain gesture chain
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    // Double RAF ensures Portal-rendered component is in DOM
+                    if (whiteboardFullscreenOverlayRef.current) {
+                        // CRITICAL: Request fullscreen on the drawing surface (Stage wrapper), not the entire container
+                        const drawingSurfaceElement = whiteboardFullscreenOverlayRef.current.getDrawingSurfaceRef();
+                        if (drawingSurfaceElement && drawingSurfaceElement.requestFullscreen) {
+                            log('INFO', 'DashboardPage', '🚀 INITIATOR: Requesting fullscreen on drawing surface (auto-activation)', {
+                                hasDrawingSurface: !!drawingSurfaceElement,
+                                elementId: drawingSurfaceElement.id || 'no-id',
+                                elementTag: drawingSurfaceElement.tagName,
+                                elementClass: drawingSurfaceElement.className || 'no-class',
+                                elementStyle: {
+                                    position: window.getComputedStyle(drawingSurfaceElement).position,
+                                    width: window.getComputedStyle(drawingSurfaceElement).width,
+                                    height: window.getComputedStyle(drawingSurfaceElement).height,
+                                    zIndex: window.getComputedStyle(drawingSurfaceElement).zIndex
+                                },
+                                timestamp: Date.now()
+                            });
+                            drawingSurfaceElement.requestFullscreen().then(() => {
+                                const fullscreenEl = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+                                log('INFO', 'DashboardPage', '✅ INITIATOR: Drawing surface entered fullscreen (auto-activation)', {
+                                    timestamp: Date.now(),
+                                    fullscreenElement: fullscreenEl?.tagName || 'none',
+                                    fullscreenElementId: fullscreenEl?.id || 'no-id',
+                                    fullscreenElementClass: fullscreenEl?.className || 'no-class',
+                                    isDrawingSurface: fullscreenEl === drawingSurfaceElement,
+                                    drawingSurfaceElementId: drawingSurfaceElement.id || 'no-id',
+                                    drawingSurfaceElementTag: drawingSurfaceElement.tagName,
+                                    drawingSurfaceClass: drawingSurfaceElement.className || 'no-class',
+                                    note: 'Only drawing surface (Stage) is fullscreen, toolbars remain visible'
+                                });
+                                
+                                // Check for backdrop style after fullscreen
+                                setTimeout(() => {
+                                    const backdropStyle = document.getElementById('whiteboard-backdrop-transparent');
+                                    log('INFO', 'DashboardPage', '🔍 DEBUGGING BLACK SCREEN: Post-fullscreen backdrop check', {
+                                        hasBackdropStyle: !!backdropStyle,
+                                        backdropStyleInHead: backdropStyle?.parentNode === document.head,
+                                        fullscreenElement: document.fullscreenElement?.tagName || 'none',
+                                        instruction: 'In DevTools Elements tab, find ::backdrop and check Computed styles'
+                                    });
+                                }, 100);
+                            }).catch((error) => {
+                                log('ERROR', 'DashboardPage', '❌ INITIATOR: Fullscreen failed', {
+                                    error: error.message,
+                                    errorStack: error.stack,
+                                    timestamp: Date.now(),
+                                    drawingSurfaceElement: drawingSurfaceElement?.tagName || 'none',
+                                    drawingSurfaceClass: drawingSurfaceElement?.className || 'none'
+                                });
+                            });
+                        }
+                    }
+                });
+            });
         }
         
-        log('INFO', 'DashboardPage', '✅ UNIFIED startScreenShare completed');
+        log('INFO', 'DashboardPage', '✅ UNIFIED startScreenShare completed (INITIATOR)');
     };
 
     // IDEAL FLOW: Separated upload vs processing
@@ -3521,12 +4145,25 @@ const DashboardPage = () => {
                      isScreenShareActiveState: isScreenShareActive
                    })}
                    {log('DEBUG', 'DashboardPage', 'Whiteboard rendering check', { 
-                     isWhiteboardActive, 
+                     isWhiteboardActive,
+                     isScreenSharing,
+                     isWhiteboardFullscreenOverlay,
+                     isInitiator: isScreenSharing,
+                     isRemotePeer: !isScreenSharing && isScreenShareActive,
                      hasUser: !!userRef.current,
                      hasStableUserId: !!stableUserId.current,
-                     hasStableUsername: !!stableUsername.current
+                     hasStableUsername: !!stableUsername.current,
+                     note: isWhiteboardFullscreenOverlay 
+                       ? 'INITIATOR: Whiteboard in fullscreen overlay mode (covers entire screen)'
+                       : isScreenSharing
+                       ? 'INITIATOR: Normal mode (screen sharing active)'
+                       : isScreenShareActive
+                       ? 'REMOTE PEER: Screen share visible in whiteboard'
+                       : 'NORMAL: Whiteboard in original position'
                    })}
-                   {isWhiteboardActive && (
+                   {/* INITIATOR: Hide whiteboard from original position when in fullscreen overlay mode */}
+                   {/* REMOTE PEER: Always show whiteboard in original position */}
+                   {isWhiteboardActive && !(isWhiteboardFullscreenOverlay && isScreenSharing) && (
                    <>
                        {/* COMPREHENSIVE LOGGING: Track all Whiteboard props before rendering */}
                        {log('INFO', 'DashboardPage', '🔄 WHITEBOARD PROPS BEFORE RENDER', {
@@ -3576,6 +4213,10 @@ const DashboardPage = () => {
                             username={stableUsername.current}
                             screenShareStream={null}
                             isScreenShareActive={isScreenShareActive}
+                            isFullScreen={isFullScreen}
+                            isWhiteboardFullscreenOverlay={isWhiteboardFullscreenOverlay}
+                            isInitiator={isScreenSharing && isWhiteboardFullscreenOverlay}
+                            originalScreenShareDimensions={originalScreenShareDimensions}
                             currentImageUrl={currentImageUrl}
                             containerSize={stableContainerSize.current}
                             onClose={handleWhiteboardClose}
@@ -3611,15 +4252,76 @@ const DashboardPage = () => {
                    />
                    </>
                )}
+               
+               {/* INITIATOR: Render whiteboard in fullscreen overlay mode (covers entire screen) */}
+               {/* Use React Portal to render outside dashboard-content for true fixed positioning */}
+               {isWhiteboardActive && isWhiteboardFullscreenOverlay && isScreenSharing && (
+                   typeof document !== 'undefined' && createPortal(
+                       <>
+                           {log('INFO', 'DashboardPage', '🎨 INITIATOR: Rendering whiteboard in fullscreen overlay mode (via Portal)', {
+                               isWhiteboardFullscreenOverlay,
+                               isScreenSharing,
+                               screenWidth: window.screen.width,
+                               screenHeight: window.screen.height,
+                               portalTarget: 'body',
+                               note: 'Whiteboard covering entire screen for drawing over shared screen'
+                           })}
+                           <Whiteboard
+                           key="whiteboard-fullscreen-overlay"
+                           userId={stableUserId.current}
+                           username={stableUsername.current}
+                           screenShareStream={null}
+                           isScreenShareActive={isScreenShareActive}
+                           isFullScreen={false} // Not using browser fullscreen API
+                           isWhiteboardFullscreenOverlay={isWhiteboardFullscreenOverlay}
+                           isInitiator={true} // Always true for fullscreen overlay mode
+                           originalScreenShareDimensions={null} // Use screen dimensions instead
+                           currentImageUrl={currentImageUrl}
+                           containerSize={stableContainerSize.current}
+                           onClose={handleWhiteboardClose}
+                           onBackgroundCleared={handleWhiteboardBackgroundCleared}
+                           onRemoteStateTransition={handleRemoteStateTransition}
+                           onImageChange={handleImageUpload}
+                           onPdfChange={handlePdfChange}
+                           onPDFDimensionsChange={handlePDFDimensionsChange}
+                           selectedContent={selectedContent}
+                           onContentSelect={setSelectedContent}
+                           webRTCProvider={provider}
+                           selectedPeer={selectedPeer}
+                           onUndo={whiteboardUndoRef}
+                           onRedo={whiteboardRedoRef}
+                           onHistoryChange={handleWhiteboardHistoryChange}
+                           isMobileDrawingMode={isMobileDrawingMode}
+                           onImageUpload={handleWhiteboardImageUpload}
+                           onFileUpload={handleWhiteboardFileUpload}
+                           onClear={handleWhiteboardClear}
+                           canUndo={canUndo}
+                           canRedo={canRedo}
+                           pdfCurrentPage={pdfCurrentPage}
+                           pdfScale={pdfScale}
+                           onPdfPageChange={handlePdfPageChange}
+                           onPdfPagesChange={handlePdfPagesChange}
+                           ref={whiteboardFullscreenOverlayRef}
+                       />
+                       </>,
+                       document.body
+                   )
+               )}
                 
                 {/* ScreenShareWindow - Only show for remote peer, not initiator */}
-                {!isScreenSharing && (
+                {/* Also hide if initiator is in fullscreen overlay mode to prevent popup */}
+                {!isScreenSharing && !isWhiteboardFullscreenOverlay && (
                     <ScreenShareWindow
                         key="screen-share-stable"
                         screenShareStream={provider?.getRemoteScreen(selectedPeer)}
                         isVisible={isScreenShareActive}
                         position={{ top: '0', left: '0' }}
-                        size={(screenShareAspectRatio || originalScreenShareDimensions) ? 
+                        size={isFullScreen && originalScreenShareDimensions ? 
+                            { 
+                                // In fullscreen, use original dimensions even if they exceed screen size
+                                width: `${originalScreenShareDimensions.width}px`, 
+                                height: `${originalScreenShareDimensions.height}px` 
+                            } : (screenShareAspectRatio || originalScreenShareDimensions) ? 
                             { 
                                 width: `${screen.width}px`, 
                                 height: `${screen.height}px` 

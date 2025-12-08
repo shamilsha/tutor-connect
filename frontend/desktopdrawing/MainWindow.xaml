@@ -30,12 +30,79 @@
                 IsHitTestVisible="True"/>
 
         <Grid HorizontalAlignment="Right" VerticalAlignment="Top" Margin="10">
-            <Button x:Name="ModeToggleButton"
-                    Content="Switch to Interactive" 
-                    Width="140"
-                    Height="30"
-                    Click="ToggleInteractivity"
-                    IsHitTestVisible="True"/>
+            <StackPanel Orientation="Horizontal">
+                <!-- Mode Toggle Button (Pencil/Hand Icon) -->
+                <Button x:Name="ModeToggleButton"
+                        Width="40"
+                        Height="40"
+                        Margin="0,0,5,0"
+                        Click="ToggleInteractivity"
+                        IsHitTestVisible="True"
+                        Background="#E0E0E0"
+                        BorderThickness="1"
+                        BorderBrush="#CCCCCC"
+                        Cursor="Hand">
+                    <Button.Content>
+                        <Path x:Name="ModeToggleIcon" 
+                              Stretch="Uniform" 
+                              Fill="#333333"
+                              Stroke="#333333"
+                              StrokeThickness="1">
+                            <!-- Default: Pencil icon (drawing mode) -->
+                            <Path.Data>
+                                <PathGeometry>
+                                    <PathFigure StartPoint="5,20">
+                                        <LineSegment Point="8,17"/>
+                                        <LineSegment Point="15,24"/>
+                                        <LineSegment Point="12,27"/>
+                                        <LineSegment Point="5,20"/>
+                                    </PathFigure>
+                                    <PathFigure StartPoint="8,17">
+                                        <LineSegment Point="20,5"/>
+                                        <LineSegment Point="23,8"/>
+                                        <LineSegment Point="11,20"/>
+                                    </PathFigure>
+                                    <PathFigure StartPoint="20,5">
+                                        <LineSegment Point="25,0"/>
+                                        <LineSegment Point="30,5"/>
+                                        <LineSegment Point="25,10"/>
+                                    </PathFigure>
+                                </PathGeometry>
+                            </Path.Data>
+                        </Path>
+                    </Button.Content>
+                </Button>
+
+                <!-- Exit Button (Red X) -->
+                <Button x:Name="ExitButton"
+                        Width="40"
+                        Height="40"
+                        Click="ExitApplication"
+                        IsHitTestVisible="True"
+                        Background="#FF4444"
+                        BorderThickness="1"
+                        BorderBrush="#CC0000"
+                        Cursor="Hand">
+                    <Button.Content>
+                        <Path Stretch="Uniform" 
+                              Fill="White"
+                              Stroke="White"
+                              StrokeThickness="2">
+                            <Path.Data>
+                                <PathGeometry>
+                                    <!-- X icon -->
+                                    <PathFigure StartPoint="8,8">
+                                        <LineSegment Point="22,22"/>
+                                    </PathFigure>
+                                    <PathFigure StartPoint="22,8">
+                                        <LineSegment Point="8,22"/>
+                                    </PathFigure>
+                                </PathGeometry>
+                            </Path.Data>
+                        </Path>
+                    </Button.Content>
+                </Button>
+            </StackPanel>
         </Grid>
 
     </Grid>
