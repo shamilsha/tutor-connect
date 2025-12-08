@@ -72,3 +72,4 @@ export const bengaliAlphabet = [
   displayChar: char.letter
 }));
 
+
