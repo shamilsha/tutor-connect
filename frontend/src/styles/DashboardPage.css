@@ -181,26 +181,19 @@ body.dashboard-active {
         padding: 0.5rem 1rem; /* Reduce padding on mobile */
     }
     
-    /* Ensure left panel is always visible on mobile but keep horizontal layout */
-    .left-panel {
-        width: 250px !important; /* Smaller width on mobile */
-        max-width: 250px !important;
-        min-width: 250px !important;
-    }
-    
-    /* Keep original horizontal layout on mobile - don't stack vertically */
-    .dashboard-layout {
-        flex-direction: row !important; /* Keep horizontal layout */
-        height: calc(100vh - 60px) !important; /* Original height */
-    }
-    
-    /* Make left panel smaller on mobile but keep horizontal layout */
+    /* Left panel styling on mobile - only applies when panel is visible */
     .left-panel {
         width: 250px !important; /* Smaller width on mobile */
         max-width: 250px !important;
         min-width: 250px !important;
         max-height: 100vh !important;
         overflow-y: auto !important;
+    }
+    
+    /* Keep original horizontal layout on mobile - don't stack vertically */
+    .dashboard-layout {
+        flex-direction: row !important; /* Keep horizontal layout */
+        height: calc(100vh - 60px) !important; /* Original height */
     }
     
     /* Ensure dashboard content takes remaining space */
@@ -543,6 +536,19 @@ body.dashboard-active {
     overflow-y: auto;
     flex-shrink: 0;
     transition: width 0.2s ease;
+    display: block; /* Ensure it displays when visible */
+}
+
+/* Hide left panel when not visible - override any other rules */
+/* This ensures the panel is completely hidden when isLeftPanelVisible is false */
+.left-panel[hidden],
+.dashboard-layout:not(:has(.left-panel)) .left-panel {
+    display: none !important;
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    overflow: hidden !important;
+    visibility: hidden !important;
 }
 
 .resize-handle {

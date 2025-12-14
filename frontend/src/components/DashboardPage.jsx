@@ -505,12 +505,35 @@ const DashboardPage = () => {
         const checkMobile = () => {
             const mobile = window.innerWidth <= 768;
             setIsMobile(mobile);
+            // Ensure panel stays hidden when mobile state changes
+            setIsLeftPanelVisible(false);
         };
         
         checkMobile();
         window.addEventListener('resize', checkMobile);
         return () => window.removeEventListener('resize', checkMobile);
     }, []);
+
+    // Ensure left panel is hidden on mount (even on mobile)
+    // Run this immediately and also after a short delay to override any other code
+    useEffect(() => {
+        log('INFO', 'DashboardPage', 'Setting left panel to hidden on mount', { isMobile });
+        setIsLeftPanelVisible(false);
+        // Also set it after a short delay to ensure it overrides any other initialization
+        const timeout = setTimeout(() => {
+            log('INFO', 'DashboardPage', 'Re-confirming left panel is hidden after delay', { isMobile });
+            setIsLeftPanelVisible(false);
+        }, 100);
+        // Also check after mobile detection completes
+        const mobileCheckTimeout = setTimeout(() => {
+            log('INFO', 'DashboardPage', 'Re-confirming left panel is hidden after mobile check', { isMobile });
+            setIsLeftPanelVisible(false);
+        }, 200);
+        return () => {
+            clearTimeout(timeout);
+            clearTimeout(mobileCheckTimeout);
+        };
+    }, [isMobile]);
     
     // Tab system state - NEW: Tab management for left panel
     const [activeLeftPanelTab, setActiveLeftPanelTab] = useState('content'); // 'content' or 'chat'
@@ -4076,8 +4099,8 @@ const DashboardPage = () => {
             
             {/* Main Dashboard Layout with Resizable Left Panel */}
             <div className="dashboard-layout">
-                {/* Left Panel - Content Selector with Tabs */}
-                {isLeftPanelVisible && (
+                {/* Left Panel - Content Selector with Tabs - Hidden by default on both desktop and mobile */}
+                {isLeftPanelVisible === true ? (
                     <div 
                         className="left-panel"
                         style={{ width: `${leftPanelWidth}px` }}
@@ -4117,16 +4140,16 @@ const DashboardPage = () => {
                             />
                         </div>
                     </div>
-                )}
+                ) : null}
                 
                 {/* Resize Handle */}
-                {isLeftPanelVisible && (
+                {isLeftPanelVisible === true ? (
                     <div 
                         className="resize-handle"
                         onMouseDown={handleResizeStart}
                         style={{ cursor: isResizing ? 'col-resize' : 'col-resize' }}
                     />
-                )}
+                ) : null}
                 
                 {/* Right Panel - Fixed Size Dashboard Content */}
                 <div className="dashboard-content" style={{ position: 'relative' }}>
