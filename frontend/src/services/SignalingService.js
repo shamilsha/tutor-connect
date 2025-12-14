@@ -1,6 +1,7 @@
 export class SignalingService {
     constructor() {
         this.userId = null;
+        this.userEmail = null;
         this.wsProvider = null;
         this.onPeerListUpdate = null;
         this.onIncomingConnection = null; // Callback for incoming connection attempts
@@ -178,7 +179,21 @@ export class SignalingService {
                     break;
                     
                 case 'peer_list':
-                    const peers = message.peers.filter(peerId => peerId !== this.userId);
+                    // Handle both old format (array of IDs) and new format (array of objects with id and email)
+                    const rawPeers = message.peers || [];
+                    const peers = rawPeers
+                        .filter(peer => {
+                            // Support both old format (string IDs) and new format (objects with id)
+                            const peerId = typeof peer === 'string' ? peer : peer.id;
+                            return peerId !== this.userId;
+                        })
+                        .map(peer => {
+                            // Convert old format to new format for backward compatibility
+                            if (typeof peer === 'string') {
+                                return { id: peer, email: `Peer ${peer}` };
+                            }
+                            return peer; // Already in new format with id and email
+                        });
                     console.log(`%c[SignalingService] 👥 PEER LIST RECEIVED:`, 'font-weight: bold; color: blue; font-size: 14px;', {
                         rawPeers: message.peers,
                         filteredPeers: peers,
@@ -279,8 +294,9 @@ export class SignalingService {
 
             const data = await response.json();
             this.userId = data.id.toString();
+            this.userEmail = data.email;
             
-            console.log('[SignalingService] ✅ LOGIN SUCCESS: Login successful, userId:', this.userId);
+            console.log('[SignalingService] ✅ LOGIN SUCCESS: Login successful, userId:', this.userId, 'email:', this.userEmail);
             localStorage.setItem('user', JSON.stringify({
                 id: data.id,
                 email: data.email
@@ -303,9 +319,12 @@ export class SignalingService {
         console.log('[SignalingService] Connecting with existing userId:', userId);
         try {
             this.userId = userId;
+            // Get email from localStorage if available
+            const user = JSON.parse(localStorage.getItem('user') || '{}');
+            this.userEmail = user.email || null;
             
             // Establish WebSocket connection with existing user ID
-            console.log('[SignalingService] 🔌 CONNECT: Starting WebSocket establishment with userId:', this.userId);
+            console.log('[SignalingService] 🔌 CONNECT: Starting WebSocket establishment with userId:', this.userId, 'email:', this.userEmail);
             await this.establishWebSocket();
             console.log('[SignalingService] ✅ CONNECT: WebSocket establishment completed successfully');
             
@@ -372,10 +391,11 @@ export class SignalingService {
             this.wsProvider.connect()
                 .then(async () => {
                     console.log('[SignalingService] ✅ WEBSOCKET: Connected to WebSocket server successfully');
-                    console.log('[SignalingService] 📤 LOGIN: Sending login message for userId:', this.userId);
+                    console.log('[SignalingService] 📤 LOGIN: Sending login message for userId:', this.userId, 'email:', this.userEmail);
                     this.wsProvider.publish('login', {
                         type: 'login',
-                        userId: this.userId
+                        userId: this.userId,
+                        email: this.userEmail || null
                     });
                 })
                 .catch(error => {

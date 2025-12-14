@@ -34,29 +34,33 @@ const server = app.listen(PORT, () => {
 // Create WebSocket server
 const wss = new WebSocket.Server({ server });
 
-const clients = new Map();
+const clients = new Map(); // Map<clientId, {ws: WebSocket, email: string}>
 
 function broadcastPeerList() {
     console.log('\n[Broadcast] Sending peer list to all clients');
-    const peerList = Array.from(clients.keys());
+    // Build peer list with email information
+    const peerList = Array.from(clients.entries()).map(([clientId, clientInfo]) => ({
+        id: clientId,
+        email: clientInfo.email || `Peer ${clientId}`
+    }));
     console.log('[Broadcast] Current peers:', peerList);
     
     let activeClients = 0;
-    clients.forEach((ws, clientId) => {
-        if (ws.readyState === WebSocket.OPEN) {
+    clients.forEach((clientInfo, clientId) => {
+        if (clientInfo.ws.readyState === WebSocket.OPEN) {
             try {
                 const message = JSON.stringify({
                     type: 'peer_list',
                     peers: peerList
                 });
-                ws.send(message);
+                clientInfo.ws.send(message);
                 activeClients++;
                 console.log(`[Broadcast] Sent peer list to client ${clientId}`);
             } catch (error) {
                 console.error(`[Broadcast] Failed to send to client ${clientId}:`, error);
             }
         } else {
-            console.log(`[Broadcast] Client ${clientId} WebSocket not open, state:`, ws.readyState);
+            console.log(`[Broadcast] Client ${clientId} WebSocket not open, state:`, clientInfo.ws.readyState);
         }
     });
     console.log(`[Broadcast] Successfully sent to ${activeClients} clients`);
@@ -94,13 +98,14 @@ wss.on('connection', (ws) => {
             switch(data.type) {
                 case 'login':
                     clientId = data.userId.toString();
-                    console.log(`[Login] Processing login for clientId: ${clientId}`);
+                    const userEmail = data.email || `Peer ${clientId}`;
+                    console.log(`[Login] Processing login for clientId: ${clientId}, email: ${userEmail}`);
                     console.log(`[Login] Current active clients:`, Array.from(clients.keys()));
                     
                     // Check if user is already logged in
                     const existingLoginClient = clients.get(clientId);
-                    if (existingLoginClient && existingLoginClient.readyState === WebSocket.OPEN) {
-                        console.log(`[Warning] Client ${clientId} already logged in - WebSocket state:`, existingLoginClient.readyState);
+                    if (existingLoginClient && existingLoginClient.ws.readyState === WebSocket.OPEN) {
+                        console.log(`[Warning] Client ${clientId} already logged in - WebSocket state:`, existingLoginClient.ws.readyState);
                         // Send error message before closing
                         ws.send(JSON.stringify({
                             type: 'error',
@@ -110,9 +115,9 @@ wss.on('connection', (ws) => {
                         return;
                     }
                     
-                    // Register the logged-in user
-                    clients.set(clientId, ws);
-                    console.log(`\n[Login] Client ${clientId} logged in`);
+                    // Register the logged-in user with email
+                    clients.set(clientId, { ws: ws, email: userEmail });
+                    console.log(`\n[Login] Client ${clientId} logged in with email: ${userEmail}`);
                     console.log('[Active Clients]:', Array.from(clients.keys()));
                     
                     // Send login confirmation
@@ -133,9 +138,9 @@ wss.on('connection', (ws) => {
                 case 'stream-status':
                     // Forward stream status to target peer
                     const statusTargetClient = clients.get(data.to);
-                    if (statusTargetClient && statusTargetClient.readyState === WebSocket.OPEN) {
+                    if (statusTargetClient && statusTargetClient.ws.readyState === WebSocket.OPEN) {
                         console.log(`[Stream Status] Forwarding status from ${data.from} to ${data.to}`);
-                        statusTargetClient.send(JSON.stringify({
+                        statusTargetClient.ws.send(JSON.stringify({
                             type: 'stream-status',
                             from: data.from,
                             hasVideo: data.hasVideo,
@@ -156,15 +161,15 @@ wss.on('connection', (ws) => {
                     console.log(`[DEBUG] Available clients:`, Array.from(clients.keys()));
                     console.log(`[DEBUG] Target client found:`, !!targetClient);
                     if (targetClient) {
-                        console.log(`[DEBUG] Target client WebSocket state:`, targetClient.readyState);
+                        console.log(`[DEBUG] Target client WebSocket state:`, targetClient.ws.readyState);
                     }
                     
-                    if (targetClient && targetClient.readyState === WebSocket.OPEN) {
+                    if (targetClient && targetClient.ws.readyState === WebSocket.OPEN) {
                         // Only log non-ICE messages to reduce noise
                         if (data.type !== 'ice-candidate') {
                             console.log(`[Forwarding] ${data.type} from ${data.from} to ${data.to}`);
                         }
-                        targetClient.send(JSON.stringify({
+                        targetClient.ws.send(JSON.stringify({
                             type: data.type,
                             from: data.from,
                             to: data.to,
@@ -197,14 +202,17 @@ wss.on('connection', (ws) => {
 
     ws.on('close', () => {
         // Only handle disconnection if this is the current active connection for the client
-        if (clientId && clients.get(clientId) === ws) {
-            const wsState = ws.readyState;
-            // Only log and remove if it's a real disconnection
-            if (wsState === WebSocket.CLOSED || wsState === WebSocket.CLOSING) {
-                clients.delete(clientId);
-                console.log(`\n[Disconnected] Client ${clientId} disconnected (state: ${wsState})`);
-                console.log('[Remaining Clients]:', Array.from(clients.keys()));
-                setTimeout(() => broadcastPeerList(), 100);
+        if (clientId) {
+            const clientInfo = clients.get(clientId);
+            if (clientInfo && clientInfo.ws === ws) {
+                const wsState = ws.readyState;
+                // Only log and remove if it's a real disconnection
+                if (wsState === WebSocket.CLOSED || wsState === WebSocket.CLOSING) {
+                    clients.delete(clientId);
+                    console.log(`\n[Disconnected] Client ${clientId} disconnected (state: ${wsState})`);
+                    console.log('[Remaining Clients]:', Array.from(clients.keys()));
+                    setTimeout(() => broadcastPeerList(), 100);
+                }
             }
         }
     });

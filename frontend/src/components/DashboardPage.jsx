@@ -493,7 +493,7 @@ const DashboardPage = () => {
     
     // Left panel state
     const [leftPanelWidth, setLeftPanelWidth] = useState(300); // Default width
-    const [isLeftPanelVisible, setIsLeftPanelVisible] = useState(true);
+    const [isLeftPanelVisible, setIsLeftPanelVisible] = useState(false); // Hidden by default
     const [isResizing, setIsResizing] = useState(false);
     const [selectedContent, setSelectedContent] = useState(null);
     
@@ -1155,13 +1155,27 @@ const DashboardPage = () => {
             willCheckForLogout: selectedPeer && !peers.some(p => p.id === selectedPeer)
         });
         
-        // Filter out current user and format peer list using user ID
+        // Filter out current user and format peer list
+        // Peers can be in old format (array of IDs) or new format (array of objects with id and email)
         const filteredPeers = peers
-            .filter(peerId => peerId !== user.id)
-            .map(peerId => ({
-                id: peerId,
-                name: `Peer ${peerId}`
-            }));
+            .filter(peer => {
+                const peerId = typeof peer === 'string' ? peer : peer.id;
+                return peerId !== user.id;
+            })
+            .map(peer => {
+                // If already in new format (object with id and email), use it
+                if (typeof peer === 'object' && peer.id) {
+                    return {
+                        id: peer.id,
+                        name: peer.email || peer.name || `Peer ${peer.id}`
+                    };
+                }
+                // Old format (string ID) - convert to new format
+                return {
+                    id: peer,
+                    name: `Peer ${peer}`
+                };
+            });
 
         log('DEBUG', 'DashboardPage', 'FILTERED PEER LIST', {
             filteredPeers: filteredPeers,
