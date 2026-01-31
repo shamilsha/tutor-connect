@@ -1,3 +1,6 @@
+// POC: Import logger to test logging to both console and server
+import logger from '../utils/Logger';
+
 export class SignalingService {
     constructor() {
         this.userId = null;
@@ -19,6 +22,12 @@ export class SignalingService {
         this.handlerId = 0;
         this.lastMessageTime = Date.now();
         
+        // POC: Test logger on initialization
+        logger.info('[SignalingService] SignalingService initialized', {
+            timestamp: new Date().toISOString(),
+            reconnectAttempts: this.maxReconnectAttempts
+        });
+        
         // Add beforeunload handler
         window.addEventListener('beforeunload', () => {
             this.sendLogout();
@@ -28,11 +37,19 @@ export class SignalingService {
     // Add a message handler and return its ID
     addMessageHandler(handler) {
         const handlerId = ++this.handlerId;
-        console.log(`[SignalingService] Adding message handler (ID: ${handlerId}) - Total handlers: ${this.messageHandlers.size + 1}`);
+        // POC: Using logger instead of console.log - logs to both console and server
+        logger.info('[SignalingService] Adding message handler', {
+            handlerId: handlerId,
+            totalHandlers: this.messageHandlers.size + 1
+        });
         
         this.messageHandlers.set(handlerId, handler);
         
-        console.log(`[SignalingService] Signaling service registered with handler ID: ${handlerId} - Total handlers: ${this.messageHandlers.size}`);
+        // POC: Using logger instead of console.log
+        logger.info('[SignalingService] Signaling service registered', {
+            handlerId: handlerId,
+            totalHandlers: this.messageHandlers.size
+        });
         return handlerId;
     }
 
@@ -55,7 +72,8 @@ export class SignalingService {
         
         // Don't log for heartbeat messages
         if (message.type !== 'heartbeat') {
-            console.log(`%c[SignalingService] 📨 FORWARDING MESSAGE:`, 'font-weight: bold; color: blue;', {
+            // POC: Using logger instead of console.log - logs to both console and server
+            logger.info('[SignalingService] 📨 FORWARDING MESSAGE', {
                 type: message.type,
                 from: message.from,
                 to: message.to,
@@ -66,7 +84,10 @@ export class SignalingService {
         
         // If no handlers, don't process the message
         if (handlerCount === 0) {
-            console.log(`[SignalingService] ⚠️ No message handlers registered for ${message.type} message`);
+            // POC: Using logger instead of console.log
+            logger.warn('[SignalingService] ⚠️ No message handlers registered', {
+                messageType: message.type
+            });
             return;
         }
 
@@ -144,7 +165,11 @@ export class SignalingService {
         }
 
         if (message.type !== 'heartbeat') {
-            console.log(`[SignalingService] ✅ Forwarded ${message.type} message to ${forwardedCount} handler(s)`);
+            // POC: Using logger instead of console.log
+            logger.info('[SignalingService] ✅ Forwarded message', {
+                messageType: message.type,
+                forwardedCount: forwardedCount
+            });
         }
 
         // Cleanup old processed messages periodically
@@ -302,13 +327,69 @@ export class SignalingService {
                 email: data.email
             }));
 
+            // Clear old log file on login to start fresh session
+            try {
+                const { SERVER_CONFIG } = await import('./config');
+                const clearUrl = `${SERVER_CONFIG.backend.getUrl()}/api/logs/clear?username=${encodeURIComponent(this.userEmail)}`;
+                console.log('[SignalingService] 🔍 Calling clear log file endpoint:', clearUrl);
+                
+                const clearResponse = await fetch(clearUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                
+                console.log('[SignalingService] 🔍 Clear log file response status:', clearResponse.status);
+                
+                if (clearResponse.ok) {
+                    const clearData = await clearResponse.json();
+                    console.log('[SignalingService] 🗑️ Log file cleared for new session:', clearData);
+                    if (!clearData.success) {
+                        console.error('[SignalingService] ❌ Clear log file returned success=false:', clearData);
+                    }
+                } else {
+                    const errorText = await clearResponse.text();
+                    console.error('[SignalingService] ❌ Failed to clear log file:', clearResponse.status, errorText);
+                }
+            } catch (clearError) {
+                // Non-critical - log but don't fail login
+                console.error('[SignalingService] ❌ Error clearing log file (non-critical):', clearError);
+                console.error('[SignalingService] ❌ Error details:', clearError.message, clearError.stack);
+            }
+
+            // POC: Log after login to ensure username is captured
+            logger.info('[SignalingService] ✅ LOGIN SUCCESS: User logged in successfully', {
+                userId: this.userId,
+                email: this.userEmail,
+                timestamp: new Date().toISOString()
+            });
+
             // After successful login, establish WebSocket connection
             console.log('[SignalingService] 🔌 LOGIN FLOW: Starting WebSocket establishment after successful login');
+            logger.info('[SignalingService] 🔌 LOGIN FLOW: Starting WebSocket establishment', {
+                userId: this.userId,
+                email: this.userEmail
+            });
+            
             await this.establishWebSocket();
+            
             console.log('[SignalingService] ✅ LOGIN FLOW: WebSocket establishment completed successfully');
+            logger.info('[SignalingService] ✅ LOGIN FLOW: WebSocket establishment completed', {
+                userId: this.userId,
+                email: this.userEmail,
+                isConnected: this.isConnected
+            });
+            
             return true;
         } catch (error) {
             console.error('[SignalingService] ❌ LOGIN ERROR:', error);
+            // POC: Log error with logger
+            logger.error('[SignalingService] ❌ LOGIN ERROR: Login failed', {
+                error: error.message,
+                stack: error.stack,
+                timestamp: new Date().toISOString()
+            });
             console.error('[SignalingService] ❌ LOGIN ERROR: Source - SignalingService.login() method');
             this.cleanup();
             throw error; // Re-throw to let UI handle the error
@@ -322,13 +403,60 @@ export class SignalingService {
             // Get email from localStorage if available
             const user = JSON.parse(localStorage.getItem('user') || '{}');
             this.userEmail = user.email || null;
+
+            // Clear old log file on login to start fresh session (same as connect() flow)
+            if (this.userEmail) {
+                try {
+                    const { SERVER_CONFIG } = await import('./config');
+                    const clearUrl = `${SERVER_CONFIG.backend.getUrl()}/api/logs/clear?username=${encodeURIComponent(this.userEmail)}`;
+                    console.log('[SignalingService] 🔍 Calling clear log file endpoint (connectWithUserId):', clearUrl);
+                    const clearResponse = await fetch(clearUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                    });
+                    if (clearResponse.ok) {
+                        const clearData = await clearResponse.json();
+                        console.log('[SignalingService] 🗑️ Log file cleared for new session:', clearData);
+                        if (!clearData.success) {
+                            console.error('[SignalingService] ❌ Clear log file returned success=false:', clearData);
+                        }
+                    } else {
+                        const errorText = await clearResponse.text();
+                        console.error('[SignalingService] ❌ Failed to clear log file:', clearResponse.status, errorText);
+                    }
+                } catch (clearError) {
+                    console.error('[SignalingService] ❌ Error clearing log file (non-critical):', clearError);
+                }
+            }
+            
+            // POC: Log when connecting with existing userId
+            logger.info('[SignalingService] 🔌 CONNECT: Connecting with existing userId', {
+                userId: this.userId,
+                email: this.userEmail,
+                timestamp: new Date().toISOString()
+            });
             
             // Establish WebSocket connection with existing user ID
             console.log('[SignalingService] 🔌 CONNECT: Starting WebSocket establishment with userId:', this.userId, 'email:', this.userEmail);
             await this.establishWebSocket();
             console.log('[SignalingService] ✅ CONNECT: WebSocket establishment completed successfully');
             
+            // POC: Log after successful connection
+            logger.info('[SignalingService] ✅ CONNECT: WebSocket establishment completed', {
+                userId: this.userId,
+                email: this.userEmail,
+                isConnected: this.isConnected,
+                timestamp: new Date().toISOString()
+            });
+            
         } catch (error) {
+            // POC: Log connection error
+            logger.error('[SignalingService] ❌ CONNECT ERROR: Failed to connect with userId', {
+                userId: this.userId,
+                email: this.userEmail,
+                error: error.message,
+                timestamp: new Date().toISOString()
+            });
             this.cleanup();
             throw error; // Re-throw to let UI handle the error
         }
@@ -374,6 +502,16 @@ export class SignalingService {
                 clearTimeout(registrationTimeout);
                 this.isConnected = true;
                 console.log('[SignalingService] ✅ LOGIN: Connection status set to true');
+                
+                // POC: Log after WebSocket login confirmation (username should be available now)
+                logger.info('[SignalingService] ✅ LOGIN: WebSocket login confirmed', {
+                    userId: this.userId,
+                    email: this.userEmail,
+                    message: message,
+                    isConnected: this.isConnected,
+                    timestamp: new Date().toISOString()
+                });
+                
                 if (this.onConnectionStatusChange) {
                     console.log('[SignalingService] ✅ LOGIN: Calling onConnectionStatusChange(true)');
                     this.onConnectionStatusChange(true);
@@ -482,24 +620,50 @@ export class SignalingService {
 
     send(message) {
         if (!this.wsProvider || !this.wsProvider.isConnected) {
-            console.error('[SignalingService] Cannot send message - not connected');
+            // POC: Using logger instead of console.error
+            logger.error('[SignalingService] Cannot send message - not connected', {
+                messageType: message?.type,
+                isConnected: false
+            });
             return;
         }
         
         try {
             if (message.type === 'disconnect') {
-                console.log(`[SignalingService] 🔴 SENDING DISCONNECT from ${message.from} to ${message.to} (initiator side)`);
+                // POC: Using logger instead of console.log
+                logger.warn('[SignalingService] 🔴 SENDING DISCONNECT', {
+                    from: message.from,
+                    to: message.to,
+                    side: 'initiator'
+                });
             } else {
-                console.log(`[SignalingService] 📤 Sending ${message.type} from ${message.from} to ${message.to}`);
+                // POC: Using logger instead of console.log
+                logger.info('[SignalingService] 📤 Sending message', {
+                    type: message.type,
+                    from: message.from,
+                    to: message.to
+                });
             }
             this.wsProvider.publish('signaling', message);
             if (message.type === 'disconnect') {
-                console.log(`[SignalingService] ✅ DISCONNECT SENT to peer ${message.to}`);
+                // POC: Using logger instead of console.log
+                logger.info('[SignalingService] ✅ DISCONNECT SENT', {
+                    to: message.to
+                });
             } else {
-                console.log(`[SignalingService] ✅ Sent ${message.type} to peer ${message.to}`);
+                // POC: Using logger instead of console.log
+                logger.info('[SignalingService] ✅ Message sent', {
+                    type: message.type,
+                    to: message.to
+                });
             }
         } catch (error) {
-            console.error('[SignalingService] Failed to send message:', error);
+            // POC: Using logger instead of console.error
+            logger.error('[SignalingService] Failed to send message', {
+                error: error.message,
+                messageType: message?.type,
+                stack: error.stack
+            });
         }
     }
 

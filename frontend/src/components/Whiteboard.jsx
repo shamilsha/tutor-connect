@@ -10,21 +10,39 @@ import '../styles/pdf.css';
 import '../styles/Whiteboard.css';
 import { pdfjs } from 'react-pdf';
 import { WebRTCProvider } from '../services/WebRTCProvider';
+import logger from '../utils/Logger';
 
 // Configure PDF.js worker - use local worker to avoid CORS issues
 pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
 
-// Logging system for Whiteboard
+// Logging system for Whiteboard - now uses Logger to send to server
 const LOG_LEVELS = { ERROR: 0, WARN: 1, INFO: 2, DEBUG: 3, VERBOSE: 4 };
 const LOG_LEVEL = process.env.REACT_APP_LOG_LEVEL || 'INFO';
 
 const log = (level, component, message, data = null) => {
   if (LOG_LEVELS[level] <= LOG_LEVELS[LOG_LEVEL]) {
-    const prefix = `[${component}] ${level}:`;
-    if (data) {
-      console.log(prefix, message, data);
-    } else {
-      console.log(prefix, message);
+    const prefix = `[${component}]`;
+    const fullMessage = `${prefix} ${message}`;
+    
+    // Use Logger to send to both console and server
+    switch (level) {
+      case 'ERROR':
+        logger.error(fullMessage, data);
+        break;
+      case 'WARN':
+        logger.warn(fullMessage, data);
+        break;
+      case 'INFO':
+        logger.info(fullMessage, data);
+        break;
+      case 'DEBUG':
+        logger.debug(fullMessage, data);
+        break;
+      case 'VERBOSE':
+        logger.verbose(fullMessage, data);
+        break;
+      default:
+        logger.info(fullMessage, data);
     }
   }
 };
@@ -1593,6 +1611,17 @@ const Whiteboard = forwardRef(({
       // DIRECT KONVA API APPROACH: Create Konva Line object directly
       const lineId = `${userId}-${Date.now()}-${uuidv4()}`;
       
+      // POC: Log drawing start to server
+      logger.info('[Whiteboard] 🖊️ Drawing started - Pen tool', {
+        lineId,
+        tool: currentTool,
+        color: currentColor,
+        startPoint: { x: correctedX, y: correctedY },
+        userId,
+        username,
+        timestamp: new Date().toISOString()
+      });
+      
       if (layerRef.current) {
         // Create Konva Line object directly
         const konvaLine = new Konva.Line({
@@ -1779,6 +1808,17 @@ const Whiteboard = forwardRef(({
         lineCap: currentLineRef.current.lineCap(),
         lineJoin: currentLineRef.current.lineJoin()
       };
+      
+      // POC: Log drawing completion to server
+      logger.info('[Whiteboard] ✅ Drawing completed - Pen tool', {
+        lineId: finalLineData.id,
+        tool: actualTool,
+        color: finalLineData.stroke,
+        pointCount: finalLineData.points.length / 2, // Each point is x,y
+        userId,
+        username,
+        timestamp: new Date().toISOString()
+      });
       
       // Update React state with final line (for persistence and undo/redo)
       setLines(prev => {

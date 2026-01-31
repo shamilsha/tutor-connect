@@ -114,7 +114,7 @@ const ContentSelector = ({ onContentSelect, selectedContent, onPdfTopicSelect, o
               name: 'Sample PDF Document', 
               content: 'Load a sample PDF document for annotation and collaboration.',
               type: 'pdf',
-              filename: '01cd702c-2a19-4734-9fe9-cb61276dce16.pdf'
+              filename: '01cd702c-2a19-4734-9fe9-cb61276dce1six.pdf'
             }
           ]
         }
